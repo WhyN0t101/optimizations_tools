@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v4.
+    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v6.
 
 .DESCRIPTION
     A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
@@ -32,8 +32,14 @@
     Started without administrator rights (right click, Run with PowerShell), the script asks for elevation and runs
     again in a new elevated window with the same parameters.
 
+    Use -ProfilePath file.json to keep a set of choices in a file (see profiles\example.json). Parameters given on
+    the command line win over the profile.
+
 .EXAMPLE
     .\FocusedTweaks.ps1 -ListOptions
+
+.EXAMPLE
+    .\FocusedTweaks.ps1 -ProfilePath .\profiles\example.json -DryRun
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -DryRun
@@ -78,13 +84,14 @@ param(
     [switch]$SkipRestorePoint,
     [switch]$ForcePowerPlanOnLaptop,
     [ValidateRange(1, 730)][int]$PauseDays = 365,
+    [string]$ProfilePath,
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
 
 # Needs administrator rights, but a '#Requires -RunAsAdministrator' line would stop the script before any code runs, so
 # right click, Run with PowerShell could never work. Instead start again elevated, with the same parameters.
-# -ListOptions only prints, and the Windows check keeps the Linux test harnesses out of this block.
-if ($env:OS -eq 'Windows_NT' -and -not $ListOptions) {
+# -ListOptions only prints, so it runs without elevation.
+if (-not $ListOptions) {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         if (-not $PSCommandPath) { throw 'This script needs administrator rights. Start PowerShell as administrator and run it from a file.' }
@@ -121,6 +128,7 @@ $OptionInfo = [ordered]@{
     HideLockOption        = @($false, 'Hide Lock in the Start power menu. Off, you excluded it')
     HideSleepOption       = @($false, 'Hide Sleep in the Start power menu. Off, you excluded it')
     RegHibernateOff       = @($false, 'HibernateEnabled 0 in the registry. Off, you excluded it')
+    TaskbarEndTask        = @($true, 'Add End task to the right click menu of taskbar apps (Windows 11, upstream registry group)')
     DisableHibernate      = @($false, 'powercfg /hibernate off (also removes Fast Startup). Upstream does this with its power plan')
     MsiMode               = @($true, 'Enable MSI interrupts for display adapters')
     MemoryCompression     = @($true, 'Disable memory compression when RAM is above 8 GB')
@@ -161,14 +169,53 @@ $OptionInfo = [ordered]@{
     SpectreMeltdownOff    = @($false, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, weaker security. Needs a restart')
     DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart')
     TimerResolution       = @($false, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms)')
+    DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)')
+    DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)')
+    MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups')
+    WriteCacheFlushOff    = @($false, 'Turn off write cache buffer flushing on SATA and NVMe disks. Faster, but a power cut can lose data')
+    FastShutdown          = @($false, 'Shorter shutdown timeouts and end hung apps automatically. Unsaved work in hung apps is lost')
+    BlockFeatureUpgrades  = @($false, 'Stay on the current Windows version (TargetReleaseVersion). Security updates continue until it ends')
+    SearchIndexingOff     = @($false, 'Disable the Windows Search indexer service (search in Start and Explorer gets slower)')
+    TimeServerPool        = @($true, 'Sync the clock from pool.ntp.org instead of time.windows.com')
+    MenuKillNotResponding = @($true, 'Add "Kill not responding tasks" to the desktop right click menu')
+    MenuRestartExplorer   = @($true, 'Add "Restart Explorer" to the desktop right click menu')
+    MenuTakeOwnership     = @($false, 'Add "Take ownership" to the right click menu of files and folders (easy to misuse on system files)')
     HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)')
     NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins')
 }
 $Opt = @{}
 foreach ($k in $OptionInfo.Keys) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
-$ExplicitTaskMode = $PSBoundParameters.ContainsKey('TaskMode')
-$ExplicitPowerProfile = $PSBoundParameters.ContainsKey('PowerProfile')
+$BoundNames = @($PSBoundParameters.Keys)
+
+function Import-RunProfile {
+    # A profile holds the same choices as the command line. Anything also given on the command line wins.
+    if (-not $ProfilePath) { return }
+    if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) { throw "Profile not found: $ProfilePath" }
+    $data = Get-Content -LiteralPath $ProfilePath -Raw | ConvertFrom-Json
+    $lists = 'Enable', 'Skip', 'Only', 'SkipRegGroup', 'TaskKeep'
+    $choices = @{ TaskMode = @('Delete', 'Disable', 'None'); Defender = @('Keep', 'Disable', 'Enable'); PowerProfile = @('Off', 'Medium', 'High'); PowerMode = @('Keep', 'Balanced', 'Best') }
+    foreach ($prop in $data.PSObject.Properties) {
+        $name = $prop.Name
+        if ($BoundNames -contains $name) { continue }
+        if ($lists -contains $name) { Set-Variable -Scope Script -Name $name -Value @([string[]]@($prop.Value)) }
+        elseif ($choices.ContainsKey($name)) {
+            if ($choices[$name] -notcontains [string]$prop.Value) { throw "Profile: $name must be one of $($choices[$name] -join ', ')." }
+            Set-Variable -Scope Script -Name $name -Value ([string]$prop.Value)
+            $script:BoundNames += $name
+        }
+        elseif ($name -eq 'PauseDays') {
+            $days = [int]$prop.Value
+            if ($days -lt 1 -or $days -gt 730) { throw 'Profile: PauseDays must be between 1 and 730.' }
+            $script:PauseDays = $days
+        }
+        else { throw "Profile: unknown setting '$name'. Valid: $(($lists + @($choices.Keys) + 'PauseDays') -join ', ')." }
+    }
+}
+Import-RunProfile
+
+$ExplicitTaskMode = $BoundNames -contains 'TaskMode'
+$ExplicitPowerProfile = $BoundNames -contains 'PowerProfile'
 
 function Resolve-Options {
     if ($Only.Count -gt 0) {
@@ -195,6 +242,7 @@ if ($ListOptions) {
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
+    Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     exit 0
 }
 Resolve-Options
@@ -1875,6 +1923,69 @@ public class TimerResolutionService : ServiceBase
     public static void Main() { ServiceBase.Run(new TimerResolutionService()); }
 }
 '@
+
+# Device power saving and wake (from Ultimate, 6 Windows\25). Values go under each device's 'Device Parameters' key.
+$DeviceEnumRoots = @('ACPI', 'HID', 'PCI', 'USB')
+$DevicePowerValues = @(
+    @{ Name = 'EnhancedPowerManagementEnabled'; Value = 0; Type = 'DWord' }
+    @{ Name = 'SelectiveSuspendEnabled'; Value = [byte[]]@(0); Type = 'Binary' }
+    @{ Name = 'SelectiveSuspendOn'; Value = 0; Type = 'DWord' }
+)
+
+# Multiplane overlay off (from Ultimate, 8 Advanced\11). Only the overlay switch: Ultimate also rewrites the per user
+# DirectX settings string, which would drop any other per app GPU preference stored in it.
+$MpoRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Dwm' 'OverlayTestMode' 5 'DWord'
+)
+
+# Faster shutdown (from ZOICWARE, optional tweaks).
+$FastShutdownRegs = @(
+    New-Tweak 'HKCU\Control Panel\Desktop' 'WaitToKillAppTimeout' '1500' 'String'
+    New-Tweak 'HKCU\Control Panel\Desktop' 'AutoEndTasks' '1' 'String'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control' 'WaitToKillServiceTimeout' '1500' 'String'
+)
+
+# Time server (from ZOICWARE, optional tweaks). Written to the registry so -Revert restores the old servers.
+$TimeServerRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'NtpServer' '0.pool.ntp.org,0x9 1.pool.ntp.org,0x9 2.pool.ntp.org,0x9 3.pool.ntp.org,0x9' 'String'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'Type' 'NTP' 'String'
+)
+
+# Right click menu entries (from ZOICWARE, UltimateContextMenu\killTasks.reg, AddRestartExplorer.reg and Take Ownership).
+$MenuKillRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'MUIVerb' 'Kill not responding tasks' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'Icon' '%SystemRoot%\System32\imageres.dll,-98' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'Position' 'Top' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding\command' '' 'cmd.exe /K taskkill.exe /F /FI "status eq NOT RESPONDING"' 'String'
+)
+$MenuRestartExplorerRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\RestartExplorer' 'MUIVerb' 'Restart Explorer' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\RestartExplorer' 'Icon' 'explorer.exe' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\RestartExplorer' 'Position' 'Bottom' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\RestartExplorer' 'SeparatorBefore' '' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\RestartExplorer\command' '' 'cmd.exe /c taskkill /f /im explorer.exe && start explorer.exe' 'String'
+)
+$TakeOwnFile = 'cmd.exe /c takeown /f "%1" && icacls "%1" /grant *S-1-5-32-544:F'
+$TakeOwnDir = 'cmd.exe /c takeown /f "%1" /r /d y && icacls "%1" /grant *S-1-5-32-544:F /t'
+$MenuTakeOwnershipRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Classes\*\shell\runas' '' 'Take Ownership' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\*\shell\runas\command' '' $TakeOwnFile 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\*\shell\runas\command' 'IsolatedCommand' $TakeOwnFile 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Directory\shell\runas' '' 'Take Ownership' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Directory\shell\runas\command' '' $TakeOwnDir 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Directory\shell\runas\command' 'IsolatedCommand' $TakeOwnDir 'String'
+)
+
+# Power mode overlays that powercfg accepts by name, keyed by the GUID Windows stores for the active overlay.
+$PowerOverlayNames = @{
+    '00000000-0000-0000-0000-000000000000' = 'OVERLAY_SCHEME_NONE'
+    '961cc777-2547-4f9d-8174-7d86181b8a7a' = 'OVERLAY_SCHEME_MIN'
+    '3af9b8d9-7c97-431d-ad78-34a8bfea439f' = 'OVERLAY_SCHEME_HIGH'
+    'ded574b5-45a0-4f42-8737-46345c09c238' = 'OVERLAY_SCHEME_MAX'
+}
+
+# Values Windows protects even from TrustedInstaller. A mismatch here is reported as a note, not a warning.
+$KnownStuckValues = @('HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\WMI\Autologger\Diagtrack-Listener|Start')
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
@@ -1903,8 +2014,11 @@ $script:State = @{
     StartLayout = $null
     Dep        = $null
     TimerService = $null
+    PowerOverlay = $null
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
+    CreatedKeys = [System.Collections.Generic.List[object]]::new()
 }
+$script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
 function Write-Log {
     param(
@@ -1958,17 +2072,20 @@ function Invoke-Step {
 function Import-State {
     if (-not (Test-Path -LiteralPath $StateFile)) { return }
     $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved') {
+    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys') {
         if ($raw.PSObject.Properties[$section] -and $raw.$section) {
             foreach ($item in @($raw.$section)) {
-                if ($section -eq 'Registry' -and ($item.Kind -eq 'String' -or $item.Kind -eq 'ExpandString') -and $item.Value -is [string] -and $item.Value.StartsWith('s:')) {
-                    $item.Value = $item.Value.Substring(2)
+                if ($section -eq 'Registry') {
+                    if (($item.Kind -eq 'String' -or $item.Kind -eq 'ExpandString') -and $item.Value -is [string] -and $item.Value.StartsWith('s:')) {
+                        $item.Value = $item.Value.Substring(2)
+                    }
+                    [void]$script:RecordedReg.Add("$($item.Path)|$($item.Name)")
                 }
                 $script:State[$section].Add($item)
             }
         }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService') {
+    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay') {
         if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
     }
 }
@@ -2034,6 +2151,8 @@ function ConvertTo-FullRegPath {
     $p = $p -replace '^HKCU:?\\', 'HKEY_CURRENT_USER\'
     $p = $p -replace '^HKU:?\\', 'HKEY_USERS\'
     $p = $p -replace '^HKCR:?\\', 'HKEY_CLASSES_ROOT\'
+    # Upstream writes to ControlSet001, which is only the active set on most machines. CurrentControlSet always is.
+    $p = $p -replace '^HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\', 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\'
     return $p.TrimEnd('\')
 }
 
@@ -2100,9 +2219,42 @@ function Get-RegSnapshot {
 }
 
 function Save-RegSnapshot {
+    # A set gives a fast "already recorded" test; device options record thousands of values.
     param([string]$Full, [string]$Name)
-    $recorded = Test-RecordedFirst $script:State.Registry { param($e) $e.Path -eq $Full -and $e.Name -eq $Name }
-    if (-not $recorded) { $script:State.Registry.Add((Get-RegSnapshot -Full $Full -Name $Name)) }
+    if ($script:RecordedReg.Add("$Full|$Name")) { $script:State.Registry.Add((Get-RegSnapshot -Full $Full -Name $Name)) }
+}
+
+function Save-CreatedKeys {
+    # Records the keys a write is about to create, so -Revert can remove them again. Restoring the values alone would
+    # leave empty keys behind, and an empty right click menu key still shows up as a menu entry.
+    param([string]$Full)
+    $missing = @()
+    $path = $Full
+    while ($path.Contains('\')) {
+        try { $key = Open-RegKey -Full $path }
+        catch { break }   # exists but is not readable, so it was not created by this run
+        if ($key) { $key.Close(); break }
+        $missing += $path
+        $path = $path.Substring(0, $path.LastIndexOf('\'))
+    }
+    foreach ($m in $missing) { if (@($script:State.CreatedKeys) -notcontains $m) { $script:State.CreatedKeys.Add($m) } }
+}
+
+function Remove-CreatedKeys {
+    # Deepest first, and only keys that are empty again: anything added to them since is left alone.
+    foreach ($full in @($script:State.CreatedKeys | Sort-Object { $_.Length } -Descending)) {
+        try { $key = Open-RegKey -Full $full }
+        catch { Write-Log "Could not open the created key $full. $($_.Exception.Message)" 'WARN'; continue }
+        if (-not $key) { continue }
+        $empty = ($key.ValueCount -eq 0) -and ($key.SubKeyCount -eq 0)
+        $key.Close()
+        if (-not $empty) { Write-Log "Key kept, it holds data added after the run: $full"; continue }
+        $parts = Split-RegPath $full
+        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($script:Hives[$parts[0].ToUpperInvariant()], [Microsoft.Win32.RegistryView]::Default)
+        try { $base.DeleteSubKey($parts[1], $false) }
+        catch { Write-Log "Could not remove the created key $full. $($_.Exception.Message)" 'WARN' }
+        finally { $base.Close() }
+    }
 }
 
 function Show-RegName { param([string]$Name) if ($Name -eq '') { '(default)' } else { $Name } }
@@ -2146,6 +2298,20 @@ function Invoke-AsTI {
         Remove-Item -LiteralPath $flag -Force -ErrorAction SilentlyContinue
     }
     return $ok
+}
+
+function Repair-TrustedInstallerPath {
+    # Invoke-AsTI points the TrustedInstaller service at a command for a moment. If a run was killed in that moment
+    # (window closed, power cut), the service keeps that command and Windows servicing and updates fail. Put it back.
+    $default = Join-Path $env:SystemRoot 'servicing\TrustedInstaller.exe'
+    $snap = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TrustedInstaller' -Name 'ImagePath'
+    if (-not $snap.Existed) { return }
+    $now = [Environment]::ExpandEnvironmentVariables([string]$snap.Value).Trim().Trim('"')
+    if ($now -ieq $default) { return }
+    if (Test-DryRun "repair the TrustedInstaller service path, which points at '$now'") { return }
+    & sc.exe config TrustedInstaller binPath= "`"$default`"" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Could not repair the TrustedInstaller service path ($LASTEXITCODE). It points at '$now'." }
+    Write-Log "TrustedInstaller service path repaired. It pointed at '$now', left by an interrupted run." 'WARN'
 }
 
 function ConvertTo-PsLiteral {
@@ -2202,6 +2368,7 @@ function Set-RegValue {
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
     try {
+        Save-CreatedKeys -Full $full
         Save-RegSnapshot -Full $full -Name $Name
         try { Write-RegRaw -Full $full -Name $Name -Value $Value -Kind $Type }
         catch {
@@ -2386,6 +2553,7 @@ function Get-RegGroupOption {
         'Disable lock' { return 'HideLockOption' }
         'Disable sleep' { return 'HideSleepOption' }
         'Disable hibernate' { return 'RegHibernateOff' }
+        'Enable end task*' { return 'TaskbarEndTask' }
         default { return 'Registry' }
     }
 }
@@ -2562,7 +2730,8 @@ function Remove-NvidiaTelemetry {
             & takeown.exe /f $f *> $null
             & icacls.exe $f /grant '*S-1-5-32-544:F' /t *> $null
             Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
-            Write-Log "Removed NVIDIA telemetry file: $(Split-Path $f -Leaf)" 'OK'
+            if (Test-Path -LiteralPath $f) { Write-Log "Could not remove NVIDIA telemetry file: $f" 'WARN' }
+            else { Write-Log "Removed NVIDIA telemetry file: $(Split-Path $f -Leaf)" 'OK' }
         }
     }
     foreach ($pattern in '*NvDriverUpdateCheckDaily*', '*NVIDIA GeForce Experience SelfUpdate*', '*NvProfileUpdaterDaily*', '*NvProfileUpdaterOnLogon*', '*NvTmRep_CrashReport*') {
@@ -2617,7 +2786,9 @@ function Install-NvidiaDriver {
 function Set-ServiceStart {
     param([Parameter(Mandatory)][string]$Name, [ValidateSet('Disabled', 'Manual')][string]$Mode = 'Disabled')
     $reg = "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$Name"
-    if (-not (Open-RegKey -Full $reg)) { Write-Log "Service not present: $Name"; return }
+    $probe = Open-RegKey -Full $reg
+    if (-not $probe) { Write-Log "Service not present: $Name"; return }
+    $probe.Close()
     Set-RegValue -Path $reg -Name 'Start' -Value $(if ($Mode -eq 'Disabled') { 4 } else { 3 }) -Type DWord
     if ($Mode -eq 'Disabled' -and -not $script:DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
@@ -2720,7 +2891,7 @@ function Invoke-TelemetryTweaks {
         Set-TweakList $TelemetryRegs
         foreach ($s in $TelemetryServices) { Set-ServiceStart -Name $s -Mode Disabled }
         # Stop every logger under the DiagTrack autologger.
-        $logger = 'HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\WMI\Autologger\Diagtrack-Listener'
+        $logger = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\WMI\Autologger\Diagtrack-Listener'
         $k = Open-RegKey -Full $logger
         if ($k) {
             try { foreach ($sub in $k.GetSubKeyNames()) { Set-RegValue -Path "$logger\$sub" -Name 'Enabled' -Value 0 } }
@@ -2841,8 +3012,25 @@ function Set-PerformancePowerPlan {
 function Set-PowerModeOverlay {
     $overlay = if ($PowerMode -eq 'Best') { 'OVERLAY_SCHEME_MAX' } else { 'OVERLAY_SCHEME_NONE' }
     if (Test-DryRun "set the Windows power mode overlay to $overlay") { return }
+    if (-not $script:State.PowerOverlay) {
+        # Recorded first so -Revert can put the previous power mode back. A missing value means Windows' default.
+        $prev = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name 'ActiveOverlayAcPowerScheme'
+        $script:State.PowerOverlay = $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
+    }
     powercfg /OverlaySetActive $overlay | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN' } else { Write-Log "Power mode set ($PowerMode)." 'OK' }
+}
+
+function Restore-PowerMode {
+    $guid = ([string]$script:State.PowerOverlay).ToLowerInvariant()
+    $name = $PowerOverlayNames[$guid]
+    if (-not $name) {
+        if ($guid -notmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') { throw "Unexpected saved power mode '$guid', not restoring it." }
+        $name = $guid
+    }
+    powercfg /OverlaySetActive $name | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "powercfg could not set the power mode back to $name." }
+    Write-Log "Power mode restored ($name)." 'OK'
 }
 
 function Restore-PowerPlan {
@@ -2916,7 +3104,7 @@ function Disable-MouseAcceleration {
 
 function Set-MsiMode {
     foreach ($dev in @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue)) {
-        $p = "HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Enum\$($dev.InstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
+        $p = "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\$($dev.InstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
         Set-RegValue -Path $p -Name 'MSISupported' -Value 1
     }
 }
@@ -3355,6 +3543,123 @@ function Remove-TimerResolutionService {
 }
 #endregion
 
+#region Devices, shutdown, updates, search, time, right click menu ------------------------
+function Set-TweakListBatched {
+    # For long lists (one entry per device). Values that need TrustedInstaller are written together in a few calls,
+    # because each call restarts a service and takes seconds. A dry run prints one summary line, not every value.
+    param([string]$Label, [object[]]$Tweaks)
+    if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
+    $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
+    if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
+    $denied = [System.Collections.Generic.List[object]]::new()
+    foreach ($t in $Tweaks) {
+        $full = ConvertTo-FullRegPath $t.Path
+        try {
+            Save-CreatedKeys -Full $full
+            Save-RegSnapshot -Full $full -Name $t.Name
+            Write-RegRaw -Full $full -Name $t.Name -Value $t.Value -Kind $t.Type
+        }
+        catch {
+            if (Test-AccessDenied $_) { $denied.Add([pscustomobject]@{ Full = $full; Tweak = $t }) }
+            else { $script:Failures++; Write-Log "Registry write failed: $full\$(Show-RegName $t.Name). $($_.Exception.Message)" 'ERROR' }
+        }
+    }
+    # About 30 commands keep the encoded command well below the service command line limit.
+    for ($i = 0; $i -lt $denied.Count; $i += 30) {
+        $chunk = @($denied[$i..([Math]::Min($i + 29, $denied.Count - 1))])
+        [void](Invoke-AsTI -PsCommand (($chunk | ForEach-Object { Format-TiRegAdd -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type }) -join '; '))
+    }
+    $failed = @($denied | Where-Object { -not (Test-RegValueNow -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type) }).Count
+    if ($failed -gt 0) { Write-Log "$Label`: $failed of $($Tweaks.Count) value(s) could not be set, even as TrustedInstaller." 'WARN' }
+    Write-Log "$Label`: $($Tweaks.Count - $failed) value(s) set under $keys registry key(s). They apply after a restart." 'OK'
+}
+
+function Get-DeviceParameterKeys {
+    # The 'Device Parameters' key of every device instance under the given Enum roots (present or not).
+    param([string[]]$Roots, [string]$HardwareLike = '*')
+    foreach ($root in $Roots) {
+        $rootPath = "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\$root"
+        $rootKey = Open-RegKey -Full $rootPath
+        if (-not $rootKey) { continue }
+        try {
+            foreach ($hw in @($rootKey.GetSubKeyNames() | Where-Object { $_ -like $HardwareLike })) {
+                $hwKey = $rootKey.OpenSubKey($hw)
+                if (-not $hwKey) { continue }
+                try {
+                    foreach ($inst in $hwKey.GetSubKeyNames()) {
+                        try { $params = $hwKey.OpenSubKey("$inst\Device Parameters") }
+                        catch { continue }   # a few instance keys are readable by SYSTEM only, nothing to change there
+                        if (-not $params) { continue }
+                        [pscustomobject]@{ Path = "$rootPath\$hw\$inst\Device Parameters"; HasWdf = (@($params.GetSubKeyNames()) -contains 'WDF') }
+                        $params.Close()
+                    }
+                }
+                finally { $hwKey.Close() }
+            }
+        }
+        finally { $rootKey.Close() }
+    }
+}
+
+function Get-DeviceTweaks {
+    param([switch]$Power, [switch]$Wake)
+    foreach ($d in @(Get-DeviceParameterKeys -Roots $DeviceEnumRoots)) {
+        if ($Power) {
+            foreach ($v in $DevicePowerValues) { New-Tweak $d.Path $v.Name $v.Value $v.Type }
+            if ($d.HasWdf) { New-Tweak "$($d.Path)\WDF" 'IdleInWorkingState' 0 'DWord' }
+        }
+        if ($Wake) { New-Tweak $d.Path 'WaitWakeEnabled' 0 'DWord' }
+    }
+}
+
+function Get-WriteCacheTweaks {
+    # Disks only: Enum\SCSI also lists optical drives, which Ultimate changes as well.
+    foreach ($d in @(Get-DeviceParameterKeys -Roots 'SCSI', 'NVME' -HardwareLike 'Disk*')) { New-Tweak "$($d.Path)\Disk" 'CacheIsPowerProtected' 1 'DWord' }
+}
+
+function Set-DevicePowerSaving {
+    if ((Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue) -and -not $ForcePowerPlanOnLaptop) {
+        Write-Log 'Battery detected, device power saving kept. Use -ForcePowerPlanOnLaptop to override.' 'WARN'
+        return
+    }
+    Set-TweakListBatched -Label 'Device power saving' -Tweaks @(Get-DeviceTweaks -Power)
+}
+
+function Get-FeatureUpgradeTweaks {
+    # Same policy as upstream: pin the current product and version, so Windows Update offers no newer version.
+    $nt = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+    $version = if ($nt.PSObject.Properties['DisplayVersion']) { [string]$nt.DisplayVersion } elseif ($nt.PSObject.Properties['ReleaseId']) { [string]$nt.ReleaseId } else { '' }
+    if (-not $version) { throw 'Could not read the current Windows version (DisplayVersion).' }
+    $product = if ([Environment]::OSVersion.Version.Build -ge 22000) { 'Windows 11' } else { 'Windows 10' }
+    $wu = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+    New-Tweak $wu 'ProductVersion' $product 'String'
+    New-Tweak $wu 'TargetReleaseVersion' 1 'DWord'
+    New-Tweak $wu 'TargetReleaseVersionInfo' $version 'String'
+}
+
+function Set-FeatureUpgradeBlock {
+    $tweaks = @(Get-FeatureUpgradeTweaks)
+    Set-TweakList $tweaks
+    if (-not $script:DryRun) { Write-Log "Windows stays on $($tweaks[0].Value) $($tweaks[2].Value). Remove this before that version reaches end of support." 'WARN' }
+}
+
+function Update-TimeService {
+    # Makes the time service read its settings again and sync. A failed sync is not fatal: it retries on its own.
+    Start-Service -Name W32Time -ErrorAction SilentlyContinue
+    $out = (& w32tm.exe /config /update 2>&1) | Out-String
+    if ($LASTEXITCODE -ne 0) { Write-Log "w32tm /config /update failed: $($out.Trim())" 'WARN'; return }
+    $out = (& w32tm.exe /resync /nowait 2>&1) | Out-String
+    if ($LASTEXITCODE -ne 0) { Write-Log "w32tm /resync failed, Windows will retry on its own: $($out.Trim())" 'WARN' }
+}
+
+function Set-TimeServer {
+    Set-TweakList $TimeServerRegs
+    if ($script:DryRun) { return }
+    Update-TimeService
+    Write-Log 'Time is now synced from pool.ntp.org.' 'OK'
+}
+#endregion
+
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
 $script:SoftRuntime = $false
@@ -3465,15 +3770,17 @@ function Test-HealthApps {
 
 function Test-HealthTweakTable {
     param([string]$Label, [object[]]$Tweaks)
-    $bad = @()
+    $bad = @(); $stuck = @()
     foreach ($t in $Tweaks) {
         $full = ConvertTo-FullRegPath $t.Path
         $snap = Get-RegSnapshot -Full $full -Name $t.Name
         if (-not (Test-RegMatchesOp -Snap $snap -Op ([pscustomobject]@{ Type = $t.Type; Value = $t.Value }))) {
-            $bad += ('{0}\{1} is {2}, expected {3}' -f $full, $t.Name, (Format-RegValueShort $snap), $t.Value)
+            $text = '{0}\{1} is {2}, expected {3}' -f $full, $t.Name, (Format-RegValueShort $snap), $t.Value
+            if ($KnownStuckValues -contains "$full|$($t.Name)") { $stuck += $text } else { $bad += $text }
         }
     }
-    if ($bad.Count -eq 0) { Write-Health 'PASS' 'Registry' "$Label`: all $($Tweaks.Count) value(s) match." }
+    foreach ($s in $stuck) { Write-Health 'INFO' 'Registry' "$Label`: $s. Windows protects this value, even from TrustedInstaller." }
+    if ($bad.Count -eq 0) { Write-Health 'PASS' 'Registry' "$Label`: $($Tweaks.Count - $stuck.Count) of $($Tweaks.Count) value(s) match, none unexpected." }
     else {
         Write-Health 'WARN' 'Registry' "$Label`: $($bad.Count) of $($Tweaks.Count) differ. First: $($bad[0])"
         foreach ($b in $bad) { Add-Content -Path $LogFile -Value "          differs: $b" }
@@ -3563,6 +3870,28 @@ function Test-HealthRegistry {
         if ($net.Count -gt 0) { Test-HealthTweakTable -Label 'Network adapter power settings' -Tweaks $net }
         else { Write-Health 'INFO' 'Registry' 'No physical network adapter keys were found, so the adapter power settings could not be checked.' }
     }
+    # Device lists change when hardware is added, so only the values the run itself recorded are checked.
+    $recorded = { param($list) @($list | Where-Object { $script:RecordedReg.Contains("$(ConvertTo-FullRegPath $_.Path)|$($_.Name)") }) }
+    if ($Opt['DevicePowerSaving']) {
+        $dev = & $recorded @(Get-DeviceTweaks -Power)
+        if ($dev.Count -gt 0) { Test-HealthTweakTable -Label 'Device power saving' -Tweaks $dev }
+        else { Write-Health 'INFO' 'Registry' 'Device power saving: no recorded values (skipped on battery, or not run yet).' }
+    }
+    if ($Opt['DeviceWakeOff']) {
+        $wake = & $recorded @(Get-DeviceTweaks -Wake)
+        if ($wake.Count -gt 0) { Test-HealthTweakTable -Label 'Device wake' -Tweaks $wake }
+    }
+    if ($Opt['WriteCacheFlushOff']) {
+        $cache = & $recorded @(Get-WriteCacheTweaks)
+        if ($cache.Count -gt 0) { Test-HealthTweakTable -Label 'Write cache buffer flushing off' -Tweaks $cache }
+    }
+    if ($Opt['MpoOff']) { Test-HealthTweakTable -Label 'Multiplane overlay off' -Tweaks $MpoRegs }
+    if ($Opt['FastShutdown']) { Test-HealthTweakTable -Label 'Faster shutdown' -Tweaks $FastShutdownRegs }
+    if ($Opt['BlockFeatureUpgrades']) { Test-HealthTweakTable -Label 'Feature upgrade block' -Tweaks @(Get-FeatureUpgradeTweaks) }
+    if ($Opt['TimeServerPool']) { Test-HealthTweakTable -Label 'Time server' -Tweaks $TimeServerRegs }
+    if ($Opt['MenuKillNotResponding']) { Test-HealthTweakTable -Label 'Kill not responding menu' -Tweaks $MenuKillRegs }
+    if ($Opt['MenuRestartExplorer']) { Test-HealthTweakTable -Label 'Restart Explorer menu' -Tweaks $MenuRestartExplorerRegs }
+    if ($Opt['MenuTakeOwnership']) { Test-HealthTweakTable -Label 'Take ownership menu' -Tweaks $MenuTakeOwnershipRegs }
 }
 
 function Test-HealthHosts {
@@ -3722,7 +4051,7 @@ function Test-HealthSystem {
             $want = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Convert]::FromBase64String(($EmptyStartLayout -join ''))))
             $have = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($f)))
             if ($want -eq $have) { Write-Health 'PASS' 'System' 'Start menu pins are cleared.' }
-            else { Write-Health 'INFO' 'System' 'The Start layout differs from the empty template, which is normal if you pinned apps since the cleanup.' }
+            else { Write-Health 'INFO' 'System' 'Start pins were cleared, but Windows rewrites the layout file once Start reloads, so this cannot be confirmed automatically. Open Start to check.' }
         }
     }
     if ($Opt['RemoveQuickAssist']) {
@@ -3734,6 +4063,10 @@ function Test-HealthSystem {
         $nx = Get-BcdValue 'nx'
         if ($nx -eq 'AlwaysOff') { Write-Health 'PASS' 'System' 'Data Execution Prevention is off in the boot configuration (nx AlwaysOff).' }
         else { Write-Health 'WARN' 'System' "Data Execution Prevention is not off (nx is $(if ($nx) { $nx } else { 'not set' })). Secure Boot must be off for bcdedit to accept the change." }
+    }
+    if ($Opt['SearchIndexingOff']) {
+        if ((Get-ServiceStartNow 'WSearch') -eq 4) { Write-Health 'PASS' 'System' 'Windows Search indexing is disabled.' }
+        else { Write-Health 'WARN' 'System' 'Windows Search indexing was meant to be disabled, but the WSearch service is not.' }
     }
     if ($Opt['TimerResolution']) {
         $svc = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
@@ -3833,6 +4166,22 @@ function Invoke-HealthCheck {
 #endregion
 
 #region Orchestration ---------------------------------------------------------------------
+function Get-UserMismatch {
+    # Per user settings go to the account running the script. When a standard user elevates with another account, that
+    # is the admin account, not the person at the desktop. Returns a warning in that case, otherwise $null.
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $owners = @(Get-CimInstance -ClassName Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+            $r = Invoke-CimMethod -InputObject $_ -MethodName GetOwnerSid -ErrorAction SilentlyContinue
+            if ($r -and $r.Sid) { $r.Sid }
+        } | Select-Object -Unique)
+    if ($owners.Count -eq 0 -or $owners -contains $me.User.Value) { return $null }
+    $names = foreach ($sid in $owners) {
+        try { ([Security.Principal.SecurityIdentifier]$sid).Translate([Security.Principal.NTAccount]).Value }
+        catch { $sid }   # an account that no longer resolves is shown by its SID
+    }
+    return "Per user settings (mouse, desktop, Start pins, notifications, End task, user Temp) will go to $($me.Name), but the desktop belongs to $($names -join ', '). Sign in as that account and run it elevated there, unless this is what you want."
+}
+
 function Show-Plan {
     Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
     $on = @($OptionInfo.Keys | Where-Object { $Opt[$_] })
@@ -3841,6 +4190,9 @@ function Show-Plan {
     Write-Log "  Options off: $($off -join ', ')"
     Write-Log "  Tasks: $TaskMode | Defender: $Defender | Power profile: $PowerProfile | Power mode: $PowerMode | Pause days: $PauseDays"
     if ($WantNvidia) { Write-Log "  NVIDIA: $(if ($NvidiaInstaller) { $NvidiaInstaller } else { 'download ' + $(if ($NvidiaVersion) { $NvidiaVersion } else { 'latest' }) })" }
+    if ($ProfilePath) { Write-Log "  Profile: $ProfilePath (command line parameters win over it)" }
+    $script:UserMismatch = Get-UserMismatch
+    if ($script:UserMismatch) { Write-Log $script:UserMismatch 'WARN' }
 }
 
 function Confirm-Run {
@@ -3851,6 +4203,9 @@ function Confirm-Run {
     if ($TaskMode -eq 'Delete') { $notes += 'All scheduled tasks will be deleted (backups are kept).' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
     if ($Opt['SpectreMeltdownOff'] -or $Opt['DepOff']) { $notes += 'CPU and memory security mitigations will be turned off.' }
+    if ($Opt['WriteCacheFlushOff']) { $notes += 'Disk write cache flushing will be turned off (a power cut can lose data).' }
+    if ($Opt['FastShutdown']) { $notes += 'Hung apps will be closed at shutdown without asking.' }
+    if ($script:UserMismatch) { $notes += 'Per user settings go to another account than the one at the desktop (see the warning above).' }
     $answer = Read-Host "$($notes -join ' ') A snapshot or restore point is recommended. Type YES to continue"
     return ($answer -ceq 'YES')
 }
@@ -3887,7 +4242,7 @@ function Invoke-Apply {
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
-    if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
+    if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff'] -or $Opt['TaskbarEndTask']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
     if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
@@ -3911,6 +4266,17 @@ function Invoke-Apply {
     if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' { Disable-SpectreMeltdownMitigations } }
     if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' { Disable-Dep } }
     if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' { Install-TimerResolutionService } }
+    if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' { Set-DevicePowerSaving } }
+    if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }
+    if ($Opt['WriteCacheFlushOff']) { Invoke-Step 'Write cache buffer flushing' { Set-TweakListBatched -Label 'Write cache buffer flushing off' -Tweaks @(Get-WriteCacheTweaks) } }
+    if ($Opt['MpoOff']) { Invoke-Step 'Multiplane overlay' { Set-TweakList $MpoRegs } }
+    if ($Opt['FastShutdown']) { Invoke-Step 'Faster shutdown' { Set-TweakList $FastShutdownRegs } }
+    if ($Opt['BlockFeatureUpgrades']) { Invoke-Step 'Feature upgrade block' { Set-FeatureUpgradeBlock } }
+    if ($Opt['SearchIndexingOff']) { Invoke-Step 'Search indexing' { Set-ServiceStart -Name 'WSearch' -Mode Disabled } }
+    if ($Opt['TimeServerPool']) { Invoke-Step 'Time server' { Set-TimeServer } }
+    if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' { Set-TweakList $MenuKillRegs } }
+    if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' { Set-TweakList $MenuRestartExplorerRegs } }
+    if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' { Set-TweakList $MenuTakeOwnershipRegs } }
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
     if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
     if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
@@ -3923,11 +4289,17 @@ function Invoke-Revert {
     if (-not (Test-Path -LiteralPath $StateFile)) { Write-Log "No state file at $StateFile. Nothing to revert." 'WARN'; return }
     Write-Log 'Reverting recorded changes.'
     Invoke-Step 'Restore registry values' {
-        foreach ($e in $script:State.Registry) {
+        # Newest first, so if one value was recorded twice (an older state file used other key spellings) the
+        # earliest, original snapshot is written last and wins.
+        $entries = @($script:State.Registry)
+        [array]::Reverse($entries)
+        foreach ($e in $entries) {
             try { Restore-RegValue -Entry $e }
             catch { $script:Failures++; Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name). $($_.Exception.Message)" 'ERROR' }
         }
     }
+    if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
+    if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
     Invoke-Step 'Restore deleted registry keys' {
         foreach ($k in $script:State.KeyBackups) {
             if (Test-Path -LiteralPath $k.File) { & reg.exe import $k.File *> $null; if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File)" 'WARN' } }
@@ -3941,6 +4313,7 @@ function Invoke-Revert {
     }
     if ($script:State.Tasks.Count -gt 0) { Invoke-Step 'Restore scheduled tasks' { Restore-Tasks } }
     Invoke-Step 'Restore power plan' { Restore-PowerPlan }
+    if ($script:State.PowerOverlay) { Invoke-Step 'Restore power mode' { Restore-PowerMode } }
     if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
     if ($script:State.MemCompress -eq $true) { Invoke-Step 'Restore memory compression' { Enable-MMAgent -MemoryCompression; Write-Log 'Memory compression re-enabled.' 'OK' } }
     if ($script:State.SleepStudy -eq $true) {
@@ -3980,6 +4353,8 @@ function Invoke-Revert {
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
 Initialize-StateDir
 Import-State
+try { Repair-TrustedInstallerPath }
+catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
 if ($HealthCheck) {
     Restore-SavedRunSettings
     Invoke-HealthCheck

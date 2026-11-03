@@ -8,16 +8,14 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
   Never edit it by hand. Change the template, build, then run the tests. The build inserts upstream data (registry file,
   telemetry values, domain lists, mouse curves, Start layout) so the template holds only placeholders for those.
   The build needs `python3` (on this machine `python` is only a Store stub) and a ZOICWARE clone at the pinned commit.
-- `tests/Test-Parse.ps1` is a static check that needs no admin rights. Run it with both `pwsh` and `powershell.exe`.
-  It also builds a junction in a scratch folder to prove the cleanup never follows links.
-- The script elevates itself, so a `-DryRun` from a normal shell opens a UAC prompt. To dry-run without one, test a copy
-  with the `if ($env:OS -eq 'Windows_NT' ...` block cut out.
-- `tests/reference-linux/` holds simulation harnesses written for PowerShell 7 on Linux or WSL (fake registry, hosts,
-  tasks, power plans). Port the paths at the top of each file before use.
+- `tests/Test-Parse.ps1` is a static check that needs no admin rights and changes nothing. Run it with both `pwsh` and
+  `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links.
+- `profiles/example.json` shows the format for `-ProfilePath`.
+- Windows only. The script elevates itself.
 
 ## Hard rules
-1. Never run `FocusedTweaks.ps1` on this machine except with `-DryRun` or `-ListOptions`. Real runs happen only in the test VM,
-   after a snapshot.
+1. Never run `FocusedTweaks.ps1` on this machine, not even with `-DryRun`. Here: build and `tests/Test-Parse.ps1` only.
+   Dry runs and real runs happen only in the test VM, after a snapshot.
 2. Every change that alters the system must (a) go through `Test-DryRun`, (b) record the original state so `-Revert` works,
    (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`.
 3. Stay compatible with Windows PowerShell 5.1: no ternary operator, no `??`, no `&&`. The script uses `Set-StrictMode -Version Latest`.

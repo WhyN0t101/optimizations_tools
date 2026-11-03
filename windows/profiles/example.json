@@ -1,0 +1,10 @@
+{
+  "Enable": ["TimerResolution", "MpoOff"],
+  "Skip": ["Packages", "MenuRestartExplorer"],
+  "TaskMode": "Disable",
+  "PowerProfile": "High",
+  "PowerMode": "Keep",
+  "PauseDays": 60,
+  "SkipRegGroup": [],
+  "TaskKeep": []
+}
