@@ -479,25 +479,26 @@ function Initialize-StateDir {
     $admins = & $sid 'S-1-5-32-544'
     $system = & $sid 'S-1-5-18'
     $trusted = @($admins, $system, (& $sid 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'), [Security.Principal.WindowsIdentity]::GetCurrent().User)
-    if (Test-Path -LiteralPath $StateDir) {
-        $found = @(Get-Item -LiteralPath $StateDir -Force) + @(Get-CleanupTree -Path $StateDir)
-        $foreign = @($found | Where-Object {
-                (Test-ReparsePoint $_) -or ($trusted -notcontains (Get-Acl -LiteralPath $_.FullName).GetOwner([Security.Principal.SecurityIdentifier]))
-            })
-        if ($foreign.Count -gt 0) {
-            throw "The state folder $StateDir contains items not owned by an administrator or that are links (first: $($foreign[0].FullName)). Delete the folder or pass another -StateDir, then run again."
-        }
-    }
-    else { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+    # Order matters: check who owns the folder, close it, and only then look inside. Checking the contents first would
+    # leave a gap in which another user could still add a file that the check never sees.
+    $isForeign = { param($item) (Test-ReparsePoint $item) -or ($trusted -notcontains (Get-Acl -LiteralPath $item.FullName).GetOwner([Security.Principal.SecurityIdentifier])) }
+    $refuse = { param($item) throw "The state folder $StateDir holds an item that is a link or not owned by an administrator ($($item.FullName)). Delete the folder or pass another -StateDir, then run again." }
+    # New-Item -Force also succeeds on a folder someone created a moment earlier, so the owner is checked either way.
+    if (-not (Test-Path -LiteralPath $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+    $folder = Get-Item -LiteralPath $StateDir -Force
+    if (& $isForeign $folder) { & $refuse $folder }
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($owner in $admins, $system) {
         $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($owner, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
     }
     Set-Acl -LiteralPath $StateDir -AclObject $acl
+    # Closed now, so nobody can add anything while the contents are checked.
+    $children = @(Get-CleanupTree -Path $StateDir)
+    foreach ($child in $children) { if (& $isForeign $child) { & $refuse $child } }
     # Make existing files and folders inherit the closed permissions instead of the old open ones. Only the children are
     # reset: resetting the folder itself would give back the inherited, open permissions.
-    if (@(Get-ChildItem -LiteralPath $StateDir -Force).Count -gt 0) {
+    if ($children.Count -gt 0) {
         & icacls.exe (Join-Path $StateDir '*') /reset /T /C /Q | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "icacls could not reset the permissions inside $StateDir ($LASTEXITCODE)." }
     }
@@ -1161,11 +1162,14 @@ function Remove-AllScheduledTasks {
     $tasks = @(Get-ScheduledTask | Where-Object {
             $_.TaskName -notin @('SvcRestartTask', 'MsCtfMonitor') -and "$($_.TaskPath)$($_.TaskName)" -ne '\Microsoft\Windows\Shell\CreateObjectTask'
         })
-    $deleted = 0; $failed = 0
+    $deleted = 0; $failed = 0; $seen = 0
     foreach ($t in $tasks) {
         $full = "$($t.TaskPath)$($t.TaskName)"
         if (Test-NameMatch $full $TaskKeep) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
+        # Each task takes about a second (export, then delete), so say that the step is still working.
+        $seen++
+        if ($seen % 40 -eq 0) { Write-Log "Scheduled tasks: $seen of $($tasks.Count) processed, still working." }
         $file = Join-Path $dir (($full -replace '[\\/:*?"<>| ]', '_') + '.xml')
         try {
             Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
