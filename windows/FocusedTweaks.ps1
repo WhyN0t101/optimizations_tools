@@ -1878,7 +1878,6 @@ public class TimerResolutionService : ServiceBase
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
-New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 $StateFile = Join-Path $StateDir 'state.json'
 $LogFile = Join-Path $StateDir ('run-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
@@ -1978,6 +1977,38 @@ function Test-RecordedFirst {
     param([System.Collections.Generic.List[object]]$List, [scriptblock]$Predicate)
     foreach ($item in $List) { if (& $Predicate $item) { return $true } }
     return $false
+}
+
+function Initialize-StateDir {
+    # The state file is read back by -Revert and -HealthCheck and drives file, service and TrustedInstaller actions, and
+    # C:\ProgramData lets standard users create folders. So the folder must belong to administrators and be closed to
+    # everyone else before anything is read from it. A folder someone else owns or filled is refused, not repaired.
+    $sid = { param($s) [Security.Principal.SecurityIdentifier]$s }
+    $admins = & $sid 'S-1-5-32-544'
+    $system = & $sid 'S-1-5-18'
+    $trusted = @($admins, $system, (& $sid 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'), [Security.Principal.WindowsIdentity]::GetCurrent().User)
+    if (Test-Path -LiteralPath $StateDir) {
+        $found = @(Get-Item -LiteralPath $StateDir -Force) + @(Get-CleanupTree -Path $StateDir)
+        $foreign = @($found | Where-Object {
+                (Test-ReparsePoint $_) -or ($trusted -notcontains (Get-Acl -LiteralPath $_.FullName).GetOwner([Security.Principal.SecurityIdentifier]))
+            })
+        if ($foreign.Count -gt 0) {
+            throw "The state folder $StateDir contains items not owned by an administrator or that are links (first: $($foreign[0].FullName)). Delete the folder or pass another -StateDir, then run again."
+        }
+    }
+    else { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($owner in $admins, $system) {
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($owner, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+    }
+    Set-Acl -LiteralPath $StateDir -AclObject $acl
+    # Make existing files and folders inherit the closed permissions instead of the old open ones. Only the children are
+    # reset: resetting the folder itself would give back the inherited, open permissions.
+    if (@(Get-ChildItem -LiteralPath $StateDir -Force).Count -gt 0) {
+        & icacls.exe (Join-Path $StateDir '*') /reset /T /C /Q | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls could not reset the permissions inside $StateDir ($LASTEXITCODE)." }
+    }
 }
 
 function Test-NameMatch {
@@ -2116,9 +2147,16 @@ function Invoke-AsTI {
     return $ok
 }
 
+function ConvertTo-PsLiteral {
+    # Single quoted PowerShell string. PowerShell also treats the typographic single quotes as quotes, so they are doubled too.
+    param([AllowEmptyString()][string]$Text)
+    $quotes = "'" + [string]::Join('', [char[]](0x2018, 0x2019, 0x201A, 0x201B))
+    return "'" + [regex]::Replace($Text, '([' + [regex]::Escape($quotes) + '])', '$1$1') + "'"
+}
+
 function Format-TiRegAdd {
     param([string]$Full, [string]$Name, $Value, [string]$Kind)
-    $q = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
+    $q = { param($s) ConvertTo-PsLiteral ([string]$s) }
     $nameArg = if ($Name -eq '') { '/ve' } else { '/v ' + (& $q $Name) }
     switch ($Kind) {
         'DWord' { $t = 'REG_DWORD'; $d = '/d ' + [uint32]([BitConverter]::ToUInt32([BitConverter]::GetBytes([int]$Value), 0)) }
@@ -2190,8 +2228,8 @@ function Remove-RegValue {
         try { $key.DeleteValue($Name, $false) }
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
-            $nameArg = if ($Name -eq '') { '/ve' } else { "/v '$($Name -replace "'", "''")'" }
-            [void](Invoke-AsTI -PsCommand "& reg.exe delete '$full' $nameArg /f | Out-Null")
+            $nameArg = if ($Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Name) }
+            [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $full) $nameArg /f | Out-Null")
         }
         finally { $key.Close() }
     }
@@ -2224,7 +2262,7 @@ function Remove-RegKey {
         try { $base.DeleteSubKeyTree($parts[1], $false) }
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
-            [void](Invoke-AsTI -PsCommand "& reg.exe delete '$full' /f | Out-Null")
+            [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $full) /f | Out-Null")
         }
         finally { $base.Close() }
     }
@@ -2250,8 +2288,8 @@ function Restore-RegValue {
         try { $key.DeleteValue($Entry.Name, $false) }
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
-            $nameArg = if ($Entry.Name -eq '') { '/ve' } else { "/v '$($Entry.Name -replace "'", "''")'" }
-            [void](Invoke-AsTI -PsCommand "& reg.exe delete '$($Entry.Path)' $nameArg /f | Out-Null")
+            $nameArg = if ($Entry.Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Entry.Name) }
+            [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $Entry.Path) $nameArg /f | Out-Null")
         }
         finally { $key.Close() }
     }
@@ -2946,7 +2984,7 @@ function Reset-ConsentDatabase {
     Start-Sleep -Seconds 1
     foreach ($f in $files) {
         try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
-        catch { [void](Invoke-AsTI -PsCommand "Remove-Item -LiteralPath '$($f.FullName)' -Force") }
+        catch { [void](Invoke-AsTI -PsCommand "Remove-Item -LiteralPath $(ConvertTo-PsLiteral $f.FullName) -Force") }
     }
     Write-Log 'Capability consent database reset (backup kept).' 'OK'
 }
@@ -3083,6 +3121,23 @@ function Set-DefenderState {
 #endregion
 
 #region Quiet Defender, network, cleanup, mitigations, timer ------------------------------
+function Wait-TamperProtectionOff {
+    # Tamper Protection exists to stop software from changing Defender, so a script cannot and must not switch it off.
+    # Ask for it up front instead, with the right Windows Security page open. -Force skips the question.
+    if ($script:DryRun -or $Force) { return }
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try { $tamper = [bool](Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected }
+        catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)"; return }
+        if (-not $tamper) { return }
+        Write-Log 'Tamper Protection is on. Defender settings changed by this run (policy values, real time protection) may be ignored or reverted.' 'WARN'
+        try { Start-Process 'windowsdefender://threatsettings/' }
+        catch { Write-Log "Could not open Windows Security. Open it yourself: Virus and threat protection, Manage settings. $($_.Exception.Message)" 'WARN' }
+        $answer = Read-Host 'Turn Tamper Protection off in Windows Security, then press Enter to check again (type SKIP to continue anyway)'
+        if ($answer -ceq 'SKIP') { return }
+    }
+    Write-Log 'Tamper Protection is still on, continuing. Defender changes may not stick; the health check will say so.' 'WARN'
+}
+
 function Set-DefenderQuiet {
     try {
         $status = Get-MpComputerStatus -ErrorAction Stop
@@ -3343,21 +3398,34 @@ function Format-RegValueShort {
     return [string]$Snap.Value
 }
 
+function Test-ServiceStartChanged {
+    # True when this script recorded a different original Start value, so it was the one that disabled the service.
+    param([string]$Name)
+    $path = "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$Name"
+    return Test-RecordedFirst $script:State.Registry { param($e) $e.Path -ieq $path -and $e.Name -eq 'Start' -and $e.Existed -and [int]$e.Value -ne 4 }
+}
+
 function Test-HealthServices {
     foreach ($g in $ServiceGroups.Keys) {
-        $present = 0; $wrong = @()
+        $present = 0; $wrong = @(); $native = @()
         foreach ($name in $ServiceGroups[$g]) {
             $start = Get-ServiceStartNow $name
             if ($null -eq $start) { continue }
             $present++
-            if ($Opt[$g] -ne ($start -eq 4)) { $wrong += $name }
+            if ($Opt[$g] -eq ($start -eq 4)) { continue }
+            # A service that is disabled although the option is off only counts when this script disabled it.
+            # Some (RemoteRegistry, shpamsvc) are disabled by Windows itself.
+            if ($Opt[$g] -or (Test-ServiceStartChanged $name)) { $wrong += $name } else { $native += $name }
         }
         if ($present -eq 0) { continue }
         if ($Opt[$g]) {
             if ($wrong.Count -eq 0) { Write-Health 'PASS' 'Services' "$g`: all $present service(s) are disabled." }
             else { Write-Health 'WARN' 'Services' "$g`: still enabled: $($wrong -join ', '). Protected services may need a restart." }
         }
-        elseif ($wrong.Count -eq 0) { Write-Health 'PASS' 'Services' "$g`: $present service(s) kept, as you asked." }
+        elseif ($wrong.Count -eq 0) {
+            if ($present -gt $native.Count) { Write-Health 'PASS' 'Services' "$g`: $($present - $native.Count) service(s) kept, as you asked." }
+            if ($native.Count -gt 0) { Write-Health 'INFO' 'Services' "$g`: $($native -join ', ') disabled by Windows itself or an earlier tool, not by this script, so they are left alone." }
+        }
         else { Write-Health 'FAIL' 'Services' "$g`: disabled although you asked to keep them: $($wrong -join ', ')." }
     }
     $core = @('BITS', 'CryptSvc', 'Winmgmt', 'StorSvc', 'AppXSvc', 'ClipSVC', 'InstallService', 'LicenseManager', 'BFE', 'mpssvc', 'Dnscache', 'NlaSvc', 'wuauserv', 'UsoSvc', 'WaaSMedicSvc')
@@ -3808,6 +3876,7 @@ function Invoke-Apply {
         Write-Log 'Windows Home detected. Several policies (telemetry level, update deferral) may be ignored on this edition.' 'WARN'
     }
     if (-not $SkipRestorePoint -and -not $script:DryRun) { Invoke-Step 'Restore point' { New-SafetyRestorePoint } }
+    if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
 
     if ($Opt['Packages']) { Invoke-Step 'Packages' { Install-RuntimePackages } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
@@ -3905,6 +3974,7 @@ function Invoke-Revert {
 
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
+Initialize-StateDir
 Import-State
 if ($HealthCheck) {
     Restore-SavedRunSettings

@@ -32,6 +32,8 @@ Every risky item is a named option. Defaults follow upstream except your exclusi
 - Added after the VM run (not yet run on real Windows): quiet Defender, network adapter power saving and EEE off, temp and
   update cache cleanup (junction safe, `C:\XboxGames` never touched), and three off-by-default options: Spectre and
   Meltdown mitigations off, DEP off, timer resolution service.
+- Tamper Protection is never bypassed. When `DefenderQuiet` or `-Defender Disable` is used, the run asks you up front to
+  turn it off (and opens the Windows Security page); `-Force` skips the question. Turn it back on afterwards.
 - Not offered: SMT off and per app priority. Ultimate implements both as a temporary affinity or priority on one running
   process, which is not a system setting.
 

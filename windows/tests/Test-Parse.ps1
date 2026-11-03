@@ -31,7 +31,7 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Test-ProtectedPath', 'Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
 $wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
@@ -66,6 +66,17 @@ Check 'Timer service source is ASCII and names the service' (($TimerServiceSourc
 Check 'EEE and power keyword lists do not overlap' (@($NetEeeKeywords | Where-Object { $NetPowerKeywords -contains $_ }).Count -eq 0)
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))
+
+# A service Windows disables itself (RemoteRegistry) must not be blamed on the script; one the script changed must be.
+$svcKey = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\'
+$script:State = @{ Registry = [System.Collections.Generic.List[object]]::new() }
+$script:State.Registry.Add([pscustomobject]@{ Path = $svcKey + 'DiagTrack'; Name = 'Start'; Existed = $true; Kind = 'DWord'; Value = 2 })
+$script:State.Registry.Add([pscustomobject]@{ Path = $svcKey + 'AlreadyOff'; Name = 'Start'; Existed = $true; Kind = 'DWord'; Value = 4 })
+Check 'Health check blames a disabled service only when the script changed it' ((Test-ServiceStartChanged 'DiagTrack') -and -not (Test-ServiceStartChanged 'RemoteRegistry') -and -not (Test-ServiceStartChanged 'AlreadyOff'))
+
+# Values from the state file are quoted before they reach a TrustedInstaller command, including typographic quotes.
+$hostile = "x'; Remove-Item C:\; '" + [char]0x2019 + "; calc; " + [char]0x2018
+Check 'Quoting keeps hostile text inside one string literal' ((Invoke-Expression (ConvertTo-PsLiteral $hostile)) -ceq $hostile)
 
 # Cleanup must remove a junction as a link and leave its target alone (Windows PowerShell 5.1 -Recurse would follow it).
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') }
