@@ -1,26 +1,36 @@
 ﻿#Requires -Version 5.1
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v4.
 
 .DESCRIPTION
+    A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
+    named option. Defaults follow upstream behaviour, except the four registry groups you excluded (core
+    isolation, hide Lock, hide Sleep, hibernate off) and the services you asked to keep (Bluetooth, printing,
+    Delivery Optimization, radio management).
 
     Everything that changes the registry, hosts file, services, scheduled tasks, power plan, hibernation,
     memory compression, sleep study logs, account password age and Defender is recorded first, and the state
     is saved after every step, so -Revert can restore it even after an interrupted run.
 
     Not reversible by -Revert: app debloat, software installed by winget or NVIDIA, NVIDIA driver files
-    removed by the telemetry strip, and the fault tolerant heap reset.
+    removed by the telemetry strip, the fault tolerant heap reset, and the temp and update cache cleanup.
+
+    Performance options that lower security (SpectreMeltdownOff, DepOff) and the TimerResolution service are
+    off by default. Switch them on with -Enable.
 
     Not ported from upstream (they edit per app settings.dat hives or are cosmetic): Store and App Actions
     settings, calendar expansion, priority notification blob, terminal and console colours, Task Manager
     always on top, HDR on battery, DDU and Safe Mode driver cleaning.
 
+    Use -Only A,B to run just those options (for example -Only ClearStartPins,RemoveQuickAssist).
     Use -ListOptions to see every option and its default, -ListRegGroups to see the registry groups.
     Use -HealthCheck at any time (ideally after a restart) to verify the result against the options you chose;
     add -HealthCheckLaunch to also open Settings, Store, Photos, Paint and Xbox and confirm they start.
     Use -Skip Name1,Name2 to switch options off and -Enable Name1,Name2 to switch them on.
+
+    Started without administrator rights (right click, Run with PowerShell), the script asks for elevation and runs
+    again in a new elevated window with the same parameters.
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -ListOptions
@@ -51,6 +61,7 @@ param(
     [switch]$HealthCheckLaunch,
     [string[]]$Skip = @(),
     [string[]]$Enable = @(),
+    [string[]]$Only = @(),
     [string[]]$SkipRegGroup = @(),
     [ValidateSet('Delete', 'Disable', 'None')][string]$TaskMode = 'Delete',
     [string[]]$TaskKeep = @(),
@@ -69,6 +80,30 @@ param(
     [ValidateRange(1, 730)][int]$PauseDays = 365,
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
+
+# Needs administrator rights, but a '#Requires -RunAsAdministrator' line would stop the script before any code runs, so
+# right click, Run with PowerShell could never work. Instead start again elevated, with the same parameters.
+# -ListOptions only prints, and the Windows check keeps the Linux test harnesses out of this block.
+if ($env:OS -eq 'Windows_NT' -and -not $ListOptions) {
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        if (-not $PSCommandPath) { throw 'This script needs administrator rights. Start PowerShell as administrator and run it from a file.' }
+        $quote = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
+        $forwarded = foreach ($entry in $PSBoundParameters.GetEnumerator()) {
+            if ($entry.Value -is [switch]) { if ($entry.Value.IsPresent) { "-$($entry.Key)" } }
+            elseif (@($entry.Value).Count -gt 0) { "-$($entry.Key) " + ((@($entry.Value) | ForEach-Object { & $quote $_ }) -join ',') }
+        }
+        $command = "Set-Location -LiteralPath $(& $quote $PWD.ProviderPath); & $(& $quote $PSCommandPath) $(@($forwarded) -join ' ')"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        Write-Host 'Administrator rights are needed. Accept the prompt to continue in an elevated window.'
+        try {
+            Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs -ErrorAction Stop `
+                -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-EncodedCommand', $encoded
+        }
+        catch { throw "Could not start the script as administrator: $($_.Exception.Message)" }
+        exit 0
+    }
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -113,14 +148,36 @@ $OptionInfo = [ordered]@{
     KeepDefinitionUpdates = @($false, 'Leave Defender definition updates out of the excluded classifications')
     RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file')
     MouseAccel            = @($true, 'Turn off mouse acceleration using the profile for your display scaling')
+    ClearDesktopIcons     = @($true, 'Hide Recycle Bin, This PC and other system icons and move shortcuts off the desktop (restorable)')
+    HideAllDesktopIcons   = @($false, 'Also hide every other desktop icon (files stay on disk). Same as View, Show desktop icons')
+    EnableSystemRestore   = @($false, 'If the restore point fails, turn System Protection on for the system drive and retry')
+    ClearStartPins        = @($true, 'Clear all pinned apps from the Start menu (Windows 11, current user, layout is backed up)')
+    RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert')
+    DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)')
+    NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)')
+    NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it')
+    TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible')
+    UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible')
+    SpectreMeltdownOff    = @($false, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, weaker security. Needs a restart')
+    DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart')
+    TimerResolution       = @($false, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms)')
     HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)')
     NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins')
 }
 $Opt = @{}
 foreach ($k in $OptionInfo.Keys) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
+$ExplicitTaskMode = $PSBoundParameters.ContainsKey('TaskMode')
+$ExplicitPowerProfile = $PSBoundParameters.ContainsKey('PowerProfile')
+
 function Resolve-Options {
-    foreach ($pair in @(@($Enable, $true), @($Skip, $false))) {
+    if ($Only.Count -gt 0) {
+        # -Only runs just the options you name: everything else is switched off.
+        foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = $false }
+        if (-not $ExplicitTaskMode) { $script:TaskMode = 'None' }
+        if (-not $ExplicitPowerProfile) { $script:PowerProfile = 'Off' }
+    }
+    foreach ($pair in @(@($Only, $true), @($Enable, $true), @($Skip, $false))) {
         foreach ($name in $pair[0]) {
             $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
             if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
@@ -135,6 +192,7 @@ if ($ListOptions) {
         Write-Host ('{0,-24} {1,-5} {2}' -f $k, $(if ($OptionInfo[$k][0]) { 'on' } else { 'off' }), $OptionInfo[$k][1])
     }
     Write-Host ''
+    Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     exit 0
@@ -1571,6 +1629,105 @@ $PauseRegs = @(
 $UpdateClassifications = @('{e6cf1350-c01b-414d-a61f-263d3d4dd9f9}', '{e0789628-ce08-4437-be74-2495b842f43b}', '{b54e7d24-7add-49f4-88bb-9837d47477fb}', '{68c5b0a3-d1a6-4553-ae49-01d3a7827828}', '{b4832bd8-e735-4766-9727-7d0ffa644277}', '{28bc8804-5382-4bae-93aa-13c905f28542}', '{cd5ffd1e-e257-4a05-9d88-c83a7125d4c9}', '{0f1afbec-90ef-4651-9e37-030fedc944c8}', '{ebfc1fc5-71a4-4f7b-9aca-3b9a503104a0}', '{9920c092-3d99-4a1b-865a-673135c5a4fc}')
 $UpdateTaskPaths = @('\Microsoft\Windows\InstallService\*', '\Microsoft\Windows\UpdateOrchestrator\*', '\Microsoft\Windows\UpdateAssistant\*', '\Microsoft\Windows\WaaSMedic\*', '\Microsoft\Windows\WindowsUpdate\*', '\Microsoft\WindowsUpdate\*')
 
+# Empty Windows 11 Start menu layout (start2.bin) from upstream Unpin.ps1, base64.
+$EmptyStartLayout = @(
+    '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'
+    'TSz1QZdkum5Y3uC7wc7paXh1rm11nwluCC7jiA=='
+)
+
 # winget package IDs. 7-Zip is installed before the NVIDIA step, which needs it.
 $PackageIds = @(
     'Microsoft.VCRedist.2015+.x64'
@@ -1629,20 +1786,29 @@ $PowerPlanBase = 'Tweaked Performance'
 $HighPerformanceGuid = '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
 $BalancedGuid = '381b4222-f694-41f0-9685-ff5bb260df2e'
 $UsbSubGuid = '2a737441-1930-4402-8d77-b2bebba308a3'
-$UsbSuspendGuid = '48e6b7a6-50f5-4738-a3d5-3d7e6e1b6d4b'
+$UsbSuspendGuid = '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'
+$UltimatePerformanceGuid = 'e9a42b02-d5df-448d-aa00-03f14749eb61'
 $PowerProfiles = @{
     High   = @{
-        Base     = $HighPerformanceGuid
+        # Ultimate Performance first (hidden scheme, present on Windows 10 1803 and later), then High Performance.
+        Base     = @($UltimatePerformanceGuid, $HighPerformanceGuid)
         Settings = @(
             @('SUB_PROCESSOR', 'PROCTHROTTLEMIN', '100'),
             @('SUB_PROCESSOR', 'PROCTHROTTLEMAX', '100'),
+            @('54533251-82be-4824-96c1-47b60b740d00', '0cc5b647-c1df-4637-891a-dec35c318583', '100'),  # core parking, minimum cores
+            @('54533251-82be-4824-96c1-47b60b740d00', 'ea062031-0e34-4ff1-9b6d-eb1059334028', '100'),  # core parking, maximum cores
+            @('54533251-82be-4824-96c1-47b60b740d00', '94d3a615-a899-4ac5-ae2b-e4d8f634367f', '1'),    # cooling policy: active
             @('SUB_DISK', 'DISKIDLE', '0'),
             @('SUB_PCIEXPRESS', 'ASPM', '0'),
-            @($UsbSubGuid, $UsbSuspendGuid, '0')
+            @($UsbSubGuid, $UsbSuspendGuid, '0'),                                                       # USB selective suspend off
+            @($UsbSubGuid, '0853a681-27c8-4100-a2fd-82013e970683', '0'),                                # hub selective suspend timeout
+            @($UsbSubGuid, 'd4e98f31-5ffe-4ce1-be31-1b38b384c009', '0'),                                # USB 3 link power management off
+            @('19cbb8fa-5279-450e-9fac-8a3d5fedd0c1', '12bbebe6-58d6-4636-95bb-3217ef867c1a', '0'),   # wireless adapter: maximum performance
+            @('238c9fa8-0aad-41ed-83f4-97be242c8f20', 'bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d', '0')    # wake timers off
         )
     }
     Medium = @{
-        Base     = $BalancedGuid
+        Base     = @($BalancedGuid)
         Settings = @(
             @('SUB_PROCESSOR', 'PROCTHROTTLEMIN', '50'),
             @('SUB_PROCESSOR', 'PROCTHROTTLEMAX', '100'),
@@ -1651,6 +1817,64 @@ $PowerProfiles = @{
         )
     }
 }
+
+# Quiet Defender: protection stays on, only reporting and notifications stop. Policy values, so -Revert restores them.
+$DefenderQuietRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet' 'SpynetReporting' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet' 'SubmitSamplesConsent' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\MRT' 'DontReportInfectionInformation' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Reporting' 'DisableEnhancedNotifications' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableNotifications' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableEnhancedNotifications' 1 'DWord'
+)
+
+# Network adapter driver keywords (from Ultimate, 6 Windows\26). Only keywords a driver already exposes are changed.
+$NetAdapterClassKey = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'
+$NetPowerKeywords = @('SipsEnabled', 'ULPMode', 'GigaLite', 'EnableGreenEthernet', 'PowerSavingMode')
+$NetEeeKeywords = @('AdvancedEEE', '*EEE', 'EEELinkAdvertisement')
+
+# Spectre and Meltdown mitigations off (from Ultimate, 8 Advanced\3).
+$MitigationRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverride' 3 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 3 'DWord'
+)
+
+# Timer resolution service (reduced from Ultimate, 6 Windows\30): sets the finest timer resolution at start and holds it.
+# Windows 10 2004 and later honour the request per process, so GlobalTimerResolutionRequests makes it system wide.
+$TimerServiceName = 'FocusedTimerResolution'
+$TimerGlobalRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' 1 'DWord'
+)
+$TimerServiceSource = @'
+using System;
+using System.Runtime.InteropServices;
+using System.ServiceProcess;
+
+public class TimerResolutionService : ServiceBase
+{
+    [DllImport("ntdll.dll")]
+    static extern int NtQueryTimerResolution(out uint minimum, out uint maximum, out uint actual);
+    [DllImport("ntdll.dll")]
+    static extern int NtSetTimerResolution(uint desired, bool set, out uint current);
+
+    public TimerResolutionService() { ServiceName = "FocusedTimerResolution"; }
+
+    protected override void OnStart(string[] args)
+    {
+        uint minimum, maximum, actual;
+        NtQueryTimerResolution(out minimum, out maximum, out actual);
+        NtSetTimerResolution(maximum, true, out actual);
+    }
+
+    protected override void OnStop()
+    {
+        uint current;
+        NtSetTimerResolution(0, false, out current);
+    }
+
+    public static void Main() { ServiceBase.Run(new TimerResolutionService()); }
+}
+'@
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
@@ -1661,6 +1885,8 @@ $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
 $script:Failures = 0
 $script:Warnings = 0
+$script:TiCount = 0
+$script:ShellDirty = $false
 $script:State = @{
     Registry   = [System.Collections.Generic.List[object]]::new()
     KeyBackups = [System.Collections.Generic.List[object]]::new()
@@ -1675,6 +1901,10 @@ $script:State = @{
     PwAge      = $false
     ConsentDb  = $null
     Run        = $null
+    StartLayout = $null
+    Dep        = $null
+    TimerService = $null
+    DesktopMoved = [System.Collections.Generic.List[object]]::new()
 }
 
 function Write-Log {
@@ -1729,7 +1959,7 @@ function Invoke-Step {
 function Import-State {
     if (-not (Test-Path -LiteralPath $StateFile)) { return }
     $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts') {
+    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved') {
         if ($raw.PSObject.Properties[$section] -and $raw.$section) {
             foreach ($item in @($raw.$section)) {
                 if ($section -eq 'Registry' -and ($item.Kind -eq 'String' -or $item.Kind -eq 'ExpandString') -and $item.Value -is [string] -and $item.Value.StartsWith('s:')) {
@@ -1739,7 +1969,7 @@ function Import-State {
             }
         }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run') {
+    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService') {
         if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
     }
 }
@@ -1860,6 +2090,7 @@ function Invoke-AsTI {
     # Runs a PowerShell command as TrustedInstaller by briefly pointing the TrustedInstaller service at it.
     # The service path is always restored to the default afterwards.
     param([Parameter(Mandatory)][string]$PsCommand)
+    $script:TiCount++
     $flag = Join-Path $env:TEMP ('ft-ti-{0}.done' -f [guid]::NewGuid().ToString('N'))
     $wrapped = "try { $PsCommand } catch { } ; New-Item -ItemType File -Force -Path '$flag' | Out-Null"
     $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wrapped))
@@ -2182,8 +2413,21 @@ function New-SafetyRestorePoint {
     try {
         Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
         Write-Log 'Restore point created.' 'OK'
+        return
     }
-    catch { Write-Log "Restore point not created (System Protection may be off, or one was made in the last 24 hours). Continuing. $($_.Exception.Message)" 'WARN' }
+    catch { $reason = $_.Exception.Message }
+    if (-not $Opt['EnableSystemRestore']) {
+        Write-Log "Restore point not created (System Protection may be off, or one was made in the last 24 hours). Continuing. Run with -Enable EnableSystemRestore to turn System Protection on for $env:SystemDrive and retry. $reason" 'WARN'
+        return
+    }
+    try {
+        # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
+        Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
+        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
+        Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+        Write-Log 'Restore point created after turning System Protection on (-Revert does not turn it off again).' 'OK'
+    }
+    catch { Write-Log "Restore point still not created. The System Restore or Volume Shadow Copy service may be disabled on this machine. $($_.Exception.Message)" 'WARN' }
 }
 
 function Install-RuntimePackages {
@@ -2528,7 +2772,11 @@ function Set-PerformancePowerPlan {
     $existing = powercfg /list | Select-String -SimpleMatch $planName | Select-Object -First 1
     if ($existing) { $guid = Get-GuidFromText $existing.Line }
     else {
-        $guid = Get-GuidFromText ((powercfg /duplicatescheme $spec.Base 2>&1) | Out-String)
+        $guid = $null
+        foreach ($base in $spec.Base) {
+            $guid = Get-GuidFromText ((powercfg /duplicatescheme $base 2>&1) | Out-String)
+            if ($guid) { break }
+        }
         if (-not $guid) {
             Write-Log 'Base scheme unavailable (common on Modern Standby systems), cloning the active scheme instead.' 'WARN'
             $guid = Get-GuidFromText ((powercfg /duplicatescheme $active 2>&1) | Out-String)
@@ -2710,6 +2958,102 @@ function Update-UserVisuals {
 }
 #endregion
 
+#region Start menu and Quick Assist -------------------------------------------------------
+$script:StartLayoutDir = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\LocalState'
+
+function Get-DesktopFolders {
+    $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory'))
+    return @($dirs | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
+}
+
+function Clear-DesktopIcons {
+    $panel = 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons'
+    # Recycle Bin, This PC, user files, Network, Control Panel.
+    $system = '{645FF040-5081-101B-9F08-00AA002F954E}', '{20D04FE0-3AEA-1069-A2D8-08002B30309D}', '{59031a47-3f72-44a7-89c5-5595fe6b30ee}', '{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}', '{5399E694-6CE5-4D6C-8FCE-1D8870FDCBA0}'
+    foreach ($p in 'NewStartPanel', 'ClassicStartMenu') {
+        foreach ($g in $system) { Set-RegValue -Path "$panel\$p" -Name $g -Value 1 }
+    }
+    if ($Opt['HideAllDesktopIcons']) {
+        Set-RegValue -Path 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name 'HideIcons' -Value 1
+    }
+    # Shortcuts are moved (not deleted) so -Revert can put them back. Other files and folders are never touched.
+    $moved = 0; $left = 0
+    foreach ($dir in Get-DesktopFolders) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'desktop.ini' })) {
+            if ($item.PSIsContainer -or $item.Extension -notin '.lnk', '.url') { $left++; continue }
+            if (Test-DryRun "move the shortcut $($item.FullName) out of the desktop") { continue }
+            $target = Join-Path $StateDir ('desktop-backup\' + (($dir -replace '[\\/:*?"<>| ]', '_')))
+            New-Item -ItemType Directory -Path $target -Force | Out-Null
+            $to = Join-Path $target $item.Name
+            Move-Item -LiteralPath $item.FullName -Destination $to -Force
+            $script:State.DesktopMoved.Add([pscustomobject]@{ From = $item.FullName; To = $to })
+            $moved++
+        }
+    }
+    if (-not $script:DryRun) {
+        Write-Log "Desktop cleared: $moved shortcut(s) moved to the backup folder. $left file or folder item(s) were left on the desktop untouched." 'OK'
+        $script:ShellDirty = $true
+    }
+}
+
+function Restore-DesktopIcons {
+    foreach ($m in $script:State.DesktopMoved) {
+        if ((Test-Path -LiteralPath $m.To) -and -not (Test-Path -LiteralPath $m.From)) {
+            New-Item -ItemType Directory -Path (Split-Path $m.From -Parent) -Force | Out-Null
+            Move-Item -LiteralPath $m.To -Destination $m.From -Force
+        }
+    }
+    Write-Log 'Desktop shortcuts restored.' 'OK'
+    $script:ShellDirty = $true
+}
+
+function Clear-StartPins {
+    if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Start pin reset is for Windows 11 only, skipped.'; return }
+    if (-not (Test-Path -LiteralPath $script:StartLayoutDir)) { Write-Log 'Start menu data folder not found, skipped.' 'WARN'; return }
+    if (Test-DryRun 'clear every pinned app in the Start menu (the current layout is backed up first)') { return }
+    $file = Join-Path $script:StartLayoutDir 'start2.bin'
+    $backup = Join-Path $StateDir 'start2.bin.original'
+    if ((Test-Path -LiteralPath $file) -and -not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $file -Destination $backup -Force }
+    if (Test-Path -LiteralPath $backup) { $script:State.StartLayout = $backup }
+    $bytes = [Convert]::FromBase64String(($EmptyStartLayout -join ''))
+    # Same approach as upstream: stop the shell host, replace the layout file, let the Start menu reload.
+    Stop-Process -Name sihost -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    [IO.File]::WriteAllBytes($file, $bytes)
+    Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+    Write-Log 'Start menu pins cleared. If old pins still show, sign out and back in. All apps are still under All apps.' 'OK'
+}
+
+function Restore-StartPins {
+    if (-not $script:State.StartLayout -or -not (Test-Path -LiteralPath $script:State.StartLayout)) { return }
+    Stop-Process -Name sihost -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    Copy-Item -LiteralPath $script:State.StartLayout -Destination (Join-Path $script:StartLayoutDir 'start2.bin') -Force
+    Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+    Write-Log 'Start menu layout restored.' 'OK'
+}
+
+function Remove-QuickAssist {
+    if (Test-DryRun 'remove Quick Assist (Windows capability, package and app)') { return }
+    $removed = 0
+    foreach ($cap in @(Get-WindowsCapability -Online | Where-Object { $_.Name -like 'App.Support.QuickAssist~~~~*' -and $_.State -eq 'Installed' })) {
+        try { Remove-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop | Out-Null; $removed++; Write-Log "Removed capability: $($cap.Name)" 'OK' }
+        catch { Write-Log "Could not remove capability $($cap.Name). $($_.Exception.Message)" 'WARN' }
+    }
+    foreach ($pkg in @(Get-WindowsPackage -Online | Where-Object { $_.PackageName -like 'Microsoft-Windows-QuickAssist-Package*' -and $_.PackageName -notlike '*wow64*' -and $_.PackageState -eq 'Installed' })) {
+        try { Remove-WindowsPackage -Online -PackageName $pkg.PackageName -NoRestart -ErrorAction Stop | Out-Null; $removed++; Write-Log "Removed package: $($pkg.PackageName)" 'OK' }
+        catch { Write-Log "Could not remove package $($pkg.PackageName). $($_.Exception.Message)" 'WARN' }
+    }
+    if ($PSVersionTable.PSEdition -eq 'Core') { Import-Module Appx -UseWindowsPowerShell -WarningAction SilentlyContinue }
+    foreach ($app in @(Get-AppxPackage -AllUsers | Where-Object { $_.Name -like '*QuickAssist*' })) {
+        try { Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop; $removed++; Write-Log "Removed app: $($app.Name)" 'OK' }
+        catch { Write-Log "Could not remove app $($app.Name). $($_.Exception.Message)" 'WARN' }
+    }
+    if ($removed -eq 0) { Write-Log 'Quick Assist was not found, nothing to remove.' }
+    else { Write-Log 'Quick Assist removed. To get it back: Add-WindowsCapability -Online -Name App.Support.QuickAssist~~~~0.0.1.0, or install it from the Store.' 'WARN' }
+}
+#endregion
+
 #region Defender --------------------------------------------------------------------------
 function Set-DefenderState {
     param([Parameter(Mandatory)][ValidateSet('Disable', 'Enable')][string]$Mode)
@@ -2738,10 +3082,225 @@ function Set-DefenderState {
 }
 #endregion
 
+#region Quiet Defender, network, cleanup, mitigations, timer ------------------------------
+function Set-DefenderQuiet {
+    try {
+        $status = Get-MpComputerStatus -ErrorAction Stop
+        if ($status.PSObject.Properties['IsTamperProtected'] -and $status.IsTamperProtected) {
+            Write-Log 'Tamper Protection is on, so Defender may ignore or revert these policy values. Turn it off in Windows Security first for a reliable result.' 'WARN'
+        }
+    }
+    catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)" }
+    Set-TweakList $DefenderQuietRegs
+    if (-not $script:DryRun) { Write-Log 'Defender cloud reporting, sample submission, infection reports and notifications are off by policy. Protection stays on.' 'OK' }
+}
+
+function Get-NetAdapterTweaks {
+    # One tweak per value to write, for the physical adapters only (matched through the adapter GUID).
+    param([string[]]$Keywords, [switch]$AllowOff)
+    $tweaks = [System.Collections.Generic.List[object]]::new()
+    $guids = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { $_.InterfaceGuid })
+    $class = Open-RegKey -Full $NetAdapterClassKey
+    if (-not $class) { return $tweaks }
+    try {
+        foreach ($sub in $class.GetSubKeyNames()) {
+            if ($sub -notmatch '^\d{4}$') { continue }
+            $child = $class.OpenSubKey($sub)
+            if (-not $child) { continue }
+            try {
+                if ($guids -notcontains [string]$child.GetValue('NetCfgInstanceId', '')) { continue }
+                $full = "$NetAdapterClassKey\$sub"
+                if ($AllowOff) { $tweaks.Add((New-Tweak $full 'PnPCapabilities' 24 'DWord')) }
+                $names = @($child.GetValueNames())
+                foreach ($kw in $Keywords) {
+                    if ($names -notcontains $kw) { continue }
+                    if ($child.GetValueKind($kw) -eq [Microsoft.Win32.RegistryValueKind]::DWord) { $tweaks.Add((New-Tweak $full $kw 0 'DWord')) }
+                    else { $tweaks.Add((New-Tweak $full $kw '0' 'String')) }
+                }
+            }
+            finally { $child.Close() }
+        }
+    }
+    finally { $class.Close() }
+    return $tweaks
+}
+
+function Set-NetAdapterOff {
+    # The adapter is not restarted here: a restart would drop a remote desktop session. A reboot applies the values.
+    param([string]$Label, [string[]]$Keywords, [switch]$AllowOff)
+    $tweaks = @(Get-NetAdapterTweaks -Keywords $Keywords -AllowOff:$AllowOff)
+    if ($tweaks.Count -eq 0) { Write-Log "$Label`: no matching values on the physical network adapters." 'WARN'; return }
+    Set-TweakList $tweaks
+    if ($script:DryRun) { return }
+    $adapters = @($tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
+    Write-Log "$Label`: $($tweaks.Count) value(s) set on $adapters adapter(s). They apply after a restart." 'OK'
+}
+
+function Test-ProtectedPath {
+    # Never delete the running script, the state folder, or a folder that holds either.
+    param([string]$Path, [string[]]$Keep = @($PSCommandPath, $StateDir))
+    foreach ($keep in $Keep) {
+        if (-not $keep) { continue }
+        if ($keep -ieq $Path) { return $true }
+        if ($keep.StartsWith($Path.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($Path.StartsWith($keep.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Test-ReparsePoint {
+    param([Parameter(Mandatory)]$Item)
+    return [bool]($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+
+function Get-CleanupTree {
+    # Lists everything below a folder without entering junctions or symbolic links. Windows PowerShell 5.1 follows them
+    # with -Recurse, and Windows\Temp is writable by standard users, who could plant a link to files elsewhere.
+    param([Parameter(Mandatory)][string]$Path)
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($Path)
+    while ($pending.Count -gt 0) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction SilentlyContinue)) {
+            $child
+            if ($child.PSIsContainer -and -not (Test-ReparsePoint $child)) { $pending.Push($child.FullName) }
+        }
+    }
+}
+
+function Remove-CleanupEntry {
+    # Files and links go first. A link is removed as a link only, so its target is never touched.
+    param([Parameter(Mandatory)]$Item)
+    if (-not (Test-ReparsePoint $Item) -and ($Item.Attributes -band [IO.FileAttributes]::ReadOnly)) {
+        [IO.File]::SetAttributes($Item.FullName, [IO.FileAttributes]::Normal)
+    }
+    if ($Item.PSIsContainer) { [IO.Directory]::Delete($Item.FullName, $false) }
+    else { [IO.File]::Delete($Item.FullName) }
+}
+
+function Clear-FolderContents {
+    param([string]$Label, [string]$Path, [string[]]$Skip = @())
+    if (-not (Test-Path -LiteralPath $Path)) { Write-Log "$Label`: $Path does not exist, nothing to do."; return }
+    $top = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Where-Object { -not (Test-NameMatch $_.Name $Skip) -and -not (Test-ProtectedPath $_.FullName) })
+    $all = @(foreach ($item in $top) {
+            $item
+            if ($item.PSIsContainer -and -not (Test-ReparsePoint $item)) { Get-CleanupTree -Path $item.FullName }
+        })
+    $leaves = @($all | Where-Object { -not $_.PSIsContainer -or (Test-ReparsePoint $_) })
+    $folders = @($all | Where-Object { $_.PSIsContainer -and -not (Test-ReparsePoint $_) } | Sort-Object { $_.FullName.Length } -Descending)
+    $mb = [Math]::Round([long](($leaves | Where-Object { -not $_.PSIsContainer } | Measure-Object -Property Length -Sum).Sum) / 1MB, 1)
+    if (Test-DryRun "$Label`: delete $($top.Count) item(s), $mb MB, from $Path (links are removed as links, never followed)") { return }
+    $kept = 0
+    foreach ($entry in @($leaves) + @($folders)) {
+        try { Remove-CleanupEntry -Item $entry }
+        catch { $kept++ }   # in use, or changed meanwhile: left in place and counted
+    }
+    Write-Log "$Label`: cleaned $Path ($($top.Count) top level item(s), $mb MB before). $kept entr(ies) in use and kept." 'OK'
+}
+
+function Clear-TempFiles {
+    # C:\XboxGames is deliberately not touched: installed Xbox games live there.
+    foreach ($path in @($env:TEMP, (Join-Path $env:SystemRoot 'Temp') | Select-Object -Unique)) {
+        Clear-FolderContents -Label 'Temp cleanup' -Path $path -Skip 'ft-ti-*'
+    }
+}
+
+function Clear-UpdateDownloadCache {
+    $path = Join-Path $env:SystemRoot 'SoftwareDistribution\Download'
+    $stopped = @()
+    if (-not $script:DryRun) {
+        foreach ($name in 'wuauserv', 'bits') {
+            $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { $stopped += $name; Stop-Service -Name $name -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    try { Clear-FolderContents -Label 'Update cache cleanup' -Path $path }
+    finally {
+        foreach ($name in $stopped) {
+            try { Start-Service -Name $name -ErrorAction Stop }
+            catch { Write-Log "Could not start service $name again. $($_.Exception.Message)" 'WARN' }
+        }
+    }
+}
+
+function Disable-SpectreMeltdownMitigations {
+    Set-TweakList $MitigationRegs
+    if (-not $script:DryRun) { Write-Log 'Spectre and Meltdown mitigations are switched off. Restart Windows to apply.' 'WARN' }
+}
+
+function Get-BcdValue {
+    # Value of one element of the current boot entry, or $null when the entry does not set it.
+    param([Parameter(Mandatory)][string]$Name)
+    $out = (& bcdedit.exe /enum '{current}' 2>&1) | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "bcdedit /enum failed: $($out.Trim())" }
+    $m = [regex]::Match($out, "(?m)^$([regex]::Escape($Name))\s+(\S+)\s*$")
+    if ($m.Success) { return $m.Groups[1].Value }
+    return $null
+}
+
+function Disable-Dep {
+    if (Test-DryRun 'set the boot option nx to AlwaysOff (Data Execution Prevention off, Secure Boot must be off)') { return }
+    if (-not $script:State.Dep) { $script:State.Dep = [pscustomobject]@{ Previous = (Get-BcdValue 'nx') } }
+    $out = (& bcdedit.exe /set nx AlwaysOff 2>&1) | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "bcdedit could not set nx (Secure Boot must be off for this): $($out.Trim())" }
+    Write-Log 'Data Execution Prevention is switched off. Restart Windows to apply.' 'WARN'
+}
+
+function Restore-Dep {
+    # The saved value comes from a file, so only values bcdedit accepts for nx are passed on.
+    $previous = $script:State.Dep.Previous
+    if ($previous -and @('OptIn', 'OptOut', 'AlwaysOn', 'AlwaysOff') -notcontains [string]$previous) { throw "Unexpected saved nx value '$previous', not restoring it." }
+    if ($previous) { $out = (& bcdedit.exe /set nx $previous 2>&1) | Out-String }
+    else { $out = (& bcdedit.exe /deletevalue nx 2>&1) | Out-String }
+    if ($LASTEXITCODE -ne 0 -and ($previous -or (Get-BcdValue 'nx'))) { throw "bcdedit could not restore nx: $($out.Trim())" }
+    Write-Log "Data Execution Prevention restored ($(if ($previous) { $previous } else { 'value removed' })). Restart Windows to apply." 'OK'
+}
+
+function Install-TimerResolutionService {
+    $dir = Join-Path $env:ProgramFiles 'FocusedTweaks'
+    $exe = Join-Path $dir 'TimerResolution.exe'
+    $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
+    if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
+    $script:State.TimerService = [pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe }
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $existing = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
+    if ($existing -and $existing.Status -ne 'Stopped') { Stop-Service -Name $TimerServiceName -Force }
+    $source = Join-Path $dir 'TimerResolution.cs'
+    Set-Content -LiteralPath $source -Value $TimerServiceSource -Encoding ASCII
+    try {
+        $out = (& $csc /nologo /target:exe "/out:$exe" /reference:System.ServiceProcess.dll $source 2>&1) | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "csc.exe failed: $($out.Trim())" }
+    }
+    finally { Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue }
+    if (-not $existing) {
+        & sc.exe create $TimerServiceName binPath= "`"$exe`"" start= auto DisplayName= 'Set Timer Resolution (FocusedTweaks)' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "sc.exe create failed ($LASTEXITCODE)." }
+    }
+    Set-TweakList $TimerGlobalRegs
+    Start-Service -Name $TimerServiceName
+    Write-Log "Timer resolution service '$TimerServiceName' installed and running ($exe)." 'OK'
+}
+
+function Remove-TimerResolutionService {
+    # Name and paths are fixed, never read from the saved state file, so a planted state file cannot point this at other files.
+    $dir = Join-Path $env:ProgramFiles 'FocusedTweaks'
+    $t = [pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = (Join-Path $dir 'TimerResolution.exe') }
+    if (Get-Service -Name $t.Name -ErrorAction SilentlyContinue) {
+        Stop-Service -Name $t.Name -Force -ErrorAction SilentlyContinue
+        & sc.exe delete $t.Name | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Log "sc.exe delete returned $LASTEXITCODE for $($t.Name)." 'WARN' }
+    }
+    Remove-Item -LiteralPath $t.Exe -Force -ErrorAction SilentlyContinue
+    if ((Test-Path -LiteralPath $t.Dir) -and -not (Get-ChildItem -LiteralPath $t.Dir -Force)) { Remove-Item -LiteralPath $t.Dir -Force }
+    Write-Log 'Timer resolution service removed.' 'OK'
+}
+#endregion
+
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
 $script:SoftRuntime = $false
 $script:PostApply = $false
+$script:AppliedAt = $null
 
 function Write-Health {
     param([ValidateSet('PASS', 'WARN', 'FAIL', 'INFO')][string]$Status, [string]$Area, [string]$Message)
@@ -2923,6 +3482,15 @@ function Test-HealthRegistry {
         }
         Test-HealthTweakTable -Label 'Update pause policy' -Tweaks @($effective)
     }
+    if ($Opt['DefenderQuiet']) { Test-HealthTweakTable -Label 'Quiet Defender policy' -Tweaks $DefenderQuietRegs }
+    if ($Opt['SpectreMeltdownOff']) { Test-HealthTweakTable -Label 'Spectre and Meltdown mitigations off' -Tweaks $MitigationRegs }
+    if ($Opt['TimerResolution']) { Test-HealthTweakTable -Label 'Global timer resolution requests' -Tweaks $TimerGlobalRegs }
+    if ($Opt['NetAdapterPower'] -or $Opt['NetAdapterEee']) {
+        $keywords = @(); if ($Opt['NetAdapterPower']) { $keywords += $NetPowerKeywords }; if ($Opt['NetAdapterEee']) { $keywords += $NetEeeKeywords }
+        $net = @(Get-NetAdapterTweaks -Keywords $keywords -AllowOff:([bool]$Opt['NetAdapterPower']))
+        if ($net.Count -gt 0) { Test-HealthTweakTable -Label 'Network adapter power settings' -Tweaks $net }
+        else { Write-Health 'INFO' 'Registry' 'No physical network adapter keys were found, so the adapter power settings could not be checked.' }
+    }
 }
 
 function Test-HealthHosts {
@@ -3014,11 +3582,20 @@ function Test-HealthDefender {
     elseif ($rt) { Write-Health 'PASS' 'Defender' 'Real time protection is on.' }
     else { Write-Health 'WARN' 'Defender' 'Real time protection is off. If you did not choose that, run with -Defender Enable.' }
 
+    if ($Opt['DefenderQuiet']) {
+        $pref = Get-MpPreference -ErrorAction Stop
+        if ([int]$pref.MAPSReporting -eq 0 -and [int]$pref.SubmitSamplesConsent -eq 2) { Write-Health 'PASS' 'Defender' 'Cloud reporting is off and sample submission is set to never send.' }
+        else { Write-Health 'WARN' 'Defender' "Defender still reports to the cloud (MAPSReporting $($pref.MAPSReporting), SubmitSamplesConsent $($pref.SubmitSamplesConsent)). Tamper Protection can block the policy; turn it off and run again." }
+    }
+
     if ($st.PSObject.Properties['AntivirusSignatureLastUpdated'] -and $st.AntivirusSignatureLastUpdated) {
         $age = [int]((Get-Date) - [DateTime]$st.AntivirusSignatureLastUpdated).TotalDays
         if ($rt -and $age -gt 7) {
-            $why = if (($Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) -and -not $Opt['KeepDefinitionUpdates']) { ' Your update options exclude definition updates.' } else { '' }
-            Write-Health 'WARN' 'Defender' "Signatures are $age day(s) old.$why Fix: Update-MpSignature, or use -Enable KeepDefinitionUpdates."
+            $predates = $script:AppliedAt -and ($age -gt (((Get-Date) - $script:AppliedAt).TotalDays + 1))
+            $excluded = ($Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) -and -not $Opt['KeepDefinitionUpdates']
+            $why = if ($predates) { ' That is older than this run, so the base image was already out of date.' } else { '' }
+            if ($excluded) { $why += ' Your update options also exclude definition updates, so Windows Update will not refresh them.' }
+            Write-Health 'WARN' 'Defender' "Signatures are $age day(s) old.$why Fix: Update-MpSignature, or run again with -Enable KeepDefinitionUpdates."
         }
         else { Write-Health 'PASS' 'Defender' "Signatures were updated $age day(s) ago." }
     }
@@ -3061,6 +3638,37 @@ function Test-HealthSystem {
         if ($want -and $m.Existed -and [string]$m.Value -eq $want.Speed) { Write-Health 'PASS' 'System' "Mouse profile for $scale% scaling is in place." }
         elseif ($want) { Write-Health 'WARN' 'System' "Mouse acceleration settings do not match the $scale% profile. Display scaling may have changed, run the script again." }
     }
+    if ($Opt['ClearDesktopIcons']) {
+        $shortcuts = @(foreach ($d in Get-DesktopFolders) { Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer -and $_.Extension -in '.lnk', '.url' } })
+        $bin = Get-RegSnapshot -Full 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel' -Name '{645FF040-5081-101B-9F08-00AA002F954E}'
+        if ($shortcuts.Count -eq 0 -and $bin.Existed -and [int]$bin.Value -eq 1) { Write-Health 'PASS' 'System' 'Desktop is clear: system icons hidden and no shortcuts on it.' }
+        else { Write-Health 'INFO' 'System' "Desktop has $($shortcuts.Count) shortcut(s) again. This is normal after installing software, which adds its own." }
+    }
+    if ($Opt['ClearStartPins'] -and [Environment]::OSVersion.Version.Build -gt 19045) {
+        $f = Join-Path $script:StartLayoutDir 'start2.bin'
+        if (Test-Path -LiteralPath $f) {
+            $want = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Convert]::FromBase64String(($EmptyStartLayout -join ''))))
+            $have = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($f)))
+            if ($want -eq $have) { Write-Health 'PASS' 'System' 'Start menu pins are cleared.' }
+            else { Write-Health 'INFO' 'System' 'The Start layout differs from the empty template, which is normal if you pinned apps since the cleanup.' }
+        }
+    }
+    if ($Opt['RemoveQuickAssist']) {
+        $qa = @(Get-AppxPackage -AllUsers | Where-Object { $_.Name -like '*QuickAssist*' })
+        if ($qa.Count -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $env:windir 'System32\quickassist.exe'))) { Write-Health 'PASS' 'System' 'Quick Assist is removed.' }
+        else { Write-Health 'WARN' 'System' 'Quick Assist is still present. A restart may finish the removal.' }
+    }
+    if ($Opt['DepOff']) {
+        $nx = Get-BcdValue 'nx'
+        if ($nx -eq 'AlwaysOff') { Write-Health 'PASS' 'System' 'Data Execution Prevention is off in the boot configuration (nx AlwaysOff).' }
+        else { Write-Health 'WARN' 'System' "Data Execution Prevention is not off (nx is $(if ($nx) { $nx } else { 'not set' })). Secure Boot must be off for bcdedit to accept the change." }
+    }
+    if ($Opt['TimerResolution']) {
+        $svc = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') { Write-Health 'PASS' 'System' "Timer resolution service '$TimerServiceName' is running." }
+        elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }
+        else { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is not installed." }
+    }
     $pending = (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
     (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
     ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
@@ -3071,8 +3679,20 @@ function Test-HealthEvents {
     $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
     $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; Level = 2; StartTime = $boot } -ErrorAction SilentlyContinue)
     if ($events.Count -eq 0) { Write-Health 'PASS' 'Events' "No service errors since the last start ($($boot.ToString('yyyy-MM-dd HH:mm')))."; return }
-    $top = $events | Group-Object { '{0}: {1}' -f $_.Id, (($_.Message -split "`r?`n")[0]) } | Sort-Object Count -Descending | Select-Object -First 5
-    Write-Health 'WARN' 'Events' "$($events.Count) service error(s) since the last start. A disabled service that something depends on is the usual cause."
+    $tiPattern = 'Windows Modules Installer|TrustedInstaller'
+    $own = @($events | Where-Object { $_.Message -match $tiPattern })
+    $other = @($events | Where-Object { $_.Message -notmatch $tiPattern })
+    if ($own.Count -gt 0) {
+        if ($script:TiCount -gt 0) {
+            Write-Health 'INFO' 'Events' "$($own.Count) Windows Modules Installer service error(s) (7000, 7009, 7031) come from this script's TrustedInstaller helper, used $($script:TiCount) time(s) in this run. This is expected and harmless."
+        }
+        else {
+            Write-Health 'WARN' 'Events' "$($own.Count) Windows Modules Installer service error(s) since the last start. If you ran this script since the last restart they come from its TrustedInstaller helper and are harmless. Otherwise Windows servicing may have a problem."
+        }
+    }
+    if ($other.Count -eq 0) { return }
+    $top = $other | Group-Object { '{0}: {1}' -f $_.Id, (($_.Message -split "`r?`n")[0]) } | Sort-Object Count -Descending | Select-Object -First 5
+    Write-Health 'WARN' 'Events' "$($other.Count) service error(s) since the last start. A disabled service that something depends on is the usual cause."
     foreach ($t in $top) { Write-Health 'INFO' 'Events' ("{0}x {1}" -f $t.Count, $t.Name.Substring(0, [Math]::Min(150, $t.Name.Length))) }
 }
 
@@ -3118,6 +3738,7 @@ function Invoke-HealthCheck {
         $w = $script:State.Run.When
         try { $applied = if ($w -is [DateTime]) { $w } else { [DateTime]::Parse([string]$w, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) } } catch { }
     }
+    $script:AppliedAt = $applied
     $script:SoftRuntime = $script:PostApply -or ($applied -and $boot -lt $applied)
     Write-Log "Health check starting$(if ($script:SoftRuntime) { ' (no restart since the tweaks, so runtime state may lag)' })."
 
@@ -3156,15 +3777,30 @@ function Confirm-Run {
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
     if ($TaskMode -eq 'Delete') { $notes += 'All scheduled tasks will be deleted (backups are kept).' }
+    if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
+    if ($Opt['SpectreMeltdownOff'] -or $Opt['DepOff']) { $notes += 'CPU and memory security mitigations will be turned off.' }
     $answer = Read-Host "$($notes -join ' ') A snapshot or restore point is recommended. Type YES to continue"
     return ($answer -ceq 'YES')
 }
 
 function Invoke-Apply {
     Write-Log "Windows build $([Environment]::OSVersion.Version.Build)."
+    # Saved settings accumulate across runs: a later partial run (-Only) must not make the health check forget
+    # what an earlier run applied, because those changes are still in place.
+    $prev = $script:State.Run
+    $merged = [ordered]@{}
+    foreach ($k in $Opt.Keys) {
+        $before = $prev -and $prev.Options.PSObject.Properties[$k] -and [bool]$prev.Options.$k
+        $merged[$k] = [bool]$Opt[$k] -or [bool]$before
+    }
+    $mTask = if ($TaskMode -ne 'None') { $TaskMode } elseif ($prev -and $prev.TaskMode) { $prev.TaskMode } else { 'None' }
+    $mDef = if ($Defender -ne 'Keep') { $Defender } elseif ($prev -and $prev.Defender) { $prev.Defender } else { 'Keep' }
+    $mPower = if ($PowerProfile -ne 'Off') { $PowerProfile } elseif ($prev -and $prev.PowerProfile) { $prev.PowerProfile } else { 'Off' }
+    $mDays = if ($Opt['PauseUpdates'] -or -not ($prev -and $prev.PauseDays)) { $PauseDays } else { [int]$prev.PauseDays }
+    $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
     $script:State.Run = [pscustomobject]@{
-        When = (Get-Date).ToString('o'); Options = [pscustomobject]$Opt; TaskMode = $TaskMode; Defender = $Defender
-        PowerProfile = $PowerProfile; PauseDays = $PauseDays; SkipRegGroup = @($SkipRegGroup)
+        When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
+        PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
     }
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $edition = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
@@ -3177,11 +3813,12 @@ function Invoke-Apply {
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
-    Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry }
+    if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
+    if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
-    Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks }
-    Invoke-Step 'Service groups' { Disable-ServiceGroups }
-    Invoke-Step "Scheduled tasks ($TaskMode)" { Invoke-TaskMode }
+    if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
+    if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
+    if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" { Invoke-TaskMode } }
     if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' { Set-RazerAsusBlock } }
     if ($Opt['DriverExclusion'] -or $Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) { Invoke-Step 'Windows Update policy' { Set-UpdatePolicies } }
     if ($PowerProfile -ne 'Off') { Invoke-Step "Power plan ($PowerProfile)" { Set-PerformancePowerPlan } }
@@ -3195,7 +3832,17 @@ function Invoke-Apply {
     if ($Opt['FaultTolerantHeap']) { Invoke-Step 'Fault tolerant heap' { Reset-FaultTolerantHeap } }
     if ($Opt['NotificationSettings']) { Invoke-Step 'App notification settings' { Disable-NotificationSettings } }
     if ($Defender -eq 'Keep') { Write-Log 'Microsoft Defender left untouched.' } else { Invoke-Step "Defender ($Defender)" { Set-DefenderState -Mode $Defender } }
-    if ($Opt['RestartExplorer']) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
+    if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' { Set-DefenderQuiet } }
+    if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
+    if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
+    if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' { Disable-SpectreMeltdownMitigations } }
+    if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' { Disable-Dep } }
+    if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' { Install-TimerResolutionService } }
+    if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
+    if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
+    if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
+    if ($Opt['UpdateCacheCleanup']) { Invoke-Step 'Update cache cleanup' { Clear-UpdateDownloadCache } }
+    if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
     if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) { $script:PostApply = $true; Invoke-Step 'Health check' { Invoke-HealthCheck } }
 }
 
@@ -3219,7 +3866,7 @@ function Invoke-Revert {
             Write-Log "Hosts block removed: $name" 'OK'
         }
     }
-    Invoke-Step 'Restore scheduled tasks' { Restore-Tasks }
+    if ($script:State.Tasks.Count -gt 0) { Invoke-Step 'Restore scheduled tasks' { Restore-Tasks } }
     Invoke-Step 'Restore power plan' { Restore-PowerPlan }
     if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
     if ($script:State.MemCompress -eq $true) { Invoke-Step 'Restore memory compression' { Enable-MMAgent -MemoryCompression; Write-Log 'Memory compression re-enabled.' 'OK' } }
@@ -3241,10 +3888,15 @@ function Invoke-Revert {
             Write-Log 'Defender real time protection enabled.' 'OK'
         }
     }
-    Invoke-Step 'Refresh mouse settings' { Sync-MouseSettings }
+    if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
+    if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
+    if ($script:State.StartLayout) { Invoke-Step 'Restore Start menu layout' { Restore-StartPins } }
+    if ($script:State.DesktopMoved.Count -gt 0) { Invoke-Step 'Restore desktop shortcuts' { Restore-DesktopIcons } }
+    if (@($script:State.Registry | Where-Object { $_.Path -like '*Control Panel\Mouse' }).Count -gt 0) { Invoke-Step 'Refresh mouse settings' { Sync-MouseSettings } }
     if ($script:State.Removed.Count -gt 0) {
         Write-Log ('Apps removed earlier (reinstall from the Store or winget if wanted): ' + (($script:State.Removed | Sort-Object -Unique) -join ', ')) 'WARN'
     }
+    if ($script:ShellDirty) { Update-UserVisuals }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
     Write-Log "State archived to $archive"

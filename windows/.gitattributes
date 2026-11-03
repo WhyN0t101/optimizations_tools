@@ -1,0 +1,4 @@
+# Keep Windows line endings. The BOM is part of the file and must stay.
+*.ps1 text eol=crlf
+*.py text eol=lf
+*.md text eol=lf

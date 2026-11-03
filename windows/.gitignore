@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.log
+# local copy of the upstream sources used by tools/build.py
+ZOICWARE-main/
+ZOICWARE/

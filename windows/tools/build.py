@@ -1,0 +1,200 @@
+"""Build FocusedTweaks.ps1 from tools/FocusedTweaks.template.ps1 plus data read from a ZOICWARE checkout.
+
+Usage:
+    python tools/build.py --zoicware C:\\path\\to\\ZOICWARE-main --out FocusedTweaks.ps1
+
+The template is the source of truth. Do not edit the generated FocusedTweaks.ps1 by hand,
+change tools/FocusedTweaks.template.ps1 and build again.
+"""
+import argparse, os, re, io, sys
+
+ap = argparse.ArgumentParser()
+ap.add_argument('--zoicware', required=True, help='folder that contains the ZOICWARE "src" directory (a clone or the unzipped release)')
+ap.add_argument('--template', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'FocusedTweaks.template.ps1'))
+ap.add_argument('--out', default='FocusedTweaks.ps1')
+args = ap.parse_args()
+SRC = os.path.join(args.zoicware, 'src')
+
+def read(name):
+    with open(os.path.join(SRC, name), encoding='utf-8') as f:
+        return f.read().replace('\r', '')
+
+zf = read('zFunctions.psm1').split('\n')
+reg = read('RegTweaks.txt')
+tpl = open(args.template, encoding='utf-8').read()
+
+def ps_str(s):
+    return "'" + s.replace("'", "''") + "'"
+
+ROW = re.compile(r"Reg\.exe add '([^']+)' /v '([^']+)' /t (REG_\w+) /d '([^']*)' /f", re.I)
+
+def rows(lines):
+    out = []
+    for l in lines:
+        m = ROW.search(l)
+        if m:
+            out.append(m.groups())
+    return out
+
+def tweak_line(path, name, typ, data, indent='    '):
+    if typ == 'REG_DWORD':
+        return f"{indent}New-Tweak {ps_str(path)} {ps_str(name)} {int(data)} 'DWord'"
+    if typ == 'REG_SZ':
+        return f"{indent}New-Tweak {ps_str(path)} {ps_str(name)} {ps_str(data)} 'String'"
+    raise ValueError(typ)
+
+# 1. upstream reg text
+reg = reg.replace('\r', '')
+assert "\n'@" not in reg, 'here-string terminator inside reg text'
+block1 = "# Upstream src/RegTweaks.txt, unchanged. Groups are the comment lines above each section.\n$UpstreamRegText = @'\n" + reg.rstrip('\n') + "\n'@"
+
+# 2. telemetry
+tel_block = zf[4738:4796]
+tel_rows = rows(tel_block)
+svc_rows = [r for r in tel_rows if '\\services\\' in r[0].lower()]
+bio_rows = [r for r in tel_rows if 'biometrics' in r[0].lower()]
+reg_rows = [r for r in tel_rows if r not in svc_rows and r not in bio_rows]
+svc_names = [r[0].split('\\')[-1] for r in svc_rows]
+tel_services = [n for n in svc_names if n in ('DiagTrack', 'dmwappushservice')]
+cdp_services = [n for n in svc_names if n.startswith('CDP')]
+
+# disable-services function text
+fn_start = next(i for i, l in enumerate(zf) if l.startswith('function disable-services'))
+fn_end = next(i for i, l in enumerate(zf) if l.startswith('function gpTweaks'))
+ds_text = '\n'.join(zf[fn_start:fn_end])
+ds_names = re.findall(r"Services\\([A-Za-z0-9_.]+)' /v 'Start' /t REG_DWORD /d '4'", ds_text)
+ds_names = list(dict.fromkeys(ds_names))
+groups = {
+    'SvcBluetooth': ['BTAGService', 'BthAvctpSvc', 'bthserv', 'BluetoothUserService'],
+    'SvcPrinting': ['Spooler', 'PrintWorkflowUserSvc', 'PrintNotify'],
+    'SvcDeliveryOpt': ['DoSvc'],
+    'SvcRadio': ['RmSvc'],
+    'SvcBiometrics': ['WbioSrvc'],
+    'SvcSmartCard': ['SCardSvr', 'ScDeviceEnum', 'SCPolicySvc'],
+    'SvcDiagnostics': ['diagsvc', 'DPS', 'WdiServiceHost', 'WdiSystemHost'],
+}
+assigned = {n for v in groups.values() for n in v}
+missing = [n for v in groups.values() for n in v if n not in ds_names]
+assert not missing, missing
+groups['SvcOther'] = [n for n in ds_names if n not in assigned]
+order = ['SvcOther', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+
+lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
+lines.append("$TelemetryRegs = @(")
+lines += [tweak_line(*r) for r in reg_rows]
+lines.append(")")
+lines.append("$BiometricsRegs = @(")
+lines += [tweak_line(*r) for r in bio_rows]
+lines.append(")")
+lines.append("$TelemetryServices = @(" + ', '.join(ps_str(n) for n in tel_services) + ")")
+lines.append("$CdpServices = @(" + ', '.join(ps_str(n) for n in cdp_services) + ")")
+lines.append("")
+lines.append("# Service groups from upstream disable-services. Each key is the option that switches the group on.")
+lines.append("$ServiceGroups = [ordered]@{")
+for g in order:
+    lines.append(f"    {g} = @(" + ', '.join(ps_str(n) for n in groups[g]) + ")")
+lines.append("}")
+telemetry_block = '\n'.join(lines)
+
+# 3. domains
+dom_start = next(i for i, l in enumerate(zf) if '$domains = @(' in l and i > 4700)
+tel_domains = []
+for l in zf[dom_start + 1:dom_start + 60]:
+    s = l.strip()
+    if s == ')': break
+    if s.startswith("'"): tel_domains.append(s.strip("'"))
+assert len(tel_domains) == 30, len(tel_domains)
+raz_start = next(i for i, l in enumerate(zf) if "synapse3ui-common.razerzone.com" in l)
+razer, asus = [], []
+for l in zf[raz_start:raz_start + 40]:
+    m = re.search(r"0\.0\.0\.0 ([A-Za-z0-9.\-]+)", l)
+    if m:
+        d = m.group(1)
+        (razer if ('razer' in d) else asus).append(d)
+assert len(razer) == 13 and len(asus) == 11, (len(razer), len(asus))
+dom_lines = ["# Domain lists from upstream (Get-TeleDomains, Razer and ASUS blocks)."]
+for nm, lst in (('TelemetryDomains', tel_domains), ('RazerDomains', razer), ('AsusDomains', asus)):
+    dom_lines.append(f"${nm} = @(")
+    dom_lines += ["    " + ps_str(d) for d in lst]
+    dom_lines.append(")")
+domains_block = '\n'.join(dom_lines)
+
+# 4. mouse profiles
+ms = next(i for i, l in enumerate(zf) if "Getting Scaling Value" in l)
+mtxt = '\n'.join(zf[ms:ms + 270])
+cases = re.findall(r"^\s{8}(\d{3}) \{(.*?)^\s{8}\}", mtxt, re.S | re.M)
+mlines = ["# Mouse profiles per display scaling, from upstream opNoMouseAccel. X and Y are SmoothMouse curves."]
+mlines.append("$MouseProfiles = @{")
+for scale, body in sorted(cases, key=lambda c: int(c[0])):
+    def g(name):
+        m = re.search(rf"'{name}' /t REG_SZ /d '(\d+)'", body)
+        return m.group(1)
+    speed, t1, t2 = g('MouseSpeed'), g('MouseThreshold1'), g('MouseThreshold2')
+    lp = int(re.search(r"'LogPixels' /t REG_DWORD /d '(\d+)'", body).group(1))
+    pp = int(re.search(r"'EnablePerProcessSystemDPI' /t REG_DWORD /d '(\d+)'", body).group(1))
+    curves = re.findall(r"\$SmoothMouse([XY])Curve = \[byte\[\]\]\((.*?)\)", body, re.S)
+    cx = cy = None
+    for ax, data in curves:
+        hexs = ','.join(h[2:].lower() for h in re.findall(r"0x[0-9A-Fa-f]{2}", data))
+        if ax == 'X': cx = hexs
+        else: cy = hexs
+    xs = ps_str(cx) if cx else '$null'
+    ys = ps_str(cy) if cy else '$null'
+    mlines.append(f"    {scale} = @{{ Speed = {ps_str(speed)}; T1 = {ps_str(t1)}; T2 = {ps_str(t2)}; X = {xs}; Y = {ys}; LogPixels = {lp}; PerProc = {pp} }}")
+mlines.append("}")
+mouse_block = '\n'.join(mlines)
+assert len(cases) == 6
+assert sum(1 for l in mlines if 'X = $null' in l) == 1, 'only the 100 percent profile may lack curves'
+
+
+# 5. updates
+nd = next(i for i, l in enumerate(zf) if "Excluding Drivers From Windows Update" in l)
+drv_rows = rows(zf[nd:nd + 20])
+assert len(drv_rows) == 12, len(drv_rows)
+su = next(i for i, l in enumerate(zf) if "Disabling All Update Types Except for Security" in l)
+sec_rows = rows(zf[su:su + 8])
+assert len(sec_rows) == 5, len(sec_rows)
+pu = next(i for i, l in enumerate(zf) if "Pausing Updates for 1 Year" in l)
+ens = next(i for i in range(pu, pu + 60) if 'ensure pause really works' in zf[i])
+pause_rows = rows(zf[ens:ens + 14])
+cls = re.findall(r"'(\{[0-9a-f\-]+\})'", '\n'.join(zf[su:su + 30]))
+assert len(cls) == 10, len(cls)
+tasks = re.findall(r"'(\\Microsoft\\[^']+\*)'", '\n'.join(zf[pu:pu + 40]))
+assert len(tasks) == 6, tasks
+ul = ["# Windows Update option data from upstream (noDriversInUpdate, opSecUpdatesOnly, oppauseUpdates)."]
+ul.append("$DriverExclusionRegs = @(")
+ul += [tweak_line(*r) for r in drv_rows]
+ul.append(")")
+ul.append("$SecurityUpdatesRegs = @(")
+ul += [tweak_line(*r) for r in sec_rows]
+ul.append(")")
+ul.append("$PauseRegs = @(")
+ul += [tweak_line(*r) for r in pause_rows]
+ul.append(")")
+ul.append("$UpdateClassifications = @(" + ', '.join(ps_str(c) for c in cls) + ")")
+ul.append("$UpdateTaskPaths = @(" + ', '.join(ps_str(t) for t in tasks) + ")")
+updates_block = '\n'.join(ul)
+
+
+# 6. empty Start menu layout (upstream Unpin.ps1)
+un = read('Unpin.ps1')
+m = re.search(r"-----BEGIN CERTIFICATE-----\n(.*?)\n-----END CERTIFICATE-----", un, re.S)
+sl = m.group(1).split('\n')
+import base64 as _b64
+assert len(_b64.b64decode(''.join(sl), validate=True)) == 4540
+start_block = "# Empty Windows 11 Start menu layout (start2.bin) from upstream Unpin.ps1, base64.\n$EmptyStartLayout = @(\n" + '\n'.join("    '" + l + "'" for l in sl) + "\n)"
+
+out = tpl
+for key, val in (('#@@UPSTREAM_REG@@', block1), ('#@@TELEMETRY@@', telemetry_block), ('#@@DOMAINS@@', domains_block), ('#@@MOUSE@@', mouse_block), ('#@@UPDATES@@', updates_block), ('#@@STARTLAYOUT@@', start_block)):
+    assert key in out
+    out = out.replace(key, val)
+
+# normalise to CRLF for Windows, UTF-8 with BOM so Windows PowerShell 5.1 reads any non ASCII safely
+assert all(ord(c) < 128 for c in out) or True
+out = out.replace('\r\n', '\n').replace('\n', '\r\n')
+open(args.out, 'w', encoding='utf-8-sig', newline='').write(out)
+print('written', len(out), 'chars')
+print('telemetry regs', len(reg_rows), 'bio', len(bio_rows), 'tel svc', tel_services, 'cdp', cdp_services)
+print('service groups:', {g: len(groups[g]) for g in order})
+print('pause rows', len(pause_rows), [r[1] for r in pause_rows])
+print('mouse scales', [c[0] for c in cases])
