@@ -1,0 +1,22 @@
+{
+  "Enable": [
+    "HideAllDesktopIcons",
+    "RegHibernateOff",
+    "DisableHibernate",
+    "SearchIndexingOff",
+    "KeepDefinitionUpdates",
+    "BlockFeatureUpgrades",
+    "TimerResolution",
+    "SpectreMeltdownOff",
+    "FastShutdown",
+    "MenuTakeOwnership"
+  ],
+  "Skip": [],
+  "TaskMode": "Delete",
+  "Defender": "Enable",
+  "PowerProfile": "High",
+  "PowerMode": "Best",
+  "PauseDays": 365,
+  "SkipRegGroup": [],
+  "TaskKeep": []
+}

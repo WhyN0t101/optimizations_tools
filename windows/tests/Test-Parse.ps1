@@ -97,10 +97,12 @@ Set-Content -LiteralPath $profileFile -Value '{ "TaskMode": "Nuke" }'
 $BoundNames = @(); $threw = $false; try { Import-RunProfile } catch { $threw = $true }
 Check 'Profile refuses invalid choices' $threw
 Remove-Item -LiteralPath $profileFile -Force
-$exampleProfile = Join-Path (Split-Path $PSScriptRoot -Parent) 'profiles\example.json'
-$ProfilePath = $exampleProfile; $BoundNames = @(); $threw = $false; try { Import-RunProfile } catch { $threw = $true }
-$badNames = @(@($Enable) + @($Skip) | Where-Object { $_ -and -not $OptionInfo.Contains($_) })
-Check 'The example profile loads and names real options' (-not $threw -and $badNames.Count -eq 0) ($badNames -join ', ')
+foreach ($file in @(Get-ChildItem -Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'profiles\*.json'))) {
+    $ProfilePath = $file.FullName; $BoundNames = @(); $Enable = @(); $Skip = @(); $Only = @(); $threw = ''
+    try { Import-RunProfile } catch { $threw = $_.Exception.Message }
+    $badNames = @(@($Enable) + @($Skip) + @($Only) | Where-Object { $_ -and -not $OptionInfo.Contains($_) })
+    Check "Profile $($file.Name) loads and names real options" (-not $threw -and $badNames.Count -eq 0) "$threw $($badNames -join ', ')"
+}
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))
