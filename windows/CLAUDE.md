@@ -16,13 +16,15 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 ## Hard rules
 1. Never run `FocusedTweaks.ps1` on this machine, not even with `-DryRun`. Here: build and `tests/Test-Parse.ps1` only.
    Dry runs and real runs happen only in the test VM, after a snapshot.
-2. Every change that alters the system must (a) go through `Test-DryRun`, (b) record the original state so `-Revert` works,
+2. A new option also needs a place in `OPTION_GROUPS` in `tools/build.py` (the build fails otherwise), and an entry in
+   `NOT_REVERTED` if `-Revert` cannot undo it. The build writes `docs/OPTIONS.md` from it; never edit that file by hand.
+3. Every change that alters the system must (a) go through `Test-DryRun`, (b) record the original state so `-Revert` works,
    (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`.
-3. Stay compatible with Windows PowerShell 5.1: no ternary operator, no `??`, no `&&`. The script uses `Set-StrictMode -Version Latest`.
-4. A hashtable entry name can shadow a property: never name a `$script:State` entry `Keys`, `Values` or `Count`.
-5. Output encoding is UTF-8 with BOM, CRLF line endings, ASCII only. `build.py` writes this. `.gitattributes` keeps it.
-6. Native commands need `$LASTEXITCODE` checked. .NET method errors arrive wrapped, so use `Test-AccessDenied` rather than typed catch blocks.
-7. JSON state: PowerShell 7 turns ISO date strings into dates when reading JSON. Registry strings are stored with an `s:` prefix for that reason.
+4. Stay compatible with Windows PowerShell 5.1: no ternary operator, no `??`, no `&&`. The script uses `Set-StrictMode -Version Latest`.
+5. A hashtable entry name can shadow a property: never name a `$script:State` entry `Keys`, `Values` or `Count`.
+6. Output encoding is UTF-8 with BOM, CRLF line endings, ASCII only. `build.py` writes this. `.gitattributes` keeps it.
+7. Native commands need `$LASTEXITCODE` checked. .NET method errors arrive wrapped, so use `Test-AccessDenied` rather than typed catch blocks.
+8. JSON state: PowerShell 7 turns ISO date strings into dates when reading JSON. Registry strings are stored with an `s:` prefix for that reason.
 
 ## Workflow for a change
 Edit the template, rebuild, run `tests/Test-Parse.ps1`, then let the user run `tools/Test-InVm.ps1` (see

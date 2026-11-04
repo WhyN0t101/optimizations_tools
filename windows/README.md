@@ -21,40 +21,10 @@ the profile.
 Two modes change nothing: `-Benchmark` measures timer resolution, latency (DPC and ISR), kernel call cost and boot
 time and compares with the previous benchmark; `-StartupReview` lists everything that starts with Windows.
 
-## Options added in v5 to v7
+## Options
 
-See `-ListOptions` for every option.
-
-| Option | Default | What it does |
-|---|---|---|
-| `DefenderQuiet` | on | Defender stays on; cloud reporting, sample submission, infection reports and notifications off (policy) |
-| `NetAdapterPower` | on | Power saving off on physical network adapters |
-| `NetAdapterEee` | on | Energy Efficient Ethernet off where the driver exposes it |
-| `TempCleanup` | on | Empties the user and Windows Temp folders (not reversible; `C:\XboxGames` is never touched) |
-| `UpdateCacheCleanup` | on | Empties the Windows Update download cache (not reversible) |
-| `TaskbarEndTask` | on | End task in the right click menu of taskbar apps (Windows 11) |
-| `DevicePowerSaving` | on | Power saving and selective suspend off for ACPI, HID, PCI and USB devices (skipped on battery) |
-| `TimeServerPool` | on | Clock synced from pool.ntp.org |
-| `MenuKillNotResponding` | on | "Kill not responding tasks" in the desktop right click menu |
-| `MenuRestartExplorer` | on | "Restart Explorer" in the desktop right click menu |
-| `SpectreMeltdownOff` | off | Spectre and Meltdown mitigations off. Lowers security |
-| `DepOff` | off | Data Execution Prevention off (`bcdedit`). Needs Secure Boot off. Lowers security |
-| `TimerResolution` | off | Small service that holds the finest timer resolution |
-| `DeviceWakeOff` | off | Devices can no longer wake the PC (keyboard and mouse included) |
-| `MpoOff` | off | Multiplane overlay off. Can fix flicker, can break some HDR setups |
-| `WriteCacheFlushOff` | off | Write cache buffer flushing off on SATA and NVMe disks. A power cut can lose data |
-| `FastShutdown` | off | Shorter shutdown timeouts, hung apps closed without asking |
-| `BlockFeatureUpgrades` | off | Stay on the current Windows version; security updates continue until it ends |
-| `SearchIndexingOff` | off | Windows Search indexer off (search gets slower) |
-| `MenuTakeOwnership` | off | "Take ownership" in the right click menu of files and folders |
-| `MenuRunAsAdmin` | off | "Run as administrator" for .ps1, .msi and .vbs files |
-| `MenuNoShare`, `MenuNoGiveAccess`, `MenuNoCast`, `MenuNoLibrary`, `MenuNoQuickAccess`, `MenuNoPinToStart`, `MenuNoPrevVersions`, `MenuNoTroubleshoot`, `MenuNoDefenderScan`, `MenuNoOneDrive`, `MenuNoTerminal` | off | Each removes one right click menu entry |
-| `LockScreenOff` | off | No lock screen picture, straight to sign in |
-| `IPv4Only` | off | IPv6 off on physical adapters |
-| `NvmeNativeDriver` | off | Newer native NVMe driver (Windows 11 24H2+), experimental |
-
-Enable the off ones with, for example, `-Enable SpectreMeltdownOff,TimerResolution`. Everything except the two cleanups
-is undone by `-Revert`.
+Every option, with its default and whether `-Revert` undoes it, is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
+That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
 
 Third party licence notices are in `NOTICE.md`.
 
