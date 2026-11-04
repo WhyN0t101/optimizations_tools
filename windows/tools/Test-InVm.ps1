@@ -27,7 +27,7 @@ param(
     [string]$GuestUser = 'Administrator',
     [string]$ProfilePath,
     [string]$ScriptArgs = '',
-    [ValidateSet('Dry', 'Apply', 'Health', 'Revert')][string[]]$Stages = @('Dry', 'Apply', 'Health', 'Revert'),
+    [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Revert', 'StartupReview')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Benchmark', 'Revert'),
     [string]$OutDir,
     [int]$BootTimeoutSeconds = 600
 )
@@ -73,19 +73,44 @@ function Write-Step {
 }
 
 function Wait-GuestDesktop {
-    # Ready means VMware Tools answer and Explorer runs for the signed in account.
+    # Ready means the guest account itself is at the desktop (its explorer.exe) and the VMware Tools user process
+    # (vmtoolsd.exe -n vmusr) runs in that session: vmrun needs both to start interactive programs. After a running
+    # snapshot is restored the user process is sometimes not connected; one restart brings it back.
     $deadline = (Get-Date).AddSeconds($BootTimeoutSeconds)
+    $owners = @()
+    $desktopSince = $null
+    $restarted = $false
+    $mine = { param($line) ($line -match 'owner=([^,]+)') -and (($Matches[1].Trim() -split '\\')[-1] -ieq $GuestUser) }
     while ((Get-Date) -lt $deadline) {
         $tools = Invoke-Vmrun -Arguments @('checkToolsState', $Vmx) -AllowFail
         if ($tools.Output -match 'running') {
             $procs = Invoke-Vmrun -Arguments @('listProcessesInGuest', $Vmx) -Guest -AllowFail
-            if ($procs.Code -eq 0 -and $procs.Output -match 'explorer\.exe') {
+            if ($procs.Output -match 'password|credential|authenticat') { throw "The VM refused the guest login for ${GuestUser}: $($procs.Output)" }
+            $lines = @($procs.Output -split "`r?`n")
+            $owners = @($lines | Where-Object { $_ -match 'explorer\.exe' } | ForEach-Object { if ($_ -match 'owner=([^,]+)') { $Matches[1].Trim() } } | Select-Object -Unique)
+            $desktop = @($lines | Where-Object { $_ -match 'explorer\.exe' -and (& $mine $_) }).Count -gt 0
+            # The service copy runs as SYSTEM, so a vmtoolsd.exe owned by the guest account is the user process. The
+            # listing does not always show its '-n vmusr' argument.
+            $toolsUser = @($lines | Where-Object { $_ -match 'vmtoolsd\.exe' -and (& $mine $_) }).Count -gt 0
+            if ($desktop -and $toolsUser) {
                 Start-Sleep -Seconds 20   # let the desktop and its startup work settle
                 return
             }
-            if ($procs.Output -match 'password|credential|authenticat') { throw "The VM refused the guest login for ${GuestUser}: $($procs.Output)" }
+            if ($desktop -and -not $desktopSince) { $desktopSince = Get-Date }
+            if ($desktop -and -not $restarted -and ((Get-Date) - $desktopSince).TotalSeconds -gt 60) {
+                Write-Step "The VMware Tools user process is not running for $GuestUser, restarting the VM once"
+                [void](Invoke-Vmrun -Arguments @('reset', $Vmx, 'soft'))
+                $restarted = $true; $desktopSince = $null
+                Start-Sleep -Seconds 30
+            }
         }
         Start-Sleep -Seconds 5
+    }
+    if ($restarted -and ($owners | Where-Object { ($_ -split '\\')[-1] -ieq $GuestUser })) {
+        throw "$GuestUser is at the desktop, but the VMware Tools user process (vmtoolsd.exe -n vmusr) does not start in that session. Reinstall VMware Tools in the VM, restart, and retake the '$Snapshot' snapshot."
+    }
+    if ($owners.Count -gt 0) {
+        throw "The VM desktop belongs to $($owners -join ', '), not $GuestUser. Sign in as $GuestUser (Autologon), retake the '$Snapshot' snapshot on its desktop, or pass -GuestUser."
     }
     throw "The VM did not reach the desktop within $BootTimeoutSeconds seconds. Check that Autologon signs in $GuestUser."
 }
@@ -119,7 +144,7 @@ catch {
     `$code = 99
 }
 Get-ChildItem -LiteralPath 'C:\ProgramData\FocusedTweaks' -File -ErrorAction SilentlyContinue |
-    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json' } |
+    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json', '.txt' } |
     Copy-Item -Destination `$out
 Set-Content -LiteralPath (Join-Path `$out 'exitcode.txt') -Value `$code
 Compress-Archive -Path (Join-Path `$out '*') -DestinationPath '$zipGuest' -Force
@@ -149,14 +174,17 @@ function Get-StageJson {
 function Write-Summary {
     $lines = [System.Collections.Generic.List[string]]::new()
     $bad = $false
-    foreach ($name in $Stages) {
-        $dir = Join-Path $OutDir $name
-        if (-not (Test-Path -LiteralPath $dir)) { continue }
+    foreach ($stageDir in @(Get-ChildItem -LiteralPath $OutDir -Directory | Sort-Object Name)) {
+        $name = $stageDir.Name
+        $dir = $stageDir.FullName
         $code = (Get-Content -LiteralPath (Join-Path $dir 'exitcode.txt') -Raw).Trim()
         $errors = @(Get-ChildItem -Path (Join-Path $dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -SimpleMatch '[ERROR]')
         $lines.Add("$name`: exit code $code, $($errors.Count) error line(s) in the log")
         foreach ($e in ($errors | Select-Object -First 5)) { $lines.Add("    $($e.Line.Trim())") }
         if ($code -ne '0' -or $errors.Count -gt 0) { $bad = $true }
+        if ($name -like '*-Benchmark') {
+            foreach ($l in @(Get-Content -LiteralPath (Join-Path $dir 'console.txt') | Where-Object { $_ -match '\S' -and $_ -notmatch '^\d\d:\d\d:\d\d ' })) { $lines.Add("    $l") }
+        }
         $health = Get-StageJson -Name $name -Kind 'health'
         if ($health) {
             $lines.Add("    health: $($health.Counts.PASS) passed, $($health.Counts.WARN) warning(s), $($health.Counts.FAIL) failed, $($health.Counts.INFO) note(s)")
@@ -194,12 +222,18 @@ Write-Step "Copying the script into $guestDir"
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $scriptFile, "$guestDir\FocusedTweaks.ps1") -Guest)
 if ($ProfilePath) { [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, (Resolve-Path -LiteralPath $ProfilePath).Path, "$guestDir\profile.json") -Guest) }
 
+# Folders are numbered, so a stage can run twice (a benchmark before and after the run).
+$index = 0
 foreach ($stage in $Stages) {
+    $index++
+    $label = '{0:00}-{1}' -f $index, $stage
     switch ($stage) {
-        'Dry' { Invoke-GuestStage -Name 'Dry' -Arguments "-DryRun -Force $common" }
-        'Apply' { Invoke-GuestStage -Name 'Apply' -Arguments "-Force $common"; Restart-Guest }
-        'Health' { Invoke-GuestStage -Name 'Health' -Arguments '-HealthCheck' }
-        'Revert' { Invoke-GuestStage -Name 'Revert' -Arguments '-Revert'; Restart-Guest }
+        'Dry' { Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
+        'Benchmark' { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
+        'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
+        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restart-Guest }
+        'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
+        'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest }
     }
 }
 

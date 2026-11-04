@@ -27,12 +27,14 @@ It asks for the guest password (or reads `FT_VM_PASSWORD`), then:
 | Stage | What runs in the VM |
 |---|---|
 | Dry | `-DryRun -Force` |
+| Benchmark | `-Benchmark` (runs before and after by default, the second one compares) |
 | Apply | `-Force` (real run, no prompts), then a restart |
 | Health | `-HealthCheck` |
 | Revert | `-Revert` with its revert check, then a restart |
 
-Pick stages with `-Stages Dry,Apply`, add script parameters with `-ScriptArgs '-Only MpoOff'`, and point at another VM
-with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<stage>` (ignored by git): `console.txt`, the
+The default order is Dry, Benchmark, Apply, Health, Benchmark, Revert; `StartupReview` is also available. Pick stages
+with `-Stages Dry,Apply`, add script parameters with `-ScriptArgs '-Only MpoOff'`, and point at another VM
+with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<number>-<stage>` (ignored by git): `console.txt`, the
 `run-*.log`, `health-*.json`, `revert-check-*.json` and `state.json`. `summary.txt` lists errors, health warnings and
 values the revert did not bring back. The exit code is 1 when a stage failed or the health check reported a failure.
 

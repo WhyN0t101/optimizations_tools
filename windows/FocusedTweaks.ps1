@@ -85,6 +85,8 @@ param(
     [switch]$ForcePowerPlanOnLaptop,
     [ValidateRange(1, 730)][int]$PauseDays = 365,
     [string]$ProfilePath,
+    [switch]$Benchmark,
+    [switch]$StartupReview,
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
 
@@ -180,6 +182,21 @@ $OptionInfo = [ordered]@{
     MenuKillNotResponding = @($true, 'Add "Kill not responding tasks" to the desktop right click menu')
     MenuRestartExplorer   = @($true, 'Add "Restart Explorer" to the desktop right click menu')
     MenuTakeOwnership     = @($false, 'Add "Take ownership" to the right click menu of files and folders (easy to misuse on system files)')
+    MenuRunAsAdmin        = @($false, 'Add "Run as administrator" to .ps1, .msi and .vbs files (.bat and .cmd already have it)')
+    MenuNoShare           = @($false, 'Remove "Share" from the right click menu')
+    MenuNoGiveAccess      = @($false, 'Remove "Give access to" from the right click menu')
+    MenuNoCast            = @($false, 'Remove "Cast to device" from the right click menu')
+    MenuNoLibrary         = @($false, 'Remove "Include in library" from the right click menu')
+    MenuNoQuickAccess     = @($false, 'Remove "Pin to Quick access" and "Add to favorites" from the right click menu')
+    MenuNoPinToStart      = @($false, 'Remove "Pin to Start" from the right click menu')
+    MenuNoPrevVersions    = @($false, 'Remove "Restore previous versions" from the right click menu and Properties')
+    MenuNoTroubleshoot    = @($false, 'Remove "Troubleshoot compatibility" from the right click menu')
+    MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu')
+    MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu')
+    MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu')
+    LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)')
+    IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs')
+    NvmeNativeDriver      = @($false, 'Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave')
     HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)')
     NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins')
 }
@@ -243,6 +260,7 @@ if ($ListOptions) {
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
+    Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
     exit 0
 }
 Resolve-Options
@@ -1985,6 +2003,52 @@ $PowerOverlayNames = @{
 }
 
 # Values Windows protects even from TrustedInstaller. A mismatch here is reported as a note, not a warning.
+# Lock screen off (from ZOICWARE, optional tweaks).
+$LockScreenRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'
+)
+
+# Right click menu entries hidden by blocking their shell extension (from ZOICWARE, optional tweaks). A blocked value is
+# removed again by -Revert, which ZOICWARE's key deletions could not undo. Quick access verbs are hidden instead.
+$BlockedExt = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'
+$MenuBlocks = [ordered]@{
+    MenuNoShare        = @(New-Tweak $BlockedExt '{e2bf9676-5f8f-435c-97eb-11607a5bedf7}' '' 'String')
+    MenuNoGiveAccess   = @(New-Tweak $BlockedExt '{f81e9010-6ea4-11ce-a7ff-00aa003ca9f6}' '' 'String')
+    MenuNoCast         = @(New-Tweak $BlockedExt '{7AD84985-87B4-4a16-BE58-8B72A5B390F7}' '' 'String')
+    MenuNoLibrary      = @(New-Tweak $BlockedExt '{3dad6c5d-2167-4cae-9914-f99e41c12cfa}' '' 'String')
+    MenuNoQuickAccess  = @(
+        New-Tweak 'HKLM\SOFTWARE\Classes\Folder\shell\pintohome' 'ProgrammaticAccessOnly' '' 'String'
+        New-Tweak 'HKLM\SOFTWARE\Classes\Drive\shell\pintohome' 'ProgrammaticAccessOnly' '' 'String'
+        New-Tweak 'HKLM\SOFTWARE\Classes\*\shell\pintohomefile' 'ProgrammaticAccessOnly' '' 'String'
+    )
+    MenuNoPinToStart   = @(New-Tweak $BlockedExt '{470C0EBD-5D73-4d58-9CED-E91E22E23282}' '' 'String')
+    MenuNoPrevVersions = @(New-Tweak $BlockedExt '{596AB062-B4D2-4215-9F74-E9109B0A8153}' '' 'String')
+    MenuNoTroubleshoot = @(New-Tweak $BlockedExt '{1d27f844-3a1f-4410-85ac-14651078412d}' '' 'String')
+    MenuNoDefenderScan = @(New-Tweak $BlockedExt '{09A47860-11B0-4DA5-AFA5-26D86198A780}' '' 'String')
+    MenuNoOneDrive     = @(New-Tweak 'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked' '{1FA0E654-C9F2-4A1F-9800-B9A75D744B00}' '' 'String')
+    MenuNoTerminal     = @(New-Tweak $BlockedExt '{9F156763-7844-4DC4-B2B1-901F640F5155}' '' 'String')
+}
+
+# Run as administrator for scripts and installers (from ZOICWARE, UltimateContextMenu\runAsAdmin.reg).
+$MenuRunAsAdminRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas' 'HasLUAShield' '' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas\command' '' 'powershell.exe "-Command" "if((Get-ExecutionPolicy ) -ne ''AllSigned'') { Set-ExecutionPolicy -Scope Process Bypass }; & ''%1''"' 'ExpandString'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Msi.Package\shell\runas' 'HasLUAShield' '' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\Msi.Package\shell\runas\command' '' '"%SystemRoot%\System32\msiexec.exe" /i "%1" %*' 'ExpandString'
+    New-Tweak 'HKLM\SOFTWARE\Classes\VBSFile\Shell\runas' 'HasLUAShield' '' 'String'
+    New-Tweak 'HKLM\SOFTWARE\Classes\VBSFile\Shell\runas\command' '' '"%SystemRoot%\System32\WScript.exe" "%1" %*' 'ExpandString'
+)
+
+# Native NVMe driver (from Ultimate, 8 Advanced\19): feature overrides plus Safe Mode entries so Safe Mode still boots.
+$NvmeRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '735209102' 1 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '3244671118' 1 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '1853569164' 1 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '156965516' 1 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\{75416E63-5912-4DFA-AE8F-3EFACCAFFB14}' '' 'Storage disks' 'String'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\{75416E63-5912-4DFA-AE8F-3EFACCAFFB14}' '' 'Storage disks' 'String'
+)
+
 $KnownStuckValues = @('HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\WMI\Autologger\Diagtrack-Listener|Start')
 #endregion
 
@@ -2017,6 +2081,7 @@ $script:State = @{
     PowerOverlay = $null
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
     CreatedKeys = [System.Collections.Generic.List[object]]::new()
+    NetBindings = [System.Collections.Generic.List[object]]::new()
 }
 $script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
@@ -2072,7 +2137,7 @@ function Invoke-Step {
 function Import-State {
     if (-not (Test-Path -LiteralPath $StateFile)) { return }
     $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys') {
+    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings') {
         if ($raw.PSObject.Properties[$section] -and $raw.$section) {
             foreach ($item in @($raw.$section)) {
                 if ($section -eq 'Registry') {
@@ -3660,6 +3725,136 @@ function Set-TimeServer {
 }
 #endregion
 
+#region NVMe, IPv4, startup review, benchmark ------------------------------------------------
+function Set-NvmeNativeDriver {
+    # The native NVMe stack ships with Windows 11 24H2 (build 26100). On older builds the overrides do nothing useful.
+    if ([Environment]::OSVersion.Version.Build -lt 26100) { Write-Log 'Native NVMe driver needs Windows 11 24H2 (build 26100) or later, skipped.' 'WARN'; return }
+    Set-TweakList $NvmeRegs
+    if (-not $script:DryRun) { Write-Log 'Native NVMe driver switched on. It takes effect after a restart; -Revert switches it off again.' 'WARN' }
+}
+
+function Set-IPv4Only {
+    # Only IPv6 is unbound. Ultimate also unbinds file sharing, the SMB client and QoS, which breaks network shares.
+    $bindings = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue
+        } | Where-Object { $_.Enabled })
+    if ($bindings.Count -eq 0) { Write-Log 'IPv4 only: IPv6 is already off on every physical adapter.'; return }
+    foreach ($b in $bindings) {
+        if (Test-DryRun "turn off IPv6 on adapter '$($b.Name)' (the connection drops for a moment)") { continue }
+        if (-not (Test-RecordedFirst $script:State.NetBindings { param($e) $e.Name -eq $b.Name })) {
+            $script:State.NetBindings.Add([pscustomobject]@{ Name = $b.Name; ComponentId = 'ms_tcpip6' })
+        }
+        Disable-NetAdapterBinding -Name $b.Name -ComponentID 'ms_tcpip6' -ErrorAction Stop
+        Write-Log "IPv6 turned off on '$($b.Name)'." 'OK'
+    }
+}
+
+function Restore-NetBindings {
+    foreach ($b in $script:State.NetBindings) {
+        if ($b.ComponentId -ne 'ms_tcpip6') { Write-Log "Unexpected saved binding '$($b.ComponentId)', not restoring it." 'WARN'; continue }
+        try { Enable-NetAdapterBinding -Name $b.Name -ComponentID 'ms_tcpip6' -ErrorAction Stop; Write-Log "IPv6 turned back on for '$($b.Name)'." 'OK' }
+        catch { Write-Log "Could not turn IPv6 back on for '$($b.Name)' (adapter renamed or removed?). $($_.Exception.Message)" 'WARN' }
+    }
+}
+
+function Show-StartupReview {
+    # Lists what starts with Windows, for a person to review. Changes nothing (RunKeys is the option that clears).
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $runKeys = 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce',
+    'HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run', 'HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce',
+    'HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
+    foreach ($k in $runKeys) {
+        $key = Open-RegKey -Full $k
+        if (-not $key) { continue }
+        try { foreach ($n in $key.GetValueNames()) { $rows.Add([pscustomobject]@{ Kind = 'Run key'; Name = $n; Command = [string]$key.GetValue($n); Where = $k }) } }
+        finally { $key.Close() }
+    }
+    foreach ($dir in @([Environment]::GetFolderPath('Startup'), [Environment]::GetFolderPath('CommonStartup'))) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'desktop.ini' })) {
+            $rows.Add([pscustomobject]@{ Kind = 'Startup folder'; Name = $f.Name; Command = $f.FullName; Where = $dir })
+        }
+    }
+    foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' -and $_.TaskPath -notlike '\Microsoft\*' })) {
+        $triggers = @($t.Triggers | ForEach-Object { $_.CimClass.CimClassName })
+        if (-not ($triggers -match 'Logon|Boot')) { continue }
+        $rows.Add([pscustomobject]@{ Kind = 'Task'; Name = "$($t.TaskPath)$($t.TaskName)"; Command = (@($t.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)".Trim() }) -join '; '); Where = ($triggers -join ', ') })
+    }
+    foreach ($s in @(Get-CimInstance -ClassName Win32_Service -Filter "StartMode = 'Auto'" -ErrorAction SilentlyContinue)) {
+        $exe = ([string]$s.PathName) -replace '^"([^"]+)".*$', '$1' -replace '^(\S+\.exe).*$', '$1'
+        $company = ''
+        try { $company = [string](Get-Item -LiteralPath $exe -ErrorAction Stop).VersionInfo.CompanyName } catch { $company = '' }   # driver paths and svchost groups have no readable file here
+        if ($company -match 'Microsoft') { continue }
+        $rows.Add([pscustomobject]@{ Kind = 'Service'; Name = "$($s.Name) ($($s.DisplayName))"; Command = $s.PathName; Where = $(if ($company) { $company } else { 'unknown publisher' }) })
+    }
+    $file = Join-Path $StateDir ('startup-review-{0:yyyyMMdd-HHmmss}.txt' -f (Get-Date))
+    $text = ($rows | Sort-Object Kind, Name | Format-Table Kind, Name, Command, Where -AutoSize -Wrap | Out-String -Width 220)
+    Set-Content -LiteralPath $file -Value $text -Encoding UTF8
+    Write-Host $text
+    Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by Packages) shows more detail."
+}
+
+function Get-TimerResolution {
+    if (-not ('Native.NtTimer' -as [type])) {
+        Add-Type -Namespace Native -Name NtTimer -MemberDefinition @'
+[DllImport("ntdll.dll")]
+public static extern int NtQueryTimerResolution(out uint minimum, out uint maximum, out uint actual);
+'@
+    }
+    $min = [uint32]0; $max = [uint32]0; $now = [uint32]0
+    [void][Native.NtTimer]::NtQueryTimerResolution([ref]$min, [ref]$max, [ref]$now)
+    # Units of 100 ns; reported in milliseconds.
+    return [pscustomobject]@{ CurrentMs = [Math]::Round($now / 10000, 3); FinestMs = [Math]::Round($max / 10000, 3); CoarsestMs = [Math]::Round($min / 10000, 3) }
+}
+
+function Invoke-Benchmark {
+    # Measurements that the performance options are meant to change, saved as JSON and compared with the previous
+    # benchmark on this machine. Takes about 30 seconds. Changes nothing.
+    Write-Log 'Benchmark: measuring for about 30 seconds. Close other programs for steadier numbers.'
+    $m = [ordered]@{}
+    $boot = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents 1 -ErrorAction SilentlyContinue
+    $m['Boot time, last restart (s)'] = $(if ($boot) { [Math]::Round(([int](@(([xml]$boot.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text')) / 1000, 1) } else { $null })
+    $timer = Get-TimerResolution
+    $m['Timer resolution now (ms)'] = $timer.CurrentMs
+    $m['Timer resolution finest (ms)'] = $timer.FinestMs
+    $watch = [Diagnostics.Stopwatch]::new(); $sleeps = 200
+    $watch.Start(); for ($i = 0; $i -lt $sleeps; $i++) { [Threading.Thread]::Sleep(1) }; $watch.Stop()
+    $m['Sleep(1) actual (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds / $sleeps, 3)
+    $probe = Join-Path $env:SystemRoot 'System32\kernel32.dll'; $calls = 20000
+    $watch.Restart(); for ($i = 0; $i -lt $calls; $i++) { [void][IO.File]::Exists($probe) }; $watch.Stop()
+    $m['Kernel call cost, file check (us)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds * 1000 / $calls, 2)
+    $watch.Restart(); $x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x = ($x + $i) % 1000003 }; $watch.Stop()
+    $m['CPU loop, 3M steps (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds, 0)
+    # Processor counters through WMI: the class and property names are the same in every Windows language.
+    $samples = @(for ($i = 0; $i -lt 10; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
+    $m['DPC time (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentDPCTime -Average).Average), 2)
+    $m['Interrupt time, ISR (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentInterruptTime -Average).Average), 2)
+    $m['DPCs queued per s'] = [Math]::Round((($samples | Measure-Object -Property DPCsQueuedPersec -Average).Average), 0)
+    $m['Interrupts per s'] = [Math]::Round((($samples | Measure-Object -Property InterruptsPersec -Average).Average), 0)
+    $mm = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverride'
+    $mpo = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Dwm' -Name 'OverlayTestMode'
+    $context = [ordered]@{
+        'Spectre/Meltdown mitigations' = $(if ($mm.Existed -and [int]$mm.Value -eq 3) { 'off' } else { 'on' })
+        'Multiplane overlay'           = $(if ($mpo.Existed -and [int]$mpo.Value -eq 5) { 'off' } else { 'on' })
+        'Timer service'                = $(if (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }) { 'running' } else { 'not running' })
+        'Power plan'                   = ((powercfg /getactivescheme) | Out-String).Trim() -replace '^.*\(([^)]*)\)\s*$', '$1'
+    }
+    $previous = Get-ChildItem -Path (Join-Path $StateDir 'benchmark-*.json') -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+    $before = if ($previous) { Get-Content -LiteralPath $previous.FullName -Raw | ConvertFrom-Json } else { $null }
+    $rows = foreach ($k in $m.Keys) {
+        $old = $null
+        if ($before -and $before.Metrics.PSObject.Properties[$k]) { $old = $before.Metrics.$k }
+        [pscustomobject]@{ Measurement = $k; Now = $m[$k]; Before = $old; Change = $(if ($null -ne $old -and $null -ne $m[$k] -and [double]$old -ne 0) { '{0:+0.0;-0.0;0}%' -f ((([double]$m[$k] - [double]$old) / [double]$old) * 100) } else { '' }) }
+    }
+    Write-Host ($rows | Format-Table -AutoSize | Out-String)
+    Write-Host ($context.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
+    if ($before) { Write-Log "Compared with the benchmark of $($before.When). Lower is better for every measurement." }
+    else { Write-Log 'First benchmark on this machine. Run it again after a run and a restart to compare.' }
+    $file = Join-Path $StateDir ('benchmark-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
+    ConvertTo-Json -InputObject ([pscustomobject]@{ When = (Get-Date).ToString('o'); Metrics = [pscustomobject]$m; Context = [pscustomobject]$context }) -Depth 4 | Set-Content -LiteralPath $file -Encoding UTF8
+    Write-Log "Benchmark saved to $file" 'OK'
+}
+#endregion
+
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
 $script:HealthItems = [System.Collections.Generic.List[object]]::new()
@@ -3894,6 +4089,10 @@ function Test-HealthRegistry {
     if ($Opt['MenuKillNotResponding']) { Test-HealthTweakTable -Label 'Kill not responding menu' -Tweaks $MenuKillRegs }
     if ($Opt['MenuRestartExplorer']) { Test-HealthTweakTable -Label 'Restart Explorer menu' -Tweaks $MenuRestartExplorerRegs }
     if ($Opt['MenuTakeOwnership']) { Test-HealthTweakTable -Label 'Take ownership menu' -Tweaks $MenuTakeOwnershipRegs }
+    if ($Opt['MenuRunAsAdmin']) { Test-HealthTweakTable -Label 'Run as administrator menu' -Tweaks $MenuRunAsAdminRegs }
+    foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
+    if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
+    if ($Opt['NvmeNativeDriver']) { Test-HealthTweakTable -Label 'Native NVMe driver' -Tweaks $NvmeRegs }
 }
 
 function Test-HealthHosts {
@@ -4065,6 +4264,11 @@ function Test-HealthSystem {
         $nx = Get-BcdValue 'nx'
         if ($nx -eq 'AlwaysOff') { Write-Health 'PASS' 'System' 'Data Execution Prevention is off in the boot configuration (nx AlwaysOff).' }
         else { Write-Health 'WARN' 'System' "Data Execution Prevention is not off (nx is $(if ($nx) { $nx } else { 'not set' })). Secure Boot must be off for bcdedit to accept the change." }
+    }
+    if ($Opt['IPv4Only']) {
+        $v6 = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue } | Where-Object { $_.Enabled })
+        if ($v6.Count -eq 0) { Write-Health 'PASS' 'System' 'IPv6 is off on every physical network adapter.' }
+        else { Write-Health 'WARN' 'System' "IPv6 is still on for: $(@($v6 | ForEach-Object { $_.Name }) -join ', ')." }
     }
     if ($Opt['SearchIndexingOff']) {
         if ((Get-ServiceStartNow 'WSearch') -eq 4) { Write-Health 'PASS' 'System' 'Windows Search indexing is disabled.' }
@@ -4323,6 +4527,12 @@ function Invoke-Apply {
     if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' { Set-TweakList $MenuKillRegs } }
     if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' { Set-TweakList $MenuRestartExplorerRegs } }
     if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' { Set-TweakList $MenuTakeOwnershipRegs } }
+    if ($Opt['MenuRunAsAdmin']) { Invoke-Step 'Run as administrator menu' { Set-TweakList $MenuRunAsAdminRegs } }
+    $menus = @($MenuBlocks.Keys | Where-Object { $Opt[$_] })
+    if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
+    if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' { Set-TweakList $LockScreenRegs } }
+    if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' { Set-NvmeNativeDriver } }
+    if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' { Set-IPv4Only } }
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
     if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
     if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
@@ -4382,6 +4592,7 @@ function Invoke-Revert {
     }
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
+    if ($script:State.NetBindings.Count -gt 0) { Invoke-Step 'Turn IPv6 back on' { Restore-NetBindings } }
     if ($script:State.StartLayout) { Invoke-Step 'Restore Start menu layout' { Restore-StartPins } }
     if ($script:State.DesktopMoved.Count -gt 0) { Invoke-Step 'Restore desktop shortcuts' { Restore-DesktopIcons } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*Control Panel\Mouse' }).Count -gt 0) { Invoke-Step 'Refresh mouse settings' { Sync-MouseSettings } }
@@ -4402,6 +4613,8 @@ Initialize-StateDir
 Import-State
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
+if ($Benchmark) { Invoke-Benchmark; exit 0 }
+if ($StartupReview) { Show-StartupReview; exit 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
     Invoke-HealthCheck

@@ -33,7 +33,7 @@ Check 'No state entry named Keys (shadows the hashtable property)' ($text -notma
 # Load the data blocks and the pure helper functions, then test them
 $wantedFns = 'Import-RunProfile', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues'
+$wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -70,10 +70,10 @@ foreach ($o in 'DevicePowerSaving', 'TimeServerPool', 'MenuKillNotResponding', '
 foreach ($o in 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff', 'FastShutdown', 'BlockFeatureUpgrades', 'SearchIndexingOff', 'MenuTakeOwnership') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
 
 # Every option the code reads exists, and every option exists for a reason.
-$used = @([regex]::Matches($text, "\`$Opt\['([A-Za-z]+)'\]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$used = @([regex]::Matches($text, "\`$Opt\['([A-Za-z0-9]+)'\]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 $unknown = @($used | Where-Object { -not $OptionInfo.Contains($_) })
 Check 'Every option the code reads is defined' ($unknown.Count -eq 0) ($unknown -join ', ')
-$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and (Get-RegGroupOption $_) -ne $_ -and $_ -notin 'Registry', 'CoreIsolation', 'HideLockOption', 'HideSleepOption' })
+$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and -not $MenuBlocks.Contains($_) -and (Get-RegGroupOption $_) -ne $_ -and $_ -notin 'Registry', 'CoreIsolation', 'HideLockOption', 'HideSleepOption' })
 Check 'Every defined option is used' ($unused.Count -eq 0) ($unused -join ', ')
 
 Check 'Registry paths in ControlSet001 are written to CurrentControlSet' ((ConvertTo-FullRegPath 'HKLM\SYSTEM\ControlSet001\Services\X') -eq 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\X')
@@ -81,6 +81,13 @@ $diag = @($TelemetryRegs | Where-Object { $_.Path -like '*Diagtrack-Listener' -a
 Check 'The protected Diagtrack value is recognised after path normalisation' ($diag.Count -eq 1 -and $KnownStuckValues -contains ((ConvertTo-FullRegPath $diag[0].Path) + '|Start'))
 Check 'Device power values are DWord 0 or a single zero byte' (@($DevicePowerValues | Where-Object { -not (($_.Type -eq 'DWord' -and $_.Value -eq 0) -or ($_.Type -eq 'Binary' -and (@($_.Value) -join ',') -eq '0')) }).Count -eq 0)
 Check 'Right click menu entries have a command' ((@($MenuKillRegs | Where-Object { $_.Path -like '*\command' -and $_.Name -eq '' }).Count -eq 1) -and (@($MenuRestartExplorerRegs | Where-Object { $_.Path -like '*\command' -and $_.Name -eq '' }).Count -eq 1))
+$menuBad = @($MenuBlocks.Keys | Where-Object { -not $OptionInfo.Contains($_) -or $OptionInfo[$_][0] })
+Check 'Every right click menu cleanup is an option, off by default' ($menuBad.Count -eq 0) ($menuBad -join ', ')
+$blocked = @($MenuBlocks.Values | ForEach-Object { $_ } | Where-Object { $_.Path -like '*Shell Extensions\Blocked' })
+Check 'Blocked shell extensions are named by a CLSID' (@($blocked | Where-Object { $_.Name -notmatch '^\{[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}$' }).Count -eq 0)
+foreach ($o in 'MenuRunAsAdmin', 'LockScreenOff', 'IPv4Only', 'NvmeNativeDriver') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
+Check 'Run as administrator commands keep the file argument' (@($MenuRunAsAdminRegs | Where-Object { $_.Path -like '*\command' -and $_.Value -notmatch '%1' }).Count -eq 0)
+Check 'Native NVMe driver sets 4 overrides and both Safe Mode entries' (@($NvmeRegs | Where-Object { $_.Path -like '*Overrides' }).Count -eq 4 -and @($NvmeRegs | Where-Object { $_.Path -like '*SafeBoot*' }).Count -eq 2)
 Check 'Power mode names cover the default overlay' ($PowerOverlayNames['00000000-0000-0000-0000-000000000000'] -eq 'OVERLAY_SCHEME_NONE')
 
 # Profiles: values are applied, the command line wins, unknown or invalid settings are refused.

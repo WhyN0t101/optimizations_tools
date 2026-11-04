@@ -18,7 +18,10 @@ passes `A,B` as one name and fails with "Unknown option".
 Keep a set of choices in a file and pass it with `-ProfilePath .\profiles\example.json`. Command line parameters win over
 the profile.
 
-## Options added in v5 and v6
+Two modes change nothing: `-Benchmark` measures timer resolution, latency (DPC and ISR), kernel call cost and boot
+time and compares with the previous benchmark; `-StartupReview` lists everything that starts with Windows.
+
+## Options added in v5 to v7
 
 See `-ListOptions` for every option.
 
@@ -44,6 +47,11 @@ See `-ListOptions` for every option.
 | `BlockFeatureUpgrades` | off | Stay on the current Windows version; security updates continue until it ends |
 | `SearchIndexingOff` | off | Windows Search indexer off (search gets slower) |
 | `MenuTakeOwnership` | off | "Take ownership" in the right click menu of files and folders |
+| `MenuRunAsAdmin` | off | "Run as administrator" for .ps1, .msi and .vbs files |
+| `MenuNoShare`, `MenuNoGiveAccess`, `MenuNoCast`, `MenuNoLibrary`, `MenuNoQuickAccess`, `MenuNoPinToStart`, `MenuNoPrevVersions`, `MenuNoTroubleshoot`, `MenuNoDefenderScan`, `MenuNoOneDrive`, `MenuNoTerminal` | off | Each removes one right click menu entry |
+| `LockScreenOff` | off | No lock screen picture, straight to sign in |
+| `IPv4Only` | off | IPv6 off on physical adapters |
+| `NvmeNativeDriver` | off | Newer native NVMe driver (Windows 11 24H2+), experimental |
 
 Enable the off ones with, for example, `-Enable SpectreMeltdownOff,TimerResolution`. Everything except the two cleanups
 is undone by `-Revert`.

@@ -44,6 +44,9 @@ Every risky item is a named option. Defaults follow upstream except your exclusi
 - Not offered: SMT off and per app priority. Ultimate implements both as a temporary affinity or priority on one running
   process, which is not a system setting.
 
+- v7 (not yet run in the VM): `MenuRunAsAdmin`, eleven right click menu removals, `LockScreenOff`, `IPv4Only` and
+  `NvmeNativeDriver`, all off by default; `-Benchmark` and `-StartupReview` modes.
+
 ## Test status
 - Static checks (`tests/Test-Parse.ps1`) on Windows PowerShell 5.1 and PowerShell 7.
 - v5 full run on the Windows 11 VM (build 26200, 3 Nov 2026): no errors, health check 42 passed, 2 warnings (Gaming
