@@ -25,8 +25,9 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 7. JSON state: PowerShell 7 turns ISO date strings into dates when reading JSON. Registry strings are stored with an `s:` prefix for that reason.
 
 ## Workflow for a change
-Edit the template, rebuild, run `tests/Test-Parse.ps1`, run `-DryRun` in the VM, run for real in the VM, restart, run `-HealthCheck`.
-Send the newest `C:\ProgramData\FocusedTweaks\run-*.log` back when something looks wrong.
+Edit the template, rebuild, run `tests/Test-Parse.ps1`, then let the user run `tools/Test-InVm.ps1` (see
+`docs/VM-TESTING.md`). It drives the VM with vmrun through dry run, real run, restart, health check and `-Revert`, and
+copies logs and JSON results to `test-results/<time>/`. Read `summary.txt` there first.
 
 ## When upstream changes
 Update the ZOICWARE checkout, rebuild (the build asserts the expected list sizes and fails loudly), run the tests, then a dry run.

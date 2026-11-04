@@ -4,3 +4,4 @@ __pycache__/
 # local copy of the upstream sources used by tools/build.py
 ZOICWARE-main/
 ZOICWARE/
+test-results/

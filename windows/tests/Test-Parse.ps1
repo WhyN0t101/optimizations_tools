@@ -139,5 +139,12 @@ Remove-Item -LiteralPath $root -Recurse -Force
 $hosts = "127.0.0.1 localhost`r`n# FocusedTweaks BEGIN t`r`n0.0.0.0 a.com`r`n# FocusedTweaks END t`r`n"
 Check 'Hosts block removal leaves other lines alone' ((Remove-HostsText -Text $hosts -Name 't') -eq "127.0.0.1 localhost`r`n")
 
+$vmTool = Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\Test-InVm.ps1'
+$vmErrs = $null; $vmTokens = $null
+$vmAst = [System.Management.Automation.Language.Parser]::ParseFile($vmTool, [ref]$vmTokens, [ref]$vmErrs)
+Check 'tools\Test-InVm.ps1 parses without errors' ($vmErrs.Count -eq 0) ($vmErrs | ForEach-Object { "$($_.Extent.StartLineNumber): $($_.Message)" } | Out-String)
+$vmText = [IO.File]::ReadAllText($vmTool)
+Check 'tools\Test-InVm.ps1 is ASCII and never starts FocusedTweaks on this PC' (($vmText -cmatch '^[\x00-\x7F]*$') -and ($vmText -notmatch '(?m)^\s*&\s*\$scriptFile'))
+
 if ($script:fail -gt 0) { Write-Host "`n$script:fail check(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host "`nAll checks passed." -ForegroundColor Green

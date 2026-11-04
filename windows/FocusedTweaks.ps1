@@ -3662,6 +3662,7 @@ function Set-TimeServer {
 
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
+$script:HealthItems = [System.Collections.Generic.List[object]]::new()
 $script:SoftRuntime = $false
 $script:PostApply = $false
 $script:AppliedAt = $null
@@ -3669,6 +3670,7 @@ $script:AppliedAt = $null
 function Write-Health {
     param([ValidateSet('PASS', 'WARN', 'FAIL', 'INFO')][string]$Status, [string]$Area, [string]$Message)
     $script:Health[$Status]++
+    $script:HealthItems.Add([pscustomobject]@{ Status = $Status; Area = $Area; Message = $Message })
     $colour = switch ($Status) { 'PASS' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Gray' } }
     $line = '{0:HH:mm:ss} [{1}] {2,-9} {3}' -f (Get-Date), $Status, $Area, $Message
     Write-Host $line -ForegroundColor $colour
@@ -4135,8 +4137,17 @@ function Restore-SavedRunSettings {
     Write-Log "Using the options saved from the run on $($run.When)."
 }
 
+function Save-ResultJson {
+    # Results as JSON next to the log, so tools/Test-InVm.ps1 can summarise a run without parsing log text.
+    param([string]$Kind, [hashtable]$Counts, [object[]]$Items)
+    $file = Join-Path $StateDir ('{0}-{1:yyyyMMdd-HHmmss}.json' -f $Kind, (Get-Date))
+    $data = [pscustomobject]@{ When = (Get-Date).ToString('o'); Build = [Environment]::OSVersion.Version.Build; Counts = $Counts; Items = @($Items) }
+    ConvertTo-Json -InputObject $data -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
+}
+
 function Invoke-HealthCheck {
     $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
+    $script:HealthItems.Clear()
     $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
     $applied = $null
     if ($script:State.Run -and $script:State.Run.When) {
@@ -4162,6 +4173,41 @@ function Invoke-HealthCheck {
     Write-Log ("Health result: {0} passed, {1} warning(s), {2} failed, {3} note(s)." -f $h.PASS, $h.WARN, $h.FAIL, $h.INFO) $(if ($h.FAIL -gt 0) { 'ERROR' } elseif ($h.WARN -gt 0) { 'WARN' } else { 'OK' })
     if ($h.FAIL -gt 0) { Write-Log 'Failures mean something you asked to keep is broken. Undo one item with -Skip <Option>, or everything with -Revert.' 'ERROR' }
     if (-not $HealthCheckLaunch) { Write-Log 'Add -HealthCheckLaunch to also open Settings, Store, Photos, Paint and Xbox and confirm they start.' }
+    if (-not $script:DryRun) { Save-ResultJson -Kind 'health' -Counts $h -Items $script:HealthItems.ToArray() }
+}
+
+function Test-RevertResult {
+    # Proves -Revert worked: every recorded registry value must be back to what it was before the first run, deleted
+    # tasks must exist again, the hosts blocks must be gone and the timer service removed.
+    $items = [System.Collections.Generic.List[object]]::new()
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $checked = 0
+    foreach ($e in $script:State.Registry) {
+        # The first entry per value is the original; later duplicates come from older key spellings.
+        if (-not $seen.Add("$($e.Path)|$($e.Name)")) { continue }
+        $checked++
+        $now = Get-RegSnapshot -Full $e.Path -Name $e.Name
+        $was = if ($e.Existed) { '{0} ({1})' -f (@($e.Value) -join ','), $e.Kind } else { '<missing>' }
+        $is = if ($now.Existed) { '{0} ({1})' -f (@($now.Value) -join ','), $now.Kind } else { '<missing>' }
+        if ($was -ne $is) { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Registry'; Message = "$($e.Path)\$(Show-RegName $e.Name) was $was, is $is" }) }
+    }
+    $badReg = $items.Count
+    foreach ($t in @($script:State.Tasks | Where-Object { $_.Action -eq 'Deleted' })) {
+        if (-not (Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue)) {
+            $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task not restored: $($t.Path)$($t.Name)" })
+        }
+    }
+    $hosts = [IO.File]::ReadAllText($HostsPath)
+    foreach ($name in $script:State.Hosts) {
+        if ($hosts -match "# FocusedTweaks BEGIN $([regex]::Escape($name))") { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Hosts'; Message = "Hosts block still present: $name" }) }
+    }
+    if ($script:State.TimerService -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue)) {
+        $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'System'; Message = "Service $TimerServiceName still exists" })
+    }
+    foreach ($i in $items) { Add-Content -Path $LogFile -Value "          revert check: [$($i.Area)] $($i.Message)" }
+    $level = if ($items.Count -eq 0) { 'OK' } else { 'WARN' }
+    Write-Log "Revert check: $($checked - $badReg) of $checked registry value(s) are back to their original, $($items.Count) item(s) differ in total. Details in the log." $level
+    Save-ResultJson -Kind 'revert-check' -Counts @{ Checked = $checked; Differ = $items.Count } -Items $items.ToArray()
 }
 #endregion
 
@@ -4343,6 +4389,7 @@ function Invoke-Revert {
         Write-Log ('Apps removed earlier (reinstall from the Store or winget if wanted): ' + (($script:State.Removed | Sort-Object -Unique) -join ', ')) 'WARN'
     }
     if ($script:ShellDirty) { Update-UserVisuals }
+    Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
     Write-Log "State archived to $archive"

@@ -50,5 +50,6 @@ is undone by `-Revert`.
 
 Third party licence notices are in `NOTICE.md`.
 
-Test in a virtual machine with a snapshot first. See `docs/SUMMARY.md` for what it does and how far it has been tested,
+Test in a virtual machine with a snapshot first. `tools\Test-InVm.ps1` automates that with VMware Workstation, see
+`docs/VM-TESTING.md`. See `docs/SUMMARY.md` for what it does and how far it has been tested,
 and `CLAUDE.md` for how the repo is built.
