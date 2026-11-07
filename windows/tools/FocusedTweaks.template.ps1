@@ -5,9 +5,11 @@
 
 .DESCRIPTION
     A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
-    named option. Defaults follow upstream behaviour, except the four registry groups you excluded (core
-    isolation, hide Lock, hide Sleep, hibernate off) and the services you asked to keep (Bluetooth, printing,
-    Delivery Optimization, radio management).
+    named option. Defaults aim for maximum performance with Windows still usable: things are removed or left
+    alone, never half done. Left alone by default because removing them gains nothing or costs speed: SSD
+    retrim (Optimize Drives service, Defrag tasks, automatic maintenance), time sync, TPM and BitLocker tasks,
+    display scaling, hide Lock, hide Sleep, hibernation, and the Bluetooth, printing and radio services.
+    Machine profiles (-ProfilePath) relax the defaults, for example a laptop keeping Spectre mitigations.
 
     Everything that changes the registry, hosts file, services, scheduled tasks, power plan, hibernation,
     memory compression, sleep study logs, account password age and Defender is recorded first, and the state
@@ -16,12 +18,12 @@
     Not reversible by -Revert: app debloat, software installed by winget or NVIDIA, NVIDIA driver files
     removed by the telemetry strip, the fault tolerant heap reset, and the temp and update cache cleanup.
 
-    Performance options that lower security (SpectreMeltdownOff, DepOff) and the TimerResolution service are
-    off by default. Switch them on with -Enable.
+    SpectreMeltdownOff, CoreIsolation and the TimerResolution service are on by default: they trade security
+    or battery for speed. Switch them off with -Skip. DepOff stays off because it needs Secure Boot off.
 
     Not ported from upstream (they edit per app settings.dat hives or are cosmetic): Store and App Actions
     settings, calendar expansion, priority notification blob, terminal and console colours, Task Manager
-    always on top, HDR on battery, DDU and Safe Mode driver cleaning.
+    always on top, DDU and Safe Mode driver cleaning.
 
     Use -Only A,B to run just those options (for example -Only ClearStartPins,RemoveQuickAssist).
     Use -ListOptions to see every option and its default, -ListRegGroups to see the registry groups.
@@ -126,7 +128,7 @@ $OptionInfo = [ordered]@{
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization')
     RunKeys               = @($true, 'Delete the HKCU and HKLM Run keys once, clearing every startup entry')
     PrivacyDenials        = @($true, 'Deny app access to camera, location, radios, files and more, and reset the consent database')
-    CoreIsolation         = @($false, 'Disable core isolation (VBS, HVCI, Credential Guard). Off, you excluded it')
+    CoreIsolation         = @($true, 'Disable core isolation (VBS, HVCI, Credential Guard). Faster, but kernel memory loses its hypervisor protection')
     HideLockOption        = @($false, 'Hide Lock in the Start power menu. Off, you excluded it')
     HideSleepOption       = @($false, 'Hide Sleep in the Start power menu. Off, you excluded it')
     RegHibernateOff       = @($false, 'HibernateEnabled 0 in the registry. Off, you excluded it')
@@ -143,13 +145,14 @@ $OptionInfo = [ordered]@{
     TelemetryHosts        = @($true, 'Block 30 Microsoft telemetry domains in the hosts file')
     BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)')
     Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache')
-    SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, defrag, tablet input, wallet and more')
+    SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more')
+    SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time')
     SvcBiometrics         = @($true, 'Disable the Windows Biometric Service')
     SvcSmartCard          = @($true, 'Disable smart card services')
     SvcDiagnostics        = @($true, 'Disable diagnostic policy and Wdi services (troubleshooters)')
     SvcBluetooth          = @($false, 'Disable Bluetooth services. Off, you asked to keep Bluetooth')
     SvcPrinting           = @($false, 'Disable print spooler services. Off, you asked to keep printing')
-    SvcDeliveryOpt        = @($false, 'Disable Delivery Optimization. Off, you asked to keep it')
+    SvcDeliveryOpt        = @($true, 'Disable Delivery Optimization (peer to peer update sharing in the background)')
     SvcRadio              = @($false, 'Disable Radio Management (airplane mode and radio toggles). Off, it supports Bluetooth')
     DriverExclusion       = @($true, 'Exclude drivers from Windows Update and stop device metadata downloads')
     SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications')
@@ -162,6 +165,8 @@ $OptionInfo = [ordered]@{
     HideAllDesktopIcons   = @($false, 'Also hide every other desktop icon (files stay on disk). Same as View, Show desktop icons')
     EnableSystemRestore   = @($false, 'If the restore point fails, turn System Protection on for the system drive and retry')
     ClearStartPins        = @($true, 'Clear all pinned apps from the Start menu (Windows 11, current user, layout is backed up)')
+    ForceDpi100           = @($false, 'Force 100% display scaling and drop per-monitor scaling (upstream groups). Off: no speed gain, and it skews the mouse profile')
+    NoAutoMaintenance     = @($false, 'Turn off Windows automatic maintenance (upstream group). Off: it runs SSD retrim, and only when idle')
     NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access')
     RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)')
@@ -169,16 +174,16 @@ $OptionInfo = [ordered]@{
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it')
     TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible')
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible')
-    SpectreMeltdownOff    = @($false, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, weaker security. Needs a restart')
+    SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart')
     DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart')
-    TimerResolution       = @($false, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms) while on AC power')
+    TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Costs battery on laptops')
     DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)')
     DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)')
     MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups')
     WriteCacheFlushOff    = @($false, 'Turn off write cache buffer flushing on SATA and NVMe disks. Faster, but a power cut can lose data')
-    FastShutdown          = @($false, 'Shorter shutdown timeouts and end hung apps automatically. Unsaved work in hung apps is lost')
+    FastShutdown          = @($true, 'Shorter shutdown timeouts and end hung apps automatically. Unsaved work in hung apps is lost')
     BlockFeatureUpgrades  = @($false, 'Stay on the current Windows version (TargetReleaseVersion). Security updates continue until it ends')
-    SearchIndexingOff     = @($false, 'Disable the Windows Search indexer service (search in Start and Explorer gets slower)')
+    SearchIndexingOff     = @($true, 'Disable the Windows Search indexer service (search in Start and Explorer gets slower)')
     TimeServerPool        = @($true, 'Sync the clock from pool.ntp.org instead of time.windows.com')
     MenuKillNotResponding = @($true, 'Add "Kill not responding tasks" to the desktop right click menu')
     MenuRestartExplorer   = @($true, 'Add "Restart Explorer" to the desktop right click menu')
@@ -326,6 +331,15 @@ $KeepApps = @(
 )
 
 # Telemetry scheduled tasks, used by -TaskMode Disable.
+# Never deleted by TaskMode Delete, whatever the profile says: no speed gain, real breakage.
+$TaskKeepBuiltIn = @(
+    '\Microsoft\Windows\Time Synchronization\*'
+    '\Microsoft\Windows\Defrag\*'
+    '\Microsoft\Windows\TPM\*'
+    '\Microsoft\Windows\BitLocker\*'
+)
+$TimeSyncTask = @{ Path = '\Microsoft\Windows\Time Synchronization\'; Name = 'SynchronizeTime' }
+
 $TelemetryTasks = @(
     @{ Path = '\Microsoft\Windows\Application Experience\'; Name = 'Microsoft Compatibility Appraiser' }
     @{ Path = '\Microsoft\Windows\Application Experience\'; Name = 'ProgramDataUpdater' }
@@ -398,10 +412,9 @@ $MitigationRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 3 'DWord'
 )
 
-# Timer resolution service (reduced from Ultimate, 6 Windows\30): holds the finest timer resolution while on AC power.
+# Timer resolution service (reduced from Ultimate, 6 Windows\30): sets the finest timer resolution at start and holds it.
 # Windows 10 2004 and later honour the request per process, so GlobalTimerResolutionRequests makes it system wide.
-# On battery it lets go: a 0.5 ms timer fires about 2000 times a second and keeps the CPU from idling, which costs
-# battery life for little gain. Desktops always report AC power, so they hold it all the time.
+# A 0.5 ms timer fires about 2000 times a second, which costs battery: laptop profiles should skip this option.
 $TimerServiceName = 'FocusedTimerResolution'
 $TimerGlobalRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' 1 'DWord'
@@ -418,78 +431,19 @@ public class TimerResolutionService : ServiceBase
     [DllImport("ntdll.dll")]
     static extern int NtSetTimerResolution(uint desired, bool set, out uint current);
 
-    [StructLayout(LayoutKind.Sequential)]
-    struct SystemPowerStatus
+    public TimerResolutionService() { ServiceName = "FocusedTimerResolution"; }
+
+    protected override void OnStart(string[] args)
     {
-        public byte ACLineStatus;
-        public byte BatteryFlag;
-        public byte BatteryLifePercent;
-        public byte SystemStatusFlag;
-        public int BatteryLifeTime;
-        public int BatteryFullLifeTime;
-    }
-    [DllImport("kernel32.dll")]
-    static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
-
-    const byte AcOffline = 0;
-    readonly object gate = new object();
-    bool held;
-
-    public TimerResolutionService()
-    {
-        ServiceName = "FocusedTimerResolution";
-        CanHandlePowerEvent = true;
-    }
-
-    // Unknown power status (255) counts as AC, so the service keeps working where the battery cannot be read.
-    static bool OnBattery()
-    {
-        SystemPowerStatus status;
-        return GetSystemPowerStatus(out status) && status.ACLineStatus == AcOffline;
-    }
-
-    void Apply()
-    {
-        lock (gate)
-        {
-            bool want = !OnBattery();
-            if (want == held) return;
-            uint minimum, maximum, actual;
-            if (want)
-            {
-                NtQueryTimerResolution(out minimum, out maximum, out actual);
-                NtSetTimerResolution(maximum, true, out actual);
-            }
-            else
-            {
-                NtSetTimerResolution(0, false, out actual);
-            }
-            held = want;
-        }
-    }
-
-    protected override void OnStart(string[] args) { Apply(); }
-
-    protected override bool OnPowerEvent(PowerBroadcastStatus powerStatus)
-    {
-        if (powerStatus == PowerBroadcastStatus.PowerStatusChange ||
-            powerStatus == PowerBroadcastStatus.ResumeAutomatic ||
-            powerStatus == PowerBroadcastStatus.ResumeSuspend)
-        {
-            Apply();
-        }
-        return true;
+        uint minimum, maximum, actual;
+        NtQueryTimerResolution(out minimum, out maximum, out actual);
+        NtSetTimerResolution(maximum, true, out actual);
     }
 
     protected override void OnStop()
     {
-        lock (gate)
-        {
-            if (!held) return;
-            uint current;
-            NtSetTimerResolution(0, false, out current);
-            held = false;
-        }
+        uint current;
+        NtSetTimerResolution(0, false, out current);
     }
 
     public static void Main() { ServiceBase.Run(new TimerResolutionService()); }
@@ -1173,6 +1127,9 @@ function Get-RegGroupOption {
         'Disable sleep' { return 'HideSleepOption' }
         'Disable hibernate' { return 'RegHibernateOff' }
         'Enable end task*' { return 'TaskbarEndTask' }
+        '100% DPI scaling' { return 'ForceDpi100' }
+        'Disable fix scaling for apps' { return 'ForceDpi100' }
+        'Disable automatic maintenance' { return 'NoAutoMaintenance' }
         default { return 'Registry' }
     }
 }
@@ -1463,6 +1420,8 @@ function Disable-TelemetryTasks {
 
 function Remove-AllScheduledTasks {
     # Upstream behaviour: unregister every task except three. Each task is exported first so -Revert can restore it.
+    # The built-in keep list survives on top: deleting those gains no speed but stops time sync, TPM upkeep,
+    # BitLocker and SSD retrim.
     $dir = Join-Path $StateDir 'tasks'
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $tasks = @(Get-ScheduledTask | Where-Object {
@@ -1471,6 +1430,7 @@ function Remove-AllScheduledTasks {
     $deleted = 0; $failed = 0; $seen = 0
     foreach ($t in $tasks) {
         $full = "$($t.TaskPath)$($t.TaskName)"
+        if (Test-NameMatch $full $TaskKeepBuiltIn) { continue }
         if (Test-NameMatch $full $TaskKeep) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
@@ -2647,7 +2607,14 @@ function Test-HealthRegistry {
     if ($Opt['MpoOff']) { Test-HealthTweakTable -Label 'Multiplane overlay off' -Tweaks $MpoRegs }
     if ($Opt['FastShutdown']) { Test-HealthTweakTable -Label 'Faster shutdown' -Tweaks $FastShutdownRegs }
     if ($Opt['BlockFeatureUpgrades']) { Test-HealthTweakTable -Label 'Feature upgrade block' -Tweaks @(Get-FeatureUpgradeTweaks) }
-    if ($Opt['TimeServerPool']) { Test-HealthTweakTable -Label 'Time server' -Tweaks $TimeServerRegs }
+    if ($Opt['TimeServerPool']) {
+        Test-HealthTweakTable -Label 'Time server' -Tweaks $TimeServerRegs
+        # Without this task the time service is never started on a PC outside a domain, so the server setting is moot.
+        if (Get-ScheduledTask -TaskPath $TimeSyncTask.Path -TaskName $TimeSyncTask.Name -ErrorAction SilentlyContinue) {
+            Write-Health 'PASS' 'System' 'Time sync task is present, so the clock is kept in sync.'
+        }
+        else { Write-Health 'WARN' 'System' "Time sync task $($TimeSyncTask.Path)$($TimeSyncTask.Name) is missing, so the clock is not synced. Restore it from the task backups or with -Revert." }
+    }
     if ($Opt['MenuKillNotResponding']) { Test-HealthTweakTable -Label 'Kill not responding menu' -Tweaks $MenuKillRegs }
     if ($Opt['MenuRestartExplorer']) { Test-HealthTweakTable -Label 'Restart Explorer menu' -Tweaks $MenuRestartExplorerRegs }
     if ($Opt['MenuTakeOwnership']) { Test-HealthTweakTable -Label 'Take ownership menu' -Tweaks $MenuTakeOwnershipRegs }

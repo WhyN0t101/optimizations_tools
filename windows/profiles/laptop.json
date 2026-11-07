@@ -1,11 +1,8 @@
 {
   "Enable": [
     "HideAllDesktopIcons",
-    "SearchIndexingOff",
     "KeepDefinitionUpdates",
     "BlockFeatureUpgrades",
-    "TimerResolution",
-    "FastShutdown",
     "MenuTakeOwnership"
   ],
   "Skip": [
@@ -13,7 +10,11 @@
     "BiometricsPolicy",
     "SvcBiometrics",
     "Uac",
-    "SvcDiagnostics"
+    "SvcDiagnostics",
+    "SpectreMeltdownOff",
+    "CoreIsolation",
+    "TimerResolution",
+    "SleepStudy"
   ],
   "TaskMode": "Delete",
   "Defender": "Enable",

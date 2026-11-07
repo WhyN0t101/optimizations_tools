@@ -23,6 +23,13 @@ time and compares with the previous benchmark; `-StartupReview` lists everything
 
 ## Options
 
+The defaults aim for maximum performance: Spectre and Meltdown mitigations off, core isolation off, the
+timer resolution service on, non-essential services off, apps removed. Things are removed or left alone,
+never half done. A few things are always left alone because removing them gains no speed or costs it:
+SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. Use a profile to relax the defaults
+per machine; `profiles/laptop.json` keeps the mitigations and core isolation and skips the timer service
+to save battery.
+
 Every option, with its default and whether `-Revert` undoes it, is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
 That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
 

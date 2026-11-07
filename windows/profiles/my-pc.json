@@ -3,12 +3,8 @@
     "HideAllDesktopIcons",
     "RegHibernateOff",
     "DisableHibernate",
-    "SearchIndexingOff",
     "KeepDefinitionUpdates",
     "BlockFeatureUpgrades",
-    "TimerResolution",
-    "SpectreMeltdownOff",
-    "FastShutdown",
     "MenuTakeOwnership"
   ],
   "Skip": [],

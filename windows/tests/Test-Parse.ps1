@@ -31,9 +31,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Import-RunProfile', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Import-RunProfile', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs'
+$wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -47,8 +47,11 @@ Check 'Excluded by default: core isolation, lock, sleep, hibernate groups map to
 
 $conflicts = @(); foreach ($g in $ServiceGroups.Keys) { if (-not $OptionInfo.Contains($g)) { $conflicts += $g } }
 Check 'Every service group has an option' ($conflicts.Count -eq 0) ($conflicts -join ', ')
-Check 'Bluetooth, printing, Delivery Optimization and radio services are kept by default' (-not $OptionInfo['SvcBluetooth'][0] -and -not $OptionInfo['SvcPrinting'][0] -and -not $OptionInfo['SvcDeliveryOpt'][0] -and -not $OptionInfo['SvcRadio'][0])
-Check 'Core isolation is off by default' (-not $OptionInfo['CoreIsolation'][0])
+Check 'Bluetooth, printing and radio services are kept by default' (-not $OptionInfo['SvcBluetooth'][0] -and -not $OptionInfo['SvcPrinting'][0] -and -not $OptionInfo['SvcRadio'][0])
+Check 'Delivery Optimization and core isolation are disabled by default (maximum performance)' ($OptionInfo['SvcDeliveryOpt'][0] -and $OptionInfo['CoreIsolation'][0])
+Check 'Hard floor: SSD retrim, automatic maintenance and display scaling are left alone by default' (-not $OptionInfo['SvcDefrag'][0] -and -not $OptionInfo['NoAutoMaintenance'][0] -and -not $OptionInfo['ForceDpi100'][0])
+Check 'Hard floor: DPI and maintenance groups map to their own options' ((Get-RegGroupOption '100% DPI scaling') -eq 'ForceDpi100' -and (Get-RegGroupOption 'Disable fix scaling for apps') -eq 'ForceDpi100' -and (Get-RegGroupOption 'Disable automatic maintenance') -eq 'NoAutoMaintenance')
+Check 'Hard floor: time sync, Defrag, TPM and BitLocker tasks are never deleted' ((Test-NameMatch '\Microsoft\Windows\Time Synchronization\SynchronizeTime' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\Defrag\ScheduledDefrag' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\TPM\Tpm-Maintenance' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\BitLocker\BitLocker MDM policy Refresh' $TaskKeepBuiltIn))
 $mustKeep = 'Microsoft.WindowsStore', 'Microsoft.XboxGamingOverlay', 'Microsoft.GamingApp', 'Microsoft.MicrosoftEdge.Stable', 'Microsoft.Paint', 'Microsoft.Windows.Photos', 'Microsoft.WindowsCalculator', 'Microsoft.DesktopAppInstaller'
 $unprotected = @($mustKeep | Where-Object { -not (Test-NameMatch $_ $KeepApps) })
 Check 'Apps you wanted kept are on the keep list' ($unprotected.Count -eq 0) ($unprotected -join ', ')
@@ -60,20 +63,21 @@ Check 'Start layout blob decodes' (([Convert]::FromBase64String(($EmptyStartLayo
 Check 'Binary registry values survive a round trip' ((ConvertFrom-StoredValue -Value (ConvertTo-StoredValue -Value ([byte[]](1, 171, 255)) -Kind Binary) -Kind Binary) -join ',' -eq '1,171,255')
 $endTask = @($ops | Where-Object { $_.Name -eq 'TaskbarEndTask' })
 Check 'End task registry value maps to its own option, on by default' ($endTask.Count -eq 1 -and (Get-RegGroupOption $endTask[0].Group) -eq 'TaskbarEndTask' -and $OptionInfo['TaskbarEndTask'][0])
-foreach ($o in 'SpectreMeltdownOff', 'DepOff', 'TimerResolution') { Check "$o is off by default" (-not $OptionInfo[$o][0]) }
+foreach ($o in 'SpectreMeltdownOff', 'TimerResolution', 'FastShutdown', 'SearchIndexingOff') { Check "$o is on by default (maximum performance)" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
+Check 'DepOff is off by default (needs Secure Boot off)' (-not $OptionInfo['DepOff'][0])
 foreach ($o in 'DefenderQuiet', 'NetAdapterPower', 'NetAdapterEee', 'TempCleanup', 'UpdateCacheCleanup') { Check "$o exists and is on by default" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
 Check 'Quiet Defender sets 6 policy values and never turns protection off' (@($DefenderQuietRegs).Count -eq 6 -and @($DefenderQuietRegs | Where-Object { $_.Name -like 'Disable*Protection*' -or $_.Name -like 'DisableRealtime*' -or $_.Name -eq 'DisableAntiSpyware' }).Count -eq 0)
 Check 'Mitigation values are 3 and 3' (@($MitigationRegs | Where-Object { $_.Value -ne 3 }).Count -eq 0 -and @($MitigationRegs).Count -eq 2)
 Check 'Timer service source is ASCII and names the service' (($TimerServiceSource -cmatch '^[\x00-\x7F]*$') -and $TimerServiceSource.Contains('"FocusedTimerResolution"'))
 Check 'EEE and power keyword lists do not overlap' (@($NetEeeKeywords | Where-Object { $NetPowerKeywords -contains $_ }).Count -eq 0)
 foreach ($o in 'DevicePowerSaving', 'TimeServerPool', 'MenuKillNotResponding', 'MenuRestartExplorer') { Check "$o exists and is on by default" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
-foreach ($o in 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff', 'FastShutdown', 'BlockFeatureUpgrades', 'SearchIndexingOff', 'MenuTakeOwnership') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
+foreach ($o in 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff', 'BlockFeatureUpgrades', 'MenuTakeOwnership') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
 
 # Every option the code reads exists, and every option exists for a reason.
 $used = @([regex]::Matches($text, "\`$Opt\['([A-Za-z0-9]+)'\]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 $unknown = @($used | Where-Object { -not $OptionInfo.Contains($_) })
 Check 'Every option the code reads is defined' ($unknown.Count -eq 0) ($unknown -join ', ')
-$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and -not $MenuBlocks.Contains($_) -and (Get-RegGroupOption $_) -ne $_ -and $_ -notin 'Registry', 'CoreIsolation', 'HideLockOption', 'HideSleepOption' })
+$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and -not $MenuBlocks.Contains($_) -and (Get-RegGroupOption $_) -ne $_ -and (Get-RegOpOption ([pscustomobject]@{ Name = $_; Group = '' })) -ne $_ -and $_ -notin 'Registry', 'CoreIsolation', 'HideLockOption', 'HideSleepOption', 'ForceDpi100', 'NoAutoMaintenance' })
 Check 'Every defined option is used' ($unused.Count -eq 0) ($unused -join ', ')
 
 Check 'Registry paths in ControlSet001 are written to CurrentControlSet' ((ConvertTo-FullRegPath 'HKLM\SYSTEM\ControlSet001\Services\X') -eq 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\X')

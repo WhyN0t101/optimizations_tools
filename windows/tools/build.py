@@ -72,12 +72,13 @@ groups = {
     'SvcBiometrics': ['WbioSrvc'],
     'SvcSmartCard': ['SCardSvr', 'ScDeviceEnum', 'SCPolicySvc'],
     'SvcDiagnostics': ['diagsvc', 'DPS', 'WdiServiceHost', 'WdiSystemHost'],
+    'SvcDefrag': ['defragsvc'],
 }
 assigned = {n for v in groups.values() for n in v}
 missing = [n for v in groups.values() for n in v if n not in ds_names]
 assert not missing, missing
 groups['SvcOther'] = [n for n in ds_names if n not in assigned]
-order = ['SvcOther', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+order = ['SvcOther', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -206,14 +207,14 @@ OPTION_GROUPS = [
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
     ('Desktop, Start and sign in', ['NotificationSettings', 'RestartExplorer', 'ClearDesktopIcons', 'HideAllDesktopIcons',
-                                    'ClearStartPins', 'NoRecentDocsHistory', 'MouseAccel', 'LockScreenOff']),
+                                    'ClearStartPins', 'NoRecentDocsHistory', 'ForceDpi100', 'MouseAccel', 'LockScreenOff']),
     ('Right click menu', ['MenuKillNotResponding', 'MenuRestartExplorer', 'MenuTakeOwnership', 'MenuRunAsAdmin',
                           'MenuNoShare', 'MenuNoGiveAccess', 'MenuNoCast', 'MenuNoLibrary', 'MenuNoQuickAccess',
                           'MenuNoPinToStart', 'MenuNoPrevVersions', 'MenuNoTroubleshoot', 'MenuNoDefenderScan',
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryHosts', 'BiometricsPolicy', 'Cdp', 'RazerAsusHosts',
                                          'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Services', ['SvcOther', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),
@@ -221,7 +222,7 @@ OPTION_GROUPS = [
                                     'NetAdapterEee', 'DevicePowerSaving', 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff',
                                     'TimerResolution', 'NvmeNativeDriver', 'IPv4Only']),
     ('Security trade-offs', ['SpectreMeltdownOff', 'DepOff']),
-    ('System and cleanup', ['PasswordExpiry', 'FaultTolerantHeap', 'FastShutdown', 'TimeServerPool', 'EnableSystemRestore',
+    ('System and cleanup', ['NoAutoMaintenance', 'PasswordExpiry', 'FaultTolerantHeap', 'FastShutdown', 'TimeServerPool', 'EnableSystemRestore',
                             'TempCleanup', 'UpdateCacheCleanup', 'HealthCheckAfter']),
 ]
 # What -Revert cannot undo, and options that change nothing by themselves.
