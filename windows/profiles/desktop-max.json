@@ -1,0 +1,14 @@
+{
+  "Enable": [
+    "DisableHibernate",
+    "KeepDefinitionUpdates"
+  ],
+  "Skip": [],
+  "TaskMode": "Delete",
+  "Defender": "Keep",
+  "PowerProfile": "High",
+  "PowerMode": "Best",
+  "PauseDays": 365,
+  "SkipRegGroup": [],
+  "TaskKeep": []
+}

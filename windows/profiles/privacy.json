@@ -1,0 +1,24 @@
+{
+  "Enable": [
+    "KeepDefinitionUpdates",
+    "NoRecentDocsHistory"
+  ],
+  "Skip": [
+    "Uac",
+    "SpectreMeltdownOff",
+    "CoreIsolation",
+    "TimerResolution",
+    "SearchIndexingOff",
+    "FastShutdown",
+    "PauseUpdates",
+    "SecurityUpdatesOnly",
+    "PauseStopsUpdateTasks"
+  ],
+  "TaskMode": "Delete",
+  "Defender": "Keep",
+  "PowerProfile": "Off",
+  "PowerMode": "Keep",
+  "PauseDays": 30,
+  "SkipRegGroup": [],
+  "TaskKeep": []
+}

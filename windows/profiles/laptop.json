@@ -1,26 +1,23 @@
 {
   "Enable": [
-    "HideAllDesktopIcons",
-    "KeepDefinitionUpdates",
-    "BlockFeatureUpgrades",
-    "MenuTakeOwnership"
+    "KeepDefinitionUpdates"
   ],
   "Skip": [
-    "NetAdapterPower",
-    "BiometricsPolicy",
-    "SvcBiometrics",
     "Uac",
-    "SvcDiagnostics",
     "SpectreMeltdownOff",
     "CoreIsolation",
     "TimerResolution",
-    "SleepStudy"
+    "SleepStudy",
+    "SvcDiagnostics",
+    "SvcBiometrics",
+    "BiometricsPolicy",
+    "NetAdapterPower"
   ],
   "TaskMode": "Delete",
-  "Defender": "Enable",
+  "Defender": "Keep",
   "PowerProfile": "High",
   "PowerMode": "Best",
-  "PauseDays": 182,
+  "PauseDays": 60,
   "SkipRegGroup": [],
   "TaskKeep": []
 }
