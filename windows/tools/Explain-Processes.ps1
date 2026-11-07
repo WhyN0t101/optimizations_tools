@@ -82,6 +82,31 @@ $Advice = @{
     'WdNisSvc' = @('Keep', 'Microsoft Defender network inspection')
 }
 
+# Optional Windows features worth knowing about: what turning them off gains.
+$FeatureAdvice = [ordered]@{
+    'Microsoft-Hyper-V-All' = 'Hyper-V. Keeps the Windows hypervisor running (a few % CPU, more latency); needed for Hyper-V VMs'
+    'VirtualMachinePlatform' = 'Virtual Machine Platform. Starts the hypervisor; needed for WSL 2 and Android apps'
+    'HypervisorPlatform' = 'Windows Hypervisor Platform. Lets VMware and VirtualBox run on top of Hyper-V'
+    'Microsoft-Windows-Subsystem-Linux' = 'WSL. Needed to run Linux distributions'
+    'Containers-DisposableClientVM' = 'Windows Sandbox. Starts the hypervisor when used'
+    'SMB1Protocol' = 'SMB 1.0. Old file sharing protocol, a security risk; no speed effect'
+    'MicrosoftWindowsPowerShellV2Root' = 'PowerShell 2.0. Old engine attackers use to dodge logging; no speed effect'
+    'Recall' = 'Recall. Takes and indexes screenshots in the background'
+    'WorkFolders-Client' = 'Work Folders. Company file sync, rarely used at home'
+    'WindowsMediaPlayer' = 'Windows Media Player Legacy. Old player, no speed effect'
+}
+
+function Show-Features {
+    Write-Host "`nOptional Windows features" -ForegroundColor Cyan
+    try { $on = @(Get-WindowsOptionalFeature -Online -ErrorAction Stop | Where-Object { $_.State -eq 'Enabled' } | ForEach-Object { $_.FeatureName }) }
+    catch { Write-Host '  Run as administrator to list them.'; return }
+    $hits = @($FeatureAdvice.Keys | Where-Object { $on -contains $_ })
+    if ($hits.Count -eq 0) { Write-Host '  None of the features in the built-in list is turned on.'; return }
+    foreach ($f in $hits) { Write-Host ("  {0,-34} {1}" -f $f, $FeatureAdvice[$f]) }
+    $hyper = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent
+    if ($hyper) { Write-Host '  The Windows hypervisor is running. Memory integrity (core isolation) also needs it, so removing the features above may not stop it.' }
+}
+
 function Get-BaseName([string]$Name) { return ($Name -replace '_[0-9a-f]{4,8}$', '') }
 
 function Get-Company([string]$Path) {
@@ -160,6 +185,7 @@ function Show-Report($Snap) {
         Write-Host "`nOther non-Microsoft services (no advice, look them up before changing)" -ForegroundColor Cyan
         foreach ($s in ($other | Sort-Object Company, Name)) { Write-Host ("  {0,-30} {1,-8} {2}" -f $s.Name, $s.StartMode, $s.Company) }
     }
+    Show-Features
     Write-Host "`nKeep: needed. Manual: safe to set to Manual (Services, or Set-Service -StartupType Manual as admin)."
     Write-Host 'Remove: uninstall the app it belongs to, or let FocusedTweaks disable the Windows ones. Nothing was changed.'
 }
