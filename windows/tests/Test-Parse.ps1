@@ -171,5 +171,21 @@ Check 'tools\Test-InVm.ps1 parses without errors' ($vmErrs.Count -eq 0) ($vmErrs
 $vmText = [IO.File]::ReadAllText($vmTool)
 Check 'tools\Test-InVm.ps1 is ASCII and never starts FocusedTweaks on this PC' (($vmText -cmatch '^[\x00-\x7F]*$') -and ($vmText -notmatch '(?m)^\s*&\s*\$scriptFile'))
 
+# Every other script in the repo parses in this PowerShell and is ASCII.
+$windowsDir = Split-Path $PSScriptRoot -Parent
+foreach ($tool in @(Get-ChildItem -Path (Join-Path $windowsDir 'tools\*.ps1') | Where-Object { $_.Name -notin 'Test-InVm.ps1', 'FocusedTweaks.template.ps1' })) {
+    $tErrs = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($tool.FullName, [ref]$null, [ref]$tErrs)
+    $tText = [IO.File]::ReadAllText($tool.FullName)
+    Check "tools\$($tool.Name) parses and is ASCII" ($tErrs.Count -eq 0 -and $tText -cmatch '^[\x00-\x7F]*$') ($tErrs | ForEach-Object { "$($_.Extent.StartLineNumber): $($_.Message)" } | Out-String)
+}
+$smokeText = [IO.File]::ReadAllText((Join-Path $windowsDir 'tools\Test-Smoke.ps1'))
+Check 'tools\Test-Smoke.ps1 refuses to run outside GitHub Actions' ($smokeText -match "GITHUB_ACTIONS -ne 'true'")
+
+# Windows PowerShell 5.1 turns redirected stderr of a native command into errors that stop the script under 'Stop'
+# (2>&1 into a pipe, *> $null). Native output goes through Invoke-Native, or through cmd.exe with its own >nul 2>&1.
+$risky = @([regex]::Matches($text, '(?m)^[^\r\n#]*(\*>\s*\$null|2>&1\s*\)\s*\|)[^\r\n]*$') | Where-Object { $_.Value -notmatch 'cmd\.exe' } | ForEach-Object { $_.Value.Trim() })
+Check 'No native command redirects stderr in a way that stops the script under Windows PowerShell 5.1' ($risky.Count -eq 0) ($risky -join ' | ')
+
 if ($script:fail -gt 0) { Write-Host "`n$script:fail check(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host "`nAll checks passed." -ForegroundColor Green
