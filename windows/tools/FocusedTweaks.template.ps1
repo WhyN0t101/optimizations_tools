@@ -162,6 +162,7 @@ $OptionInfo = [ordered]@{
     HideAllDesktopIcons   = @($false, 'Also hide every other desktop icon (files stay on disk). Same as View, Show desktop icons')
     EnableSystemRestore   = @($false, 'If the restore point fails, turn System Protection on for the system drive and retry')
     ClearStartPins        = @($true, 'Clear all pinned apps from the Start menu (Windows 11, current user, layout is backed up)')
+    NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access')
     RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)')
@@ -170,7 +171,7 @@ $OptionInfo = [ordered]@{
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible')
     SpectreMeltdownOff    = @($false, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, weaker security. Needs a restart')
     DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart')
-    TimerResolution       = @($false, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms)')
+    TimerResolution       = @($false, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms) while on AC power')
     DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)')
     DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)')
     MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups')
@@ -397,8 +398,10 @@ $MitigationRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 3 'DWord'
 )
 
-# Timer resolution service (reduced from Ultimate, 6 Windows\30): sets the finest timer resolution at start and holds it.
+# Timer resolution service (reduced from Ultimate, 6 Windows\30): holds the finest timer resolution while on AC power.
 # Windows 10 2004 and later honour the request per process, so GlobalTimerResolutionRequests makes it system wide.
+# On battery it lets go: a 0.5 ms timer fires about 2000 times a second and keeps the CPU from idling, which costs
+# battery life for little gain. Desktops always report AC power, so they hold it all the time.
 $TimerServiceName = 'FocusedTimerResolution'
 $TimerGlobalRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel' 'GlobalTimerResolutionRequests' 1 'DWord'
@@ -415,19 +418,78 @@ public class TimerResolutionService : ServiceBase
     [DllImport("ntdll.dll")]
     static extern int NtSetTimerResolution(uint desired, bool set, out uint current);
 
-    public TimerResolutionService() { ServiceName = "FocusedTimerResolution"; }
-
-    protected override void OnStart(string[] args)
+    [StructLayout(LayoutKind.Sequential)]
+    struct SystemPowerStatus
     {
-        uint minimum, maximum, actual;
-        NtQueryTimerResolution(out minimum, out maximum, out actual);
-        NtSetTimerResolution(maximum, true, out actual);
+        public byte ACLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public int BatteryLifeTime;
+        public int BatteryFullLifeTime;
+    }
+    [DllImport("kernel32.dll")]
+    static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
+
+    const byte AcOffline = 0;
+    readonly object gate = new object();
+    bool held;
+
+    public TimerResolutionService()
+    {
+        ServiceName = "FocusedTimerResolution";
+        CanHandlePowerEvent = true;
+    }
+
+    // Unknown power status (255) counts as AC, so the service keeps working where the battery cannot be read.
+    static bool OnBattery()
+    {
+        SystemPowerStatus status;
+        return GetSystemPowerStatus(out status) && status.ACLineStatus == AcOffline;
+    }
+
+    void Apply()
+    {
+        lock (gate)
+        {
+            bool want = !OnBattery();
+            if (want == held) return;
+            uint minimum, maximum, actual;
+            if (want)
+            {
+                NtQueryTimerResolution(out minimum, out maximum, out actual);
+                NtSetTimerResolution(maximum, true, out actual);
+            }
+            else
+            {
+                NtSetTimerResolution(0, false, out actual);
+            }
+            held = want;
+        }
+    }
+
+    protected override void OnStart(string[] args) { Apply(); }
+
+    protected override bool OnPowerEvent(PowerBroadcastStatus powerStatus)
+    {
+        if (powerStatus == PowerBroadcastStatus.PowerStatusChange ||
+            powerStatus == PowerBroadcastStatus.ResumeAutomatic ||
+            powerStatus == PowerBroadcastStatus.ResumeSuspend)
+        {
+            Apply();
+        }
+        return true;
     }
 
     protected override void OnStop()
     {
-        uint current;
-        NtSetTimerResolution(0, false, out current);
+        lock (gate)
+        {
+            if (!held) return;
+            uint current;
+            NtSetTimerResolution(0, false, out current);
+            held = false;
+        }
     }
 
     public static void Main() { ServiceBase.Run(new TimerResolutionService()); }
@@ -1115,6 +1177,14 @@ function Get-RegGroupOption {
     }
 }
 
+# A single upstream value can need its own option when its side effect is out of proportion to its group.
+# NoRecentDocsHistory sits in two unrelated groups and quietly breaks Quick Access pins.
+function Get-RegOpOption {
+    param($Op)
+    if ($Op.Name -eq 'NoRecentDocsHistory') { return 'NoRecentDocsHistory' }
+    return Get-RegGroupOption $Op.Group
+}
+
 function Show-RegGroups {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $ops | Group-Object Group | ForEach-Object {
@@ -1126,7 +1196,7 @@ function Import-UpstreamRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $applied = 0; $byOption = 0; $byGroup = 0
     foreach ($op in $ops) {
-        if (-not $Opt[(Get-RegGroupOption $op.Group)]) { $byOption++; continue }
+        if (-not $Opt[(Get-RegOpOption $op)]) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
@@ -2501,7 +2571,7 @@ function Test-HealthRegistry {
     $later = Get-LaterOverrideKeys
     $checked = 0; $overridden = 0; $bad = [System.Collections.Generic.List[string]]::new(); $runEntries = 0
     foreach ($op in $ops) {
-        $optName = Get-RegGroupOption $op.Group
+        $optName = Get-RegOpOption $op
         if (-not $Opt[$optName]) { continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { continue }
         $full = ConvertTo-FullRegPath $op.Path

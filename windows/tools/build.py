@@ -206,7 +206,7 @@ OPTION_GROUPS = [
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
     ('Desktop, Start and sign in', ['NotificationSettings', 'RestartExplorer', 'ClearDesktopIcons', 'HideAllDesktopIcons',
-                                    'ClearStartPins', 'MouseAccel', 'LockScreenOff']),
+                                    'ClearStartPins', 'NoRecentDocsHistory', 'MouseAccel', 'LockScreenOff']),
     ('Right click menu', ['MenuKillNotResponding', 'MenuRestartExplorer', 'MenuTakeOwnership', 'MenuRunAsAdmin',
                           'MenuNoShare', 'MenuNoGiveAccess', 'MenuNoCast', 'MenuNoLibrary', 'MenuNoQuickAccess',
                           'MenuNoPinToStart', 'MenuNoPrevVersions', 'MenuNoTroubleshoot', 'MenuNoDefenderScan',
