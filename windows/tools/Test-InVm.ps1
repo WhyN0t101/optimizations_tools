@@ -15,7 +15,7 @@
     use a password for the test VM only.
 
 .EXAMPLE
-    .\tools\Test-InVm.ps1 -ProfilePath .\profiles\my-pc.json
+    .\tools\Test-InVm.ps1 -ProfilePath .\profiles\desktop-max.json
 
 .EXAMPLE
     .\tools\Test-InVm.ps1 -Stages Dry -ScriptArgs '-Only MpoOff,TimeServerPool'

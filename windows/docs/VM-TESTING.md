@@ -19,7 +19,7 @@ Use a password for this VM only: `vmrun` receives it on its command line.
 ## Running
 
 ```powershell
-.\tools\Test-InVm.ps1 -ProfilePath .\profiles\my-pc.json
+.\tools\Test-InVm.ps1 -ProfilePath .\profiles\desktop-max.json
 ```
 
 It asks for the guest password (or reads `FT_VM_PASSWORD`), then:
