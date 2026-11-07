@@ -12,6 +12,10 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 - CI (`.github/workflows/windows-build.yml`) builds on every push, fails if the committed `FocusedTweaks.ps1` or
   `docs/OPTIONS.md` differ from the build, and runs `Test-Parse` under 5.1 and 7. Pushing a `v*` tag runs
   `windows-release.yml`, which publishes the built script, its SHA256 and NOTICE.md as a GitHub release.
+- `windows-smoke.yml` runs the script for real on a throwaway Windows Server 2025 runner through
+  `tools/Test-Smoke.ps1` (dry runs, apply, health check, revert) and uploads the results as `smoke-results`.
+  Test-Smoke refuses to run outside GitHub Actions. Server lacks Store apps, Quick Assist and restore points,
+  so read Server-only failures with that in mind; the VM test is still the full Windows 11 check.
 - `tests/Test-Parse.ps1` is a static check that needs no admin rights and changes nothing. Run it with both `pwsh` and
   `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links.
 - `profiles/example.json` shows the format for `-ProfilePath`.

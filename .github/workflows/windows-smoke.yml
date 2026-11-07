@@ -1,0 +1,41 @@
+# Runs FocusedTweaks for real on a disposable Windows Server 2025 runner (the closest image to Windows 11 24H2):
+# dry runs, a real run with the defaults, the health check and -Revert. The runner is thrown away afterwards.
+# Logs, health and revert-check JSON and summary.txt are uploaded as the "smoke-results" artifact.
+name: windows smoke test
+
+on:
+  push:
+    paths: ['windows/**', '.github/workflows/windows-smoke.yml', '.github/workflows/windows-build.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/windows-build.yml
+
+  smoke:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: FocusedTweaks
+          path: dist
+
+      - name: Dry runs, real run, health check, revert
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Test-Smoke.ps1 -Script dist\FocusedTweaks.ps1 -OutDir smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed: see the job summary and the smoke-results artifact.' }
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results
+          path: smoke
