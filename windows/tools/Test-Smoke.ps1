@@ -70,7 +70,9 @@ foreach ($stage in $stages) {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $proc = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded `
         -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
-    if ($proc.WaitForExit($StageMinutes * 60 * 1000)) { $code = $proc.ExitCode }
+    # Reading Handle right away keeps the process handle open; without it ExitCode comes back empty.
+    $null = $proc.Handle
+    if ($proc.WaitForExit($StageMinutes * 60 * 1000)) { $proc.WaitForExit(); $code = $proc.ExitCode }
     else {
         $null = & cmd.exe /d /c "taskkill /T /F /PID $($proc.Id) >nul 2>&1"
         $code = 124
