@@ -1852,6 +1852,9 @@ $TaskKeepBuiltIn = @(
     '\Microsoft\Windows\Defrag\*'
     '\Microsoft\Windows\TPM\*'
     '\Microsoft\Windows\BitLocker\*'
+    # Triggered by a Windows state notification (WNF): Task Scheduler refuses to register it again from its export
+    # ("Element not found"), so deleting it could never be undone.
+    '\Microsoft\Windows\Application Experience\SdbinstMergeDbTask'
 )
 $TimeSyncTask = @{ Path = '\Microsoft\Windows\Time Synchronization\'; Name = 'SynchronizeTime' }
 
