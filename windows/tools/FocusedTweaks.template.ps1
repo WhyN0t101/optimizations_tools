@@ -1426,8 +1426,13 @@ function Disable-TaskRecorded {
     Save-TaskState -Task $Task -Action 'Disabled'
     try { Disable-ScheduledTask -InputObject $Task -ErrorAction Stop | Out-Null }
     catch {
-        & schtasks.exe /Change /TN $full /Disable *> $null
-        if ($LASTEXITCODE -ne 0) { Write-Log "Could not disable task $full (protected by the system)." 'WARN' }
+        # Through cmd.exe: schtasks reports failure on stderr, which stops the step under 'Stop' in PowerShell 5.1.
+        $null = & cmd.exe /d /c "schtasks.exe /Change /TN `"$full`" /Disable >nul 2>&1"
+        if ($LASTEXITCODE -eq 0) { return }
+        # Tasks that belong to SYSTEM, such as the Update Orchestrator tasks UsoSvc registers again, need SYSTEM.
+        [void](Invoke-AsTI -PsCommand "Disable-ScheduledTask -TaskPath $(ConvertTo-PsLiteral $Task.TaskPath) -TaskName $(ConvertTo-PsLiteral $Task.TaskName) | Out-Null")
+        $now = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
+        if ($now -and $now.State -ne 'Disabled') { Write-Log "Could not disable task $full, not even as TrustedInstaller." 'WARN' }
     }
 }
 
