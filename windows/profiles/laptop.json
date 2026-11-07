@@ -5,14 +5,15 @@
     "KeepDefinitionUpdates",
     "BlockFeatureUpgrades",
     "TimerResolution",
-    "SpectreMeltdownOff",
     "FastShutdown",
     "MenuTakeOwnership"
   ],
   "Skip": [
     "NetAdapterPower",
     "BiometricsPolicy",
-    "SvcBiometrics"
+    "SvcBiometrics",
+    "Uac",
+    "SvcDiagnostics"
   ],
   "TaskMode": "Delete",
   "Defender": "Enable",
