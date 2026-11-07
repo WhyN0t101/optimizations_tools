@@ -25,6 +25,12 @@ if ($env:GITHUB_ACTIONS -ne 'true') {
     exit 3
 }
 $ErrorActionPreference = 'Stop'
+# Anything that stops this script must still reach the public annotations, or the failure is invisible.
+trap {
+    $msg = "Test-Smoke.ps1 stopped: $($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber)" -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+    Write-Host "::error title=Test-Smoke::$msg"
+    exit 1
+}
 # Computed here, not as a parameter default: Windows PowerShell 5.1 leaves $PSScriptRoot empty there.
 if (-not $LaptopProfile) { $LaptopProfile = Join-Path (Split-Path $PSCommandPath -Parent) '..\profiles\laptop.json' }
 
@@ -55,8 +61,13 @@ foreach ($stage in $stages) {
     Write-Host "==> $label`: FocusedTweaks.ps1 $($stage.Args)" -ForegroundColor Cyan
     # -Command, not -File: lists such as -Skip A,B only bind as arrays from a command line.
     $command = "& '$Script' $($stage.Args)"
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command *>&1 | Tee-Object -FilePath (Join-Path $dest 'console.txt')
+    # Windows PowerShell 5.1 turns redirected stderr of a native command into error records, which would stop
+    # this script under 'Stop'. The exit code is what counts here.
+    $ErrorActionPreference = 'Continue'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command *>&1 |
+        ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $dest 'console.txt')
     $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
     Get-ChildItem -LiteralPath $StateDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $start -and $_.Extension -in '.log', '.json' } |
         Copy-Item -Destination $dest
