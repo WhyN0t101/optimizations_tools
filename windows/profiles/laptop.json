@@ -1,0 +1,24 @@
+{
+  "Enable": [
+    "HideAllDesktopIcons",
+    "SearchIndexingOff",
+    "KeepDefinitionUpdates",
+    "BlockFeatureUpgrades",
+    "TimerResolution",
+    "SpectreMeltdownOff",
+    "FastShutdown",
+    "MenuTakeOwnership"
+  ],
+  "Skip": [
+    "NetAdapterPower",
+    "BiometricsPolicy",
+    "SvcBiometrics"
+  ],
+  "TaskMode": "Delete",
+  "Defender": "Enable",
+  "PowerProfile": "High",
+  "PowerMode": "Best",
+  "PauseDays": 182,
+  "SkipRegGroup": [],
+  "TaskKeep": []
+}
