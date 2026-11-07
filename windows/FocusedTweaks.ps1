@@ -2968,6 +2968,7 @@ function Invoke-TaskMode {
 }
 
 function Restore-Tasks {
+    $denied = [System.Collections.Generic.List[object]]::new()
     foreach ($t in $script:State.Tasks) {
         try {
             if ($t.Action -eq 'Deleted') {
@@ -2977,9 +2978,36 @@ function Restore-Tasks {
             }
             elseif ($t.WasEnabled) { Enable-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction Stop | Out-Null }
         }
-        catch { Write-Log "Could not restore task $($t.Path)$($t.Name). $($_.Exception.Message)" 'WARN' }
+        catch {
+            # Tasks whose principal is SYSTEM or a service (BitLocker, DeviceDirectoryClient, EDP and more) can be
+            # deleted by an administrator but only registered again by SYSTEM. Retry those as TrustedInstaller.
+            if ($t.Action -eq 'Deleted' -and (Test-AccessDenied $_)) { $denied.Add($t) }
+            else { Write-Log "Could not restore task $($t.Path)$($t.Name). $($_.Exception.Message)" 'WARN' }
+        }
     }
+    if ($denied.Count -gt 0) { Restore-ProtectedTasks -Tasks $denied }
     Write-Log 'Scheduled tasks restored.' 'OK'
+}
+
+function Restore-ProtectedTasks {
+    param([object[]]$Tasks)
+    # One TrustedInstaller call for all of them (each call stops and restarts the service). The commands go into a
+    # file in the state folder, because the service command line goes through cmd.exe and its 8191 character limit.
+    $calls = foreach ($t in $Tasks) {
+        'try {{ Register-ScheduledTask -Xml (Get-Content -LiteralPath {0} -Raw) -TaskName {1} -TaskPath {2} -Force -ErrorAction Stop | Out-Null }} catch {{ }}' -f
+            (ConvertTo-PsLiteral $t.XmlFile), (ConvertTo-PsLiteral $t.Name), (ConvertTo-PsLiteral $t.Path)
+    }
+    $file = Join-Path $StateDir 'restore-protected-tasks.ps1'
+    Set-Content -LiteralPath $file -Value $calls -Encoding UTF8
+    # Read and run as a script block, not as a .ps1 file, so the execution policy does not block it.
+    try { [void](Invoke-AsTI -PsCommand ". ([scriptblock]::Create((Get-Content -LiteralPath $(ConvertTo-PsLiteral $file) -Raw)))") }
+    finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+    $restored = 0
+    foreach ($t in $Tasks) {
+        if (Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue) { $restored++ }
+        else { Write-Log "Could not restore task $($t.Path)$($t.Name), not even as TrustedInstaller." 'WARN' }
+    }
+    Write-Log "Protected tasks restored as TrustedInstaller: $restored of $($Tasks.Count)." 'OK'
 }
 #endregion
 
@@ -3532,7 +3560,11 @@ function Clear-FolderContents {
         })
     $leaves = @($all | Where-Object { -not $_.PSIsContainer -or (Test-ReparsePoint $_) })
     $folders = @($all | Where-Object { $_.PSIsContainer -and -not (Test-ReparsePoint $_) } | Sort-Object { $_.FullName.Length } -Descending)
-    $mb = [Math]::Round([long](($leaves | Where-Object { -not $_.PSIsContainer } | Measure-Object -Property Length -Sum).Sum) / 1MB, 1)
+    # Summed by hand: Measure-Object returns no Sum property for empty input, which fails under StrictMode
+    # whenever the folder holds only empty subfolders (a fresh SoftwareDistribution\Download, for example).
+    [long]$bytes = 0
+    foreach ($leaf in $leaves) { if (-not $leaf.PSIsContainer) { $bytes += $leaf.Length } }
+    $mb = [Math]::Round($bytes / 1MB, 1)
     if (Test-DryRun "$Label`: delete $($top.Count) item(s), $mb MB, from $Path (links are removed as links, never followed)") { return }
     $kept = 0
     foreach ($entry in @($leaves) + @($folders)) {
@@ -4598,7 +4630,12 @@ function Invoke-Revert {
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
     Invoke-Step 'Restore deleted registry keys' {
         foreach ($k in $script:State.KeyBackups) {
-            if (Test-Path -LiteralPath $k.File) { & reg.exe import $k.File *> $null; if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File)" 'WARN' } }
+            # reg.exe reports success on stderr. Windows PowerShell 5.1 turns that into an error record, which stops
+            # the step under 'Stop' even when redirected, so cmd.exe swallows the output and only the exit code counts.
+            if (Test-Path -LiteralPath $k.File) {
+                $null = & cmd.exe /d /c "reg.exe import `"$($k.File)`" >nul 2>&1"
+                if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File) (reg.exe exit $LASTEXITCODE)" 'WARN' }
+            }
         }
     }
     Invoke-Step 'Restore hosts file' {
