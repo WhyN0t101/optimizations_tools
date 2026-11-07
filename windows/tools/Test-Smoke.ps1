@@ -97,6 +97,9 @@ foreach ($r in $results) {
     $errors = @(Get-ChildItem -Path (Join-Path $r.Dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -SimpleMatch '[ERROR]')
     $stageLines.Add("$($r.Name): exit code $($r.Code), $($errors.Count) error line(s) in the log")
     foreach ($e in ($errors | Select-Object -First 15)) { $stageLines.Add("    $($e.Line.Trim())") }
+    # "Could not ..." warnings carry the reason behind items the revert check reports; logs are not public.
+    $couldNot = @(Get-ChildItem -Path (Join-Path $r.Dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -Pattern '\[WARN\] Could not')
+    foreach ($w in ($couldNot | Select-Object -First 10)) { $stageLines.Add("    $($w.Line.Trim())") }
     if ($r.Code -ne 0 -or $errors.Count -gt 0) { $stageBad = $true }
     if ($r.Code -ne 0 -and $errors.Count -eq 0) {
         # A failure before the log starts (parameter binding, a throw at the top) only shows in the console.
