@@ -1,0 +1,64 @@
+# Builds FocusedTweaks.ps1 from the template and the pinned ZOICWARE commit, checks that the committed script
+# and options reference match that build, and runs the static tests under Windows PowerShell 5.1 and PowerShell 7.
+# Nothing here runs FocusedTweaks.ps1 itself.
+name: windows build
+
+on:
+  push:
+    paths: ['windows/**', '.github/workflows/windows-build.yml']
+  pull_request:
+    paths: ['windows/**', '.github/workflows/windows-build.yml']
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the pinned ZOICWARE commit
+        shell: pwsh
+        run: |
+          $commit = (Select-String -Path windows/tools/build.py -Pattern "^ZOICWARE_COMMIT = '([0-9a-f]{40})'").Matches[0].Groups[1].Value
+          git init --quiet "$env:RUNNER_TEMP/ZOICWARE"
+          git -C "$env:RUNNER_TEMP/ZOICWARE" fetch --quiet --depth 1 https://github.com/zoicware/ZOICWARE.git $commit
+          git -C "$env:RUNNER_TEMP/ZOICWARE" checkout --quiet FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Could not check out ZOICWARE $commit" }
+
+      - name: Build
+        working-directory: windows
+        shell: pwsh
+        run: |
+          python tools/build.py --zoicware "$env:RUNNER_TEMP/ZOICWARE" --out FocusedTweaks.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'build.py failed' }
+
+      - name: Committed script matches the build
+        shell: pwsh
+        run: |
+          git diff --ignore-cr-at-eol --exit-code -- windows/FocusedTweaks.ps1 windows/docs/OPTIONS.md
+          if ($LASTEXITCODE -ne 0) { throw 'FocusedTweaks.ps1 or docs/OPTIONS.md is out of date: rebuild and commit them.' }
+
+      - name: Test-Parse (Windows PowerShell 5.1)
+        working-directory: windows
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Test-Parse.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Test-Parse failed under Windows PowerShell 5.1' }
+
+      - name: Test-Parse (PowerShell 7)
+        working-directory: windows
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File ./tests/Test-Parse.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Test-Parse failed under PowerShell 7' }
+
+      - name: Keep the built script
+        uses: actions/upload-artifact@v4
+        with:
+          name: FocusedTweaks
+          path: |
+            windows/FocusedTweaks.ps1
+            windows/NOTICE.md
