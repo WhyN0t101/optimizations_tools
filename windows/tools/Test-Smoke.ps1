@@ -70,24 +70,41 @@ function Get-StageJson {
     return $null
 }
 
+# Annotations are public on a public repo and readable through the API without signing in, unlike step logs.
+function Write-Annotation {
+    param([ValidateSet('error', 'warning', 'notice')][string]$Level, [string]$Title, [string[]]$Body)
+    $text = ($Body -join "`n") -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+    Write-Host "::$Level title=$Title::$text"
+}
+
 $lines = [System.Collections.Generic.List[string]]::new()
 $bad = $false
 foreach ($r in $results) {
+    $stageLines = [System.Collections.Generic.List[string]]::new()
+    $stageBad = $false
     $errors = @(Get-ChildItem -Path (Join-Path $r.Dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -SimpleMatch '[ERROR]')
-    $lines.Add("$($r.Name): exit code $($r.Code), $($errors.Count) error line(s) in the log")
-    foreach ($e in ($errors | Select-Object -First 10)) { $lines.Add("    $($e.Line.Trim())") }
-    if ($r.Code -ne 0 -or $errors.Count -gt 0) { $bad = $true }
+    $stageLines.Add("$($r.Name): exit code $($r.Code), $($errors.Count) error line(s) in the log")
+    foreach ($e in ($errors | Select-Object -First 15)) { $stageLines.Add("    $($e.Line.Trim())") }
+    if ($r.Code -ne 0 -or $errors.Count -gt 0) { $stageBad = $true }
+    if ($r.Code -ne 0 -and $errors.Count -eq 0) {
+        # A failure before the log starts (parameter binding, a throw at the top) only shows in the console.
+        foreach ($c in @(Get-Content -LiteralPath (Join-Path $r.Dir 'console.txt') -ErrorAction SilentlyContinue | Select-Object -Last 15)) { $stageLines.Add("    console: $c") }
+    }
     $health = Get-StageJson -Dir $r.Dir -Kind 'health'
     if ($health) {
-        $lines.Add("    health: $($health.Counts.PASS) passed, $($health.Counts.WARN) warning(s), $($health.Counts.FAIL) failed, $($health.Counts.INFO) note(s)")
-        foreach ($i in @($health.Items | Where-Object { $_.Status -in 'WARN', 'FAIL' })) { $lines.Add("    [$($i.Status)] $($i.Area): $($i.Message)") }
-        if ($health.Counts.FAIL -gt 0) { $bad = $true }
+        $stageLines.Add("    health: $($health.Counts.PASS) passed, $($health.Counts.WARN) warning(s), $($health.Counts.FAIL) failed, $($health.Counts.INFO) note(s)")
+        foreach ($i in @($health.Items | Where-Object { $_.Status -in 'WARN', 'FAIL' })) { $stageLines.Add("    [$($i.Status)] $($i.Area): $($i.Message)") }
+        if ($health.Counts.FAIL -gt 0) { $stageBad = $true }
     }
     $revert = Get-StageJson -Dir $r.Dir -Kind 'revert-check'
     if ($revert) {
-        $lines.Add("    revert check: $($revert.Counts.Checked) value(s) checked, $($revert.Counts.Differ) item(s) differ")
-        foreach ($i in @($revert.Items | Select-Object -First 25)) { $lines.Add("    [$($i.Area)] $($i.Message)") }
+        $stageLines.Add("    revert check: $($revert.Counts.Checked) value(s) checked, $($revert.Counts.Differ) item(s) differ")
+        foreach ($i in @($revert.Items | Select-Object -First 25)) { $stageLines.Add("    [$($i.Area)] $($i.Message)") }
     }
+    $level = 'notice'
+    if ($stageBad) { $level = 'error'; $bad = $true }
+    Write-Annotation -Level $level -Title $r.Name -Body $stageLines
+    $lines.AddRange($stageLines)
 }
 $lines | Set-Content -LiteralPath (Join-Path $OutDir 'summary.txt') -Encoding UTF8
 if ($env:GITHUB_STEP_SUMMARY) { @('```') + $lines + @('```') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8 }
