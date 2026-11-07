@@ -15,6 +15,7 @@ Run it from a Windows PowerShell (5.1) prompt in this folder. It asks for elevat
     .\FocusedTweaks.ps1
     .\FocusedTweaks.ps1 -HealthCheck -HealthCheckLaunch
     .\FocusedTweaks.ps1 -Revert
+    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
 
 Lists such as `-Enable A,B` only work from the prompt like this. `powershell -File .\FocusedTweaks.ps1 -Enable A,B`
 passes `A,B` as one name and fails with "Unknown option".

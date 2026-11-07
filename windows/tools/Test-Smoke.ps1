@@ -47,6 +47,7 @@ $stages = @(
     @{ Name = 'Dry-Laptop'; Args = "-DryRun -Force -SkipRestorePoint -ProfilePath '$LaptopProfile'" }
     @{ Name = 'Apply'; Args = '-Force -SkipRestorePoint -Skip Packages,HealthCheckAfter' }
     @{ Name = 'Health'; Args = '-HealthCheck' }
+    @{ Name = 'RestoreTask'; Args = "-RestoreTask '\Microsoft\Windows\Application Experience\*'" }
     @{ Name = 'Revert'; Args = '-Revert -Force' }
 )
 
