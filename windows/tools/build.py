@@ -12,8 +12,20 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--zoicware', required=True, help='folder that contains the ZOICWARE "src" directory (a clone or the unzipped release)')
 ap.add_argument('--template', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'FocusedTweaks.template.ps1'))
 ap.add_argument('--out', default='FocusedTweaks.ps1')
+ap.add_argument('--allow-other-commit', action='store_true', help='build from a ZOICWARE commit other than the pinned one (when updating upstream)')
 args = ap.parse_args()
 SRC = os.path.join(args.zoicware, 'src')
+
+# The upstream data is checked by list sizes below, but only the exact commit makes a build reproducible.
+ZOICWARE_COMMIT = '2363922c51eeff9ce415e51ae4b8161174654082'  # 24 Oct 2026
+if os.path.isdir(os.path.join(args.zoicware, '.git')):
+    import subprocess
+    head = subprocess.run(['git', '-C', args.zoicware, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+    if head != ZOICWARE_COMMIT and not args.allow_other_commit:
+        sys.exit(f'ZOICWARE checkout is at {head}, expected {ZOICWARE_COMMIT}. '
+                 'Check out the pinned commit, or pass --allow-other-commit when updating upstream.')
+else:
+    print(f'warning: {args.zoicware} is not a git checkout, so the pinned commit {ZOICWARE_COMMIT[:7]} cannot be verified')
 
 def read(name):
     with open(os.path.join(SRC, name), encoding='utf-8') as f:
