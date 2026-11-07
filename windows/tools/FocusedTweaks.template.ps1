@@ -171,6 +171,8 @@ $OptionInfo = [ordered]@{
     NoAutoMaintenance     = @($false, 'Turn off Windows automatic maintenance (upstream group). Off: it runs SSD retrim, and only when idle')
     NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access')
     RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert')
+    LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart')
+    HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it')
@@ -601,6 +603,7 @@ $script:State = @{
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
     CreatedKeys = [System.Collections.Generic.List[object]]::new()
     NetBindings = [System.Collections.Generic.List[object]]::new()
+    Features   = [System.Collections.Generic.List[object]]::new()
 }
 $script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
@@ -656,7 +659,7 @@ function Invoke-Step {
 function Import-State {
     if (-not (Test-Path -LiteralPath $StateFile)) { return }
     $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings') {
+    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
         if ($raw.PSObject.Properties[$section] -and $raw.$section) {
             foreach ($item in @($raw.$section)) {
                 if ($section -eq 'Registry') {
@@ -1936,6 +1939,46 @@ function Restore-StartPins {
     Write-Log 'Start menu layout restored.' 'OK'
 }
 
+# Optional features turned off by LegacyFeatures and HypervisorFeatures. Turning a feature off removes it from the
+# running system; -Revert turns back on only the ones the run turned off. Names missing on a build are skipped.
+$FeatureGroups = [ordered]@{
+    LegacyFeatures     = @('SMB1Protocol', 'MicrosoftWindowsPowerShellV2Root', 'MicrosoftWindowsPowerShellV2', 'Recall', 'WorkFolders-Client', 'WindowsMediaPlayer')
+    HypervisorFeatures = @('Microsoft-Hyper-V-All', 'VirtualMachinePlatform', 'HypervisorPlatform', 'Microsoft-Windows-Subsystem-Linux', 'Containers-DisposableClientVM')
+}
+
+function Get-EnabledFeatureNames {
+    param([string[]]$Names)
+    $present = @(Get-WindowsOptionalFeature -Online -ErrorAction Stop | Where-Object { $Names -contains $_.FeatureName -and $_.State -eq 'Enabled' })
+    return @($present | ForEach-Object { $_.FeatureName })
+}
+
+function Disable-FeatureGroup {
+    param([Parameter(Mandatory)][string]$Group)
+    $on = @(Get-EnabledFeatureNames -Names $FeatureGroups[$Group])
+    if ($on.Count -eq 0) { Write-Log "$Group`: none of $($FeatureGroups[$Group] -join ', ') is turned on."; return }
+    foreach ($name in $on) {
+        if (Test-DryRun "turn off the optional feature $name") { continue }
+        if (@($script:State.Features) -notcontains $name) { $script:State.Features.Add($name) }
+        try {
+            Disable-WindowsOptionalFeature -Online -FeatureName $name -NoRestart -ErrorAction Stop | Out-Null
+            Write-Log "Optional feature turned off: $name (finishes at the next restart)." 'OK'
+        }
+        catch { Write-Log "Could not turn off the optional feature $name. $($_.Exception.Message)" 'WARN' }
+    }
+}
+
+function Restore-Features {
+    foreach ($name in @($script:State.Features)) {
+        # Only names this script knows, never whatever a state file says.
+        if (-not (@($FeatureGroups.Values | ForEach-Object { $_ }) -contains $name)) { Write-Log "Unexpected feature '$name' in the state file, not restoring it." 'WARN'; continue }
+        try {
+            Enable-WindowsOptionalFeature -Online -FeatureName $name -All -NoRestart -ErrorAction Stop | Out-Null
+            Write-Log "Optional feature turned back on: $name (finishes at the next restart)." 'OK'
+        }
+        catch { Write-Log "Could not turn the optional feature $name back on. $($_.Exception.Message)" 'WARN' }
+    }
+}
+
 function Remove-QuickAssist {
     if (Test-DryRun 'remove Quick Assist (Windows capability, package and app)') { return }
     $removed = 0
@@ -2871,6 +2914,12 @@ function Test-HealthSystem {
         $on = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
         if ($on.Count -eq 0) { Write-Health 'PASS' 'System' 'Sleep Study and power diagnostic logs are off.' } else { Write-Health 'WARN' 'System' "$($on.Count) power diagnostic log(s) are still enabled." }
     }
+    foreach ($g in $FeatureGroups.Keys) {
+        if (-not $Opt[$g]) { continue }
+        $still = @(Get-EnabledFeatureNames -Names $FeatureGroups[$g])
+        if ($still.Count -eq 0) { Write-Health 'PASS' 'System' "$g`: none of the listed optional features is turned on." }
+        else { Write-Health 'WARN' 'System' "$g`: still turned on: $($still -join ', '). A restart may be pending." }
+    }
     $svcChecks = [ordered]@{}
     if ($Opt['TelemetryPolicy']) { $svcChecks['Telemetry services'] = $TelemetryServices }
     if ($Opt['Cdp']) { $svcChecks['Connected Devices Platform services'] = $CdpServices }
@@ -3092,6 +3141,13 @@ function Test-RevertResult {
             $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task not restored: $($t.Path)$($t.Name)" })
         }
     }
+    if ($script:State.Features.Count -gt 0) {
+        $states = @{}
+        foreach ($f in @(Get-WindowsOptionalFeature -Online -ErrorAction SilentlyContinue)) { $states[$f.FeatureName] = [string]$f.State }
+        foreach ($name in @($script:State.Features)) {
+            if ($states[$name] -notin 'Enabled', 'EnablePending') { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Features'; Message = "Optional feature not back on: $name ($($states[$name]))" }) }
+        }
+    }
     $hosts = [IO.File]::ReadAllText($HostsPath)
     foreach ($name in $script:State.Hosts) {
         if ($hosts -match "# FocusedTweaks BEGIN $([regex]::Escape($name))") { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Hosts'; Message = "Hosts block still present: $name" }) }
@@ -3183,6 +3239,7 @@ function Invoke-Apply {
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
+    foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" { Disable-FeatureGroup -Group $g } } }
     if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff'] -or $Opt['TaskbarEndTask']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
@@ -3268,6 +3325,7 @@ function Invoke-Revert {
         }
     }
     if ($script:State.Tasks.Count -gt 0) { Invoke-Step 'Restore scheduled tasks' { Restore-Tasks } }
+    if ($script:State.Features.Count -gt 0) { Invoke-Step 'Restore optional features' { Restore-Features } }
     Invoke-Step 'Restore power plan' { Restore-PowerPlan }
     if ($script:State.PowerOverlay) { Invoke-Step 'Restore power mode' { Restore-PowerMode } }
     if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
