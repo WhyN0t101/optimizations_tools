@@ -48,6 +48,8 @@ $stages = @(
     @{ Name = 'Dry-Laptop'; Args = "-DryRun -Force -SkipRestorePoint -ProfilePath '$LaptopProfile'" }
     @{ Name = 'Apply'; Args = '-Force -SkipRestorePoint -Skip Packages,HealthCheckAfter' }
     @{ Name = 'Health'; Args = '-HealthCheck' }
+    # Read only, so it can run between the others; this only proves it runs cleanly as administrator.
+    @{ Name = 'Explain'; Script = (Join-Path (Split-Path $PSCommandPath -Parent) 'Explain-Processes.ps1'); Args = '' }
     @{ Name = 'RestoreTask'; Args = "-RestoreTask '\Microsoft\Windows\Application Experience\*'" }
     @{ Name = 'Revert'; Args = '-Revert -Force' }
 )
@@ -60,9 +62,11 @@ foreach ($stage in $stages) {
     $dest = Join-Path $OutDir $label
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
     $start = Get-Date
-    Write-Host "==> $label`: FocusedTweaks.ps1 $($stage.Args)" -ForegroundColor Cyan
+    $stageScript = $Script
+    if ($stage.ContainsKey('Script')) { $stageScript = $stage.Script }
+    Write-Host "==> $label`: $(Split-Path $stageScript -Leaf) $($stage.Args)" -ForegroundColor Cyan
     # -Command, not -File: lists such as -Skip A,B only bind as arrays from a command line.
-    $command = "& '$Script' $($stage.Args)"
+    $command = "& '$stageScript' $($stage.Args)"
     # A separate process with a time limit: a stage that hangs (DISM, a service that will not stop) must not use up
     # the whole job, or the job is killed before this script can publish anything.
     $out = Join-Path $dest 'console.txt'
