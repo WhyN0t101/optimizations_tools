@@ -2562,16 +2562,16 @@ function Test-HealthRegistry {
     # Device lists change when hardware is added, so only the values the run itself recorded are checked.
     $recorded = { param($list) @($list | Where-Object { $script:RecordedReg.Contains("$(ConvertTo-FullRegPath $_.Path)|$($_.Name)") }) }
     if ($Opt['DevicePowerSaving']) {
-        $dev = & $recorded @(Get-DeviceTweaks -Power)
+        $dev = @(& $recorded @(Get-DeviceTweaks -Power))
         if ($dev.Count -gt 0) { Test-HealthTweakTable -Label 'Device power saving' -Tweaks $dev }
         else { Write-Health 'INFO' 'Registry' 'Device power saving: no recorded values (skipped on battery, or not run yet).' }
     }
     if ($Opt['DeviceWakeOff']) {
-        $wake = & $recorded @(Get-DeviceTweaks -Wake)
+        $wake = @(& $recorded @(Get-DeviceTweaks -Wake))
         if ($wake.Count -gt 0) { Test-HealthTweakTable -Label 'Device wake' -Tweaks $wake }
     }
     if ($Opt['WriteCacheFlushOff']) {
-        $cache = & $recorded @(Get-WriteCacheTweaks)
+        $cache = @(& $recorded @(Get-WriteCacheTweaks))
         if ($cache.Count -gt 0) { Test-HealthTweakTable -Label 'Write cache buffer flushing off' -Tweaks $cache }
     }
     if ($Opt['MpoOff']) { Test-HealthTweakTable -Label 'Multiplane overlay off' -Tweaks $MpoRegs }
