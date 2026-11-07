@@ -2071,6 +2071,13 @@ $NvmeRegs = @(
 )
 
 $KnownStuckValues = @('HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\WMI\Autologger\Diagtrack-Listener|Start')
+# Values Windows recomputes on its own after a revert (the accent colours follow the theme once Explorer restarts),
+# so the revert check reports them as notes instead of differences.
+$WindowsRewrittenValues = @(
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|AccentColor'
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationColor'
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationAfterglow'
+)
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
@@ -3083,12 +3090,16 @@ function Set-UpdatePolicies {
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
         Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
-        if ($Opt['PauseStopsUpdateTasks']) {
-            foreach ($pattern in $UpdateTaskPaths) {
-                foreach ($task in @(Get-ScheduledTask -TaskPath $pattern -ErrorAction SilentlyContinue)) { Disable-TaskRecorded -Task $task }
-            }
-        }
+        if ($Opt['PauseStopsUpdateTasks']) { Disable-UpdateTasks }
         if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays). Security patches are delayed for that period." 'WARN' }
+    }
+}
+
+function Disable-UpdateTasks {
+    foreach ($pattern in $UpdateTaskPaths) {
+        foreach ($task in @(Get-ScheduledTask -TaskPath $pattern -ErrorAction SilentlyContinue)) {
+            if ($task.State -ne 'Disabled') { Disable-TaskRecorded -Task $task }
+        }
     }
 }
 
@@ -4563,7 +4574,7 @@ function Test-RevertResult {
     # tasks must exist again, the hosts blocks must be gone and the timer service removed.
     $items = [System.Collections.Generic.List[object]]::new()
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    $checked = 0
+    $checked = 0; $rewritten = 0
     foreach ($e in $script:State.Registry) {
         # The first entry per value is the original; later duplicates come from older key spellings.
         if (-not $seen.Add("$($e.Path)|$($e.Name)")) { continue }
@@ -4571,8 +4582,15 @@ function Test-RevertResult {
         $now = Get-RegSnapshot -Full $e.Path -Name $e.Name
         $was = if ($e.Existed) { '{0} ({1})' -f (@($e.Value) -join ','), $e.Kind } else { '<missing>' }
         $is = if ($now.Existed) { '{0} ({1})' -f (@($now.Value) -join ','), $now.Kind } else { '<missing>' }
-        if ($was -ne $is) { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Registry'; Message = "$($e.Path)\$(Show-RegName $e.Name) was $was, is $is" }) }
+        if ($was -eq $is) { continue }
+        if ($WindowsRewrittenValues -contains "$($e.Path)|$($e.Name)") {
+            $rewritten++
+            Add-Content -Path $LogFile -Value "          revert check: [Note] $($e.Path)\$(Show-RegName $e.Name) was $was, is $is (Windows recomputes this value)"
+            continue
+        }
+        $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Registry'; Message = "$($e.Path)\$(Show-RegName $e.Name) was $was, is $is" })
     }
+    if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) Windows recomputes itself (accent colours) differ, as expected." }
     $badReg = $items.Count
     foreach ($t in @($script:State.Tasks | Where-Object { $_.Action -eq 'Deleted' })) {
         if (-not (Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue)) {
@@ -4714,7 +4732,11 @@ function Invoke-Apply {
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
     if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
     if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
-    if ($Opt['UpdateCacheCleanup']) { Invoke-Step 'Update cache cleanup' { Clear-UpdateDownloadCache } }
+    if ($Opt['UpdateCacheCleanup']) {
+        Invoke-Step 'Update cache cleanup' { Clear-UpdateDownloadCache }
+        # Starting UsoSvc again registers its Schedule Scan tasks anew, so the pause would show active tasks.
+        if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' { Disable-UpdateTasks } }
+    }
     if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
     if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) { $script:PostApply = $true; Invoke-Step 'Health check' { Invoke-HealthCheck } }
 }
@@ -4827,6 +4849,10 @@ if ($RestoreTask.Count -gt 0) {
 }
 if ($Revert) { Invoke-Revert }
 else {
+    # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
+    if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
+        Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
+    }
     Show-Plan
     if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; exit 2 }
     Invoke-Apply
