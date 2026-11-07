@@ -855,6 +855,17 @@ function Remove-CreatedKeys {
 
 function Show-RegName { param([string]$Name) if ($Name -eq '') { '(default)' } else { $Name } }
 
+function Invoke-Native {
+    # Runs a native command and returns its stdout and stderr as one string; $LASTEXITCODE is set as usual.
+    # Windows PowerShell 5.1 turns redirected stderr into error records, which stop the script under 'Stop' as soon
+    # as a command prints any error text (2>&1 and *> $null alike), so the redirect runs under 'Continue' here.
+    param([Parameter(Mandatory)][string]$FilePath, [string[]]$ArgumentList = @())
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { return (& $FilePath @ArgumentList 2>&1 | ForEach-Object { "$_" }) -join "`n" }
+    finally { $ErrorActionPreference = $saved }
+}
+
 function Test-AccessDenied {
     param($ErrorRecord)
     $e = $ErrorRecord.Exception
@@ -877,7 +888,7 @@ function Invoke-AsTI {
     $tiExe = Join-Path $env:SystemRoot 'servicing\TrustedInstaller.exe'
     $stopTi = {
         try { Stop-Service -Name TrustedInstaller -Force -ErrorAction Stop -WarningAction Stop }
-        catch { & taskkill.exe /im trustedinstaller.exe /f *> $null }
+        catch { $null = Invoke-Native taskkill.exe @('/im', 'trustedinstaller.exe', '/f') }
     }
     & $stopTi
     & sc.exe config TrustedInstaller binPath= "cmd.exe /c powershell.exe -NoProfile -EncodedCommand $b64" | Out-Null
@@ -1342,8 +1353,8 @@ function Remove-NvidiaTelemetry {
             $targets += @(Get-ChildItem -LiteralPath $pluginDir -Recurse -File | Where-Object { $plugins -contains $_.Name } | ForEach-Object { $_.FullName })
         }
         foreach ($f in $targets) {
-            & takeown.exe /f $f *> $null
-            & icacls.exe $f /grant '*S-1-5-32-544:F' /t *> $null
+            $null = Invoke-Native takeown.exe @('/f', $f)
+            $null = Invoke-Native icacls.exe @($f, '/grant', '*S-1-5-32-544:F', '/t')
             Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
             if (Test-Path -LiteralPath $f) { Write-Log "Could not remove NVIDIA telemetry file: $f" 'WARN' }
             else { Write-Log "Removed NVIDIA telemetry file: $(Split-Path $f -Leaf)" 'OK' }
@@ -1653,12 +1664,12 @@ function Set-PerformancePowerPlan {
     else {
         $guid = $null
         foreach ($base in $spec.Base) {
-            $guid = Get-GuidFromText ((powercfg /duplicatescheme $base 2>&1) | Out-String)
+            $guid = Get-GuidFromText (Invoke-Native powercfg.exe @('/duplicatescheme', $base))
             if ($guid) { break }
         }
         if (-not $guid) {
             Write-Log 'Base scheme unavailable (common on Modern Standby systems), cloning the active scheme instead.' 'WARN'
-            $guid = Get-GuidFromText ((powercfg /duplicatescheme $active 2>&1) | Out-String)
+            $guid = Get-GuidFromText (Invoke-Native powercfg.exe @('/duplicatescheme', $active))
         }
         if (-not $guid) { throw 'Unable to create the custom power plan.' }
         powercfg /changename $guid $planName "Created by FocusedTweaks ($PowerProfile)" | Out-Null
@@ -2226,7 +2237,7 @@ function Disable-SpectreMeltdownMitigations {
 function Get-BcdValue {
     # Value of one element of the current boot entry, or $null when the entry does not set it.
     param([Parameter(Mandatory)][string]$Name)
-    $out = (& bcdedit.exe /enum '{current}' 2>&1) | Out-String
+    $out = Invoke-Native bcdedit.exe @('/enum', '{current}')
     if ($LASTEXITCODE -ne 0) { throw "bcdedit /enum failed: $($out.Trim())" }
     $m = [regex]::Match($out, "(?m)^$([regex]::Escape($Name))\s+(\S+)\s*$")
     if ($m.Success) { return $m.Groups[1].Value }
@@ -2236,7 +2247,7 @@ function Get-BcdValue {
 function Disable-Dep {
     if (Test-DryRun 'set the boot option nx to AlwaysOff (Data Execution Prevention off, Secure Boot must be off)') { return }
     if (-not $script:State.Dep) { $script:State.Dep = [pscustomobject]@{ Previous = (Get-BcdValue 'nx') } }
-    $out = (& bcdedit.exe /set nx AlwaysOff 2>&1) | Out-String
+    $out = Invoke-Native bcdedit.exe @('/set', 'nx', 'AlwaysOff')
     if ($LASTEXITCODE -ne 0) { throw "bcdedit could not set nx (Secure Boot must be off for this): $($out.Trim())" }
     Write-Log 'Data Execution Prevention is switched off. Restart Windows to apply.' 'WARN'
 }
@@ -2245,8 +2256,8 @@ function Restore-Dep {
     # The saved value comes from a file, so only values bcdedit accepts for nx are passed on.
     $previous = $script:State.Dep.Previous
     if ($previous -and @('OptIn', 'OptOut', 'AlwaysOn', 'AlwaysOff') -notcontains [string]$previous) { throw "Unexpected saved nx value '$previous', not restoring it." }
-    if ($previous) { $out = (& bcdedit.exe /set nx $previous 2>&1) | Out-String }
-    else { $out = (& bcdedit.exe /deletevalue nx 2>&1) | Out-String }
+    if ($previous) { $out = Invoke-Native bcdedit.exe @('/set', 'nx', $previous) }
+    else { $out = Invoke-Native bcdedit.exe @('/deletevalue', 'nx') }
     if ($LASTEXITCODE -ne 0 -and ($previous -or (Get-BcdValue 'nx'))) { throw "bcdedit could not restore nx: $($out.Trim())" }
     Write-Log "Data Execution Prevention restored ($(if ($previous) { $previous } else { 'value removed' })). Restart Windows to apply." 'OK'
 }
@@ -2264,7 +2275,7 @@ function Install-TimerResolutionService {
     $source = Join-Path $dir 'TimerResolution.cs'
     Set-Content -LiteralPath $source -Value $TimerServiceSource -Encoding ASCII
     try {
-        $out = (& $csc /nologo /target:exe "/out:$exe" /reference:System.ServiceProcess.dll $source 2>&1) | Out-String
+        $out = Invoke-Native $csc @('/nologo', '/target:exe', "/out:$exe", '/reference:System.ServiceProcess.dll', $source)
         if ($LASTEXITCODE -ne 0) { throw "csc.exe failed: $($out.Trim())" }
     }
     finally { Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue }
@@ -2395,9 +2406,9 @@ function Set-FeatureUpgradeBlock {
 function Update-TimeService {
     # Makes the time service read its settings again and sync. A failed sync is not fatal: it retries on its own.
     Start-Service -Name W32Time -ErrorAction SilentlyContinue
-    $out = (& w32tm.exe /config /update 2>&1) | Out-String
+    $out = Invoke-Native w32tm.exe @('/config', '/update')
     if ($LASTEXITCODE -ne 0) { Write-Log "w32tm /config /update failed: $($out.Trim())" 'WARN'; return }
-    $out = (& w32tm.exe /resync /nowait 2>&1) | Out-String
+    $out = Invoke-Native w32tm.exe @('/resync', '/nowait')
     if ($LASTEXITCODE -ne 0) { Write-Log "w32tm /resync failed, Windows will retry on its own: $($out.Trim())" 'WARN' }
 }
 
