@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v6.
+    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v7.2.
 
 .DESCRIPTION
     A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
@@ -35,13 +35,19 @@
     again in a new elevated window with the same parameters.
 
     Use -ProfilePath file.json to keep a set of choices in a file (see profiles\example.json). Parameters given on
-    the command line win over the profile.
+    the command line win over the profile. Starter profiles: desktop-max.json, laptop.json, privacy.json.
+
+    Use -Revert to undo a run, or -RestoreTask <task path wildcards> to bring back only some deleted or disabled tasks.
+    tools\Explain-Processes.ps1 explains what is running and why, without changing anything.
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -ListOptions
 
 .EXAMPLE
-    .\FocusedTweaks.ps1 -ProfilePath .\profiles\example.json -DryRun
+    .\FocusedTweaks.ps1 -ProfilePath .\profiles\laptop.json -DryRun
+
+.EXAMPLE
+    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -DryRun
