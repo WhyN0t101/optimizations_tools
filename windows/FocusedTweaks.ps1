@@ -61,6 +61,7 @@
 [CmdletBinding()]
 param(
     [switch]$Revert,
+    [string[]]$RestoreTask = @(),
     [switch]$DryRun,
     [switch]$Force,
     [switch]$ListOptions,
@@ -268,6 +269,7 @@ if ($ListOptions) {
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
+    Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\TPM\*''.'
     exit 0
 }
 Resolve-Options
@@ -2098,6 +2100,7 @@ $script:State = @{
     Dep        = $null
     TimerService = $null
     PowerOverlay = $null
+    PowerOverlaySet = $null
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
     CreatedKeys = [System.Collections.Generic.List[object]]::new()
     NetBindings = [System.Collections.Generic.List[object]]::new()
@@ -2169,7 +2172,7 @@ function Import-State {
             }
         }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay') {
+    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet') {
         if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
     }
 }
@@ -2977,8 +2980,9 @@ function Invoke-TaskMode {
 }
 
 function Restore-Tasks {
+    param([object[]]$Tasks = @($script:State.Tasks))
     $denied = [System.Collections.Generic.List[object]]::new()
-    foreach ($t in $script:State.Tasks) {
+    foreach ($t in $Tasks) {
         try {
             if ($t.Action -eq 'Deleted') {
                 if ($t.XmlFile -and (Test-Path -LiteralPath $t.XmlFile)) {
@@ -2996,6 +3000,15 @@ function Restore-Tasks {
     }
     if ($denied.Count -gt 0) { Restore-ProtectedTasks -Tasks $denied }
     Write-Log 'Scheduled tasks restored.' 'OK'
+}
+
+function Restore-SelectedTasks {
+    # -RestoreTask: bring back only the deleted or disabled tasks whose full path matches, leaving the rest of the run
+    # in place. Entries stay in the state file, so a later full -Revert still covers them (registering again is harmless).
+    $picked = @($script:State.Tasks | Where-Object { Test-NameMatch "$($_.Path)$($_.Name)" $RestoreTask })
+    if ($picked.Count -eq 0) { Write-Log "No recorded task matches $($RestoreTask -join ', '). The task backups are in $(Join-Path $StateDir 'tasks')." 'WARN'; return }
+    foreach ($t in $picked) { Write-Log "Restoring task $($t.Path)$($t.Name) ($($t.Action.ToLowerInvariant()) by the run)." }
+    Restore-Tasks -Tasks $picked
 }
 
 function Restore-ProtectedTasks {
@@ -3153,7 +3166,9 @@ function Set-PowerModeOverlay {
         $script:State.PowerOverlay = $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
     }
     powercfg /OverlaySetActive $overlay | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN' } else { Write-Log "Power mode set ($PowerMode)." 'OK' }
+    if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN'; return }
+    $script:State.PowerOverlaySet = $overlay   # what the health check compares against
+    Write-Log "Power mode set ($PowerMode)." 'OK'
 }
 
 function Restore-PowerMode {
@@ -4350,6 +4365,36 @@ function Test-HealthSystem {
         $on = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
         if ($on.Count -eq 0) { Write-Health 'PASS' 'System' 'Sleep Study and power diagnostic logs are off.' } else { Write-Health 'WARN' 'System' "$($on.Count) power diagnostic log(s) are still enabled." }
     }
+    $svcChecks = [ordered]@{}
+    if ($Opt['TelemetryPolicy']) { $svcChecks['Telemetry services'] = $TelemetryServices }
+    if ($Opt['Cdp']) { $svcChecks['Connected Devices Platform services'] = $CdpServices }
+    foreach ($label in $svcChecks.Keys) {
+        $present = @($svcChecks[$label] | Where-Object { $null -ne (Get-ServiceStartNow $_) })
+        $on = @($present | Where-Object { (Get-ServiceStartNow $_) -ne 4 })
+        if ($present.Count -eq 0) { continue }
+        if ($on.Count -eq 0) { Write-Health 'PASS' 'Services' "$label are disabled: $($present -join ', ')." }
+        else { Write-Health 'WARN' 'Services' "$label are not disabled: $($on -join ', ')." }
+    }
+    if ($Opt['NotificationSettings']) {
+        # Only the apps the run switched off: apps installed since then were never touched.
+        $root = 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings'
+        $touched = @($script:RecordedReg | Where-Object { $_ -like "$root\*|Enabled" } | ForEach-Object { $_.Substring(0, $_.Length - '|Enabled'.Length) })
+        $back = @($touched | Where-Object { $s = Get-RegSnapshot -Full $_ -Name 'Enabled'; -not ($s.Existed -and [int]$s.Value -eq 0) })
+        if ($touched.Count -eq 0) { Write-Health 'INFO' 'System' 'No app notifications were switched off by a run, so there is nothing to check.' }
+        elseif ($back.Count -eq 0) { Write-Health 'PASS' 'System' "Notifications are off for the $($touched.Count) app(s) the run switched off." }
+        else { Write-Health 'WARN' 'System' "Notifications are back on for $($back.Count) of $($touched.Count) app(s), first: $(Split-Path $back[0] -Leaf)." }
+    }
+    if ($script:State.PowerOverlaySet) {
+        # powercfg sets the overlay of the power source active at the time, so either the AC or the DC value counts.
+        $want = @($PowerOverlayNames.Keys | Where-Object { $PowerOverlayNames[$_] -eq $script:State.PowerOverlaySet })[0]
+        $schemes = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes'
+        $now = foreach ($n in 'ActiveOverlayAcPowerScheme', 'ActiveOverlayDcPowerScheme') {
+            $s = Get-RegSnapshot -Full $schemes -Name $n
+            if ($s.Existed -and $s.Value) { ([string]$s.Value).ToLowerInvariant() } else { '00000000-0000-0000-0000-000000000000' }
+        }
+        if (@($now) -contains $want) { Write-Health 'PASS' 'Power' "Power mode is $($script:State.PowerOverlaySet), as the run set it." }
+        else { Write-Health 'WARN' 'Power' "Power mode is no longer $($script:State.PowerOverlaySet) (Settings or the laptop's own power tool may have changed it)." }
+    }
     if ($Opt['PasswordExpiry'] -and [Environment]::OSVersion.Version.Build -gt 19045) {
         $age = Get-MaxPasswordAge
         if ($age -eq 'unlimited') { Write-Health 'PASS' 'System' 'Local passwords never expire.' }
@@ -4774,6 +4819,11 @@ if ($HealthCheck) {
     Restore-SavedRunSettings
     Invoke-HealthCheck
     exit ([int]($script:Health.FAIL -gt 0))
+}
+if ($RestoreTask.Count -gt 0) {
+    if ($Revert -or $DryRun) { throw '-RestoreTask cannot be combined with -Revert or -DryRun.' }
+    Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
+    exit ([int]($script:Failures -gt 0))
 }
 if ($Revert) { Invoke-Revert }
 else {
