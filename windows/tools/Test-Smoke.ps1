@@ -17,7 +17,8 @@
 param(
     [Parameter(Mandatory)][string]$Script,
     [string]$LaptopProfile,
-    [string]$OutDir = 'smoke'
+    [string]$OutDir = 'smoke',
+    [int]$StageMinutes = 12
 )
 
 if ($env:GITHUB_ACTIONS -ne 'true') {
@@ -62,13 +63,20 @@ foreach ($stage in $stages) {
     Write-Host "==> $label`: FocusedTweaks.ps1 $($stage.Args)" -ForegroundColor Cyan
     # -Command, not -File: lists such as -Skip A,B only bind as arrays from a command line.
     $command = "& '$Script' $($stage.Args)"
-    # Windows PowerShell 5.1 turns redirected stderr of a native command into error records, which would stop
-    # this script under 'Stop'. The exit code is what counts here.
-    $ErrorActionPreference = 'Continue'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command *>&1 |
-        ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $dest 'console.txt')
-    $code = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
+    # A separate process with a time limit: a stage that hangs (DISM, a service that will not stop) must not use up
+    # the whole job, or the job is killed before this script can publish anything.
+    $out = Join-Path $dest 'console.txt'
+    $err = Join-Path $dest 'console-err.txt'
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $proc = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded `
+        -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
+    if ($proc.WaitForExit($StageMinutes * 60 * 1000)) { $code = $proc.ExitCode }
+    else {
+        $null = & cmd.exe /d /c "taskkill /T /F /PID $($proc.Id) >nul 2>&1"
+        $code = 124
+        Write-Host "$label timed out after $StageMinutes minutes and was stopped." -ForegroundColor Red
+    }
+    Get-Content -LiteralPath $out, $err -ErrorAction SilentlyContinue | Write-Host
     Get-ChildItem -LiteralPath $StateDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $start -and $_.Extension -in '.log', '.json' } |
         Copy-Item -Destination $dest
@@ -101,7 +109,13 @@ foreach ($r in $results) {
     $couldNot = @(Get-ChildItem -Path (Join-Path $r.Dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -Pattern '\[WARN\] Could not')
     foreach ($w in ($couldNot | Select-Object -First 10)) { $stageLines.Add("    $($w.Line.Trim())") }
     if ($r.Code -ne 0 -or $errors.Count -gt 0) { $stageBad = $true }
-    if ($r.Code -ne 0 -and $errors.Count -eq 0) {
+    if ($r.Code -eq 124) {
+        # Timed out: the last log lines show the step it hung in.
+        $stageLines.Add("    TIMED OUT after $StageMinutes minutes. Last log lines:")
+        $log = Get-ChildItem -Path (Join-Path $r.Dir 'run-*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+        if ($log) { foreach ($l in @(Get-Content -LiteralPath $log.FullName -Tail 12)) { $stageLines.Add("    log: $l") } }
+    }
+    elseif ($r.Code -ne 0 -and $errors.Count -eq 0) {
         # A failure before the log starts (parameter binding, a throw at the top) only shows in the console.
         foreach ($c in @(Get-Content -LiteralPath (Join-Path $r.Dir 'console.txt') -ErrorAction SilentlyContinue | Select-Object -Last 15)) { $stageLines.Add("    console: $c") }
     }

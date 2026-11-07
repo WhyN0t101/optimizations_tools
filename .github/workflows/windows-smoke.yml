@@ -18,7 +18,8 @@ jobs:
   smoke:
     needs: build
     runs-on: windows-2025
-    timeout-minutes: 45
+    # Each of the six stages stops itself after 12 minutes and still reports; this only catches the rest.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
