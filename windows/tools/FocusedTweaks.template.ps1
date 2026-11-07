@@ -146,6 +146,7 @@ $OptionInfo = [ordered]@{
     BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)')
     Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache')
     SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more')
+    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)')
     SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time')
     SvcBiometrics         = @($true, 'Disable the Windows Biometric Service')
     SvcSmartCard          = @($true, 'Disable smart card services')

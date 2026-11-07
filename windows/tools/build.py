@@ -78,7 +78,11 @@ assigned = {n for v in groups.values() for n in v}
 missing = [n for v in groups.values() for n in v if n not in ds_names]
 assert not missing, missing
 groups['SvcOther'] = [n for n in ds_names if n not in assigned]
-order = ['SvcOther', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+# Not in upstream disable-services; taken from FR33THY Ultimate (8 Advanced\17 Services.ps1, "Services: Off").
+# Only services nothing usable depends on: contact and user data sync for the removed Mail/People apps, SSDP
+# discovery, Storage Spaces, and the built-in VPN client.
+groups['SvcExtra'] = ['PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc']
+order = ['SvcOther', 'SvcExtra', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -214,7 +218,7 @@ OPTION_GROUPS = [
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryHosts', 'BiometricsPolicy', 'Cdp', 'RazerAsusHosts',
                                          'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Services', ['SvcOther', 'SvcExtra', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),
