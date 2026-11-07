@@ -1,16 +1,25 @@
 # FocusedTweaks: project summary
 
 ## What it is
-One Windows-only PowerShell 5.1 script (`FocusedTweaks.ps1`, about 4,300 lines, elevates itself) that applies only the Windows
-tweaks you chose from ZOICWARE (MIT, commit of 24 Oct 2026), plus a few ideas from FR33THYFR33THY/Ultimate (MIT).
-Every risky item is a named option. Defaults follow upstream except your exclusions.
+One Windows-only PowerShell 5.1 script (`FocusedTweaks.ps1`, about 4,500 lines, elevates itself) that applies only the Windows
+tweaks you chose from ZOICWARE (MIT, commit 2363922 of 24 Oct 2026, pinned in `tools/build.py`), plus a few ideas from
+FR33THYFR33THY/Ultimate (MIT). Every risky item is a named option. Since v7.0 the defaults aim for maximum performance
+with Windows still usable, and things are removed or left alone, never half done; profiles relax them per machine.
+Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with the README, NOTICE and starter profiles.
 
 ## Safety model
 - `-DryRun` lists every action and changes nothing. A `YES` prompt guards a real run (`-Force` skips it).
 - State is saved after every step. `-Revert` restores registry values and deleted keys, the hosts file, scheduled tasks
   (exported to XML first), the power plan, hibernation, memory compression, sleep study logs, password age, the consent
   database, the Start layout and desktop shortcuts, Defender real time protection, DEP, the timer service, the power
-  mode and the time server. Registry keys the run created are removed again when they are empty.
+  mode, the time server and optional features. Registry keys the run created are removed again when they are empty.
+  Values are restored to what they were before the first run (sleep study logs, password age), not to fixed defaults.
+  Tasks that only SYSTEM may register or change are handled through the TrustedInstaller helper.
+- `-RestoreTask <wildcards>` brings back only the matching deleted or disabled tasks, leaving the rest of the run.
+- Never deleted by `TaskMode Delete`, whatever the profile says: time sync, Defrag, TPM, BitLocker and
+  `SdbinstMergeDbTask` (Windows refuses to register it again). SSD retrim, automatic maintenance and display scaling
+  are left alone unless `SvcDefrag`, `NoAutoMaintenance` or `ForceDpi100` is switched on.
+- Service stops time out after 30 seconds; the update cache cleanup stops UsoSvc first and skips when a service hangs.
 - The state folder (`C:\ProgramData\FocusedTweaks`) is locked to Administrators and SYSTEM, and refused if anyone else
   owns something in it. A TrustedInstaller service path left behind by an interrupted run is repaired at start.
 - The run warns when the elevated account is not the one at the desktop, since per user settings would go to it.
@@ -22,7 +31,11 @@ Every risky item is a named option. Defaults follow upstream except your exclusi
 `-ListOptions`, `-ListRegGroups`, `-DryRun`, `-Force`, `-Skip A,B`, `-Enable A,B`, `-Only A,B`, `-SkipRegGroup`,
 `-TaskMode Delete|Disable|None`, `-Defender Keep|Disable|Enable`, `-PowerProfile Off|Medium|High`,
 `-PowerMode Keep|Balanced|Best`, `-PauseDays`, `-NvidiaDownload|-NvidiaInstaller`, `-HealthCheck`, `-HealthCheckLaunch`,
-`-ProfilePath file.json`, `-Revert`.
+`-ProfilePath file.json`, `-Revert`, `-RestoreTask`, `-Benchmark`, `-StartupReview`, `-SkipRestorePoint`.
+Profiles: `desktop-max.json`, `laptop.json` (keeps UAC, mitigations and core isolation, no timer service),
+`privacy.json` (no security or update trade-offs), `example.json`. A battery without a profile prints a hint.
+`tools/Explain-Processes.ps1` (read only) explains running processes, services and optional features, gives
+Keep/Manual/Remove advice for common Windows and vendor services, and compares two machines.
 
 ## Your decisions on record
 - UAC off, startup Run keys cleared once, app privacy denials on, all accepted.
@@ -46,9 +59,29 @@ Every risky item is a named option. Defaults follow upstream except your exclusi
 
 - v7 (not yet run in the VM): `MenuRunAsAdmin`, eleven right click menu removals, `LockScreenOff`, `IPv4Only` and
   `NvmeNativeDriver`, all off by default; `-Benchmark` and `-StartupReview` modes.
+- v7.0 (7 Nov 2026), maximum performance defaults. These replace earlier decisions above where they differ: on by
+  default now Spectre and Meltdown mitigations off, core isolation off, the timer service (always held), Delivery
+  Optimisation off, Search indexing off, faster shutdown, and `SvcExtra` (contact and user data sync, SSDP, Storage
+  Spaces, built-in VPN, from Ultimate). Still kept by default: Bluetooth, printing and radio services, hide Lock, hide
+  Sleep, hibernation. Off by default and part of the hard floor: `SvcDefrag`, `NoAutoMaintenance`, `ForceDpi100`.
+- v7.1: six upstream registry groups now belong to the option they duplicate (mouse acceleration, notifications, sleep
+  study, background apps, fault tolerant heap, Delivery Optimisation), so skipping the option keeps the feature.
+  `NoRecentDocsHistory` is its own option, off by default (it broke Quick Access pinning). New health lines for power
+  mode, notifications, telemetry and CDP services, password age, MSI mode and time sync.
+- v7.2: `LegacyFeatures` (on: SMB 1.0, PowerShell 2.0, Recall, Work Folders, Media Player Legacy) and
+  `HypervisorFeatures` (off: Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL, Sandbox).
 
 ## Test status
-- Static checks (`tests/Test-Parse.ps1`) on Windows PowerShell 5.1 and PowerShell 7.
+- Static checks (`tests/Test-Parse.ps1`) on Windows PowerShell 5.1 and PowerShell 7, on every push in CI, which also
+  fails when the committed script or `docs/OPTIONS.md` differ from a fresh build.
+- Smoke test on every push (`.github/workflows/windows-smoke.yml`, `tools/Test-Smoke.ps1`): a throwaway Windows Server
+  2025 runner runs both dry runs, a real run with the defaults, the health check, `-RestoreTask` and `-Revert`, and
+  publishes the results as annotations. Run of 7 Nov 2026 (v7.2): no errors in any stage, health 52 passed, 0 failed
+  (warnings are Server only: no Store apps, Defender off on the image), revert check 712 values back, 1 difference (a
+  Visual Studio task tied to the runner's own account). It found and fixed: the update cache cleanup crash on an empty
+  folder, `reg.exe` and `schtasks` stopping steps under Windows PowerShell 5.1, about 40 protected tasks revert could
+  not restore, and update tasks registered again by UsoSvc. Server cannot cover Store apps or a restart, so the VM
+  test stays the full Windows 11 check.
 - v5 full run on the Windows 11 VM (build 26200, 3 Nov 2026): no errors, health check 42 passed, 2 warnings (Gaming
   services missing from the image, the protected Diagtrack autologger value), 0 failed. Scheduled task deletion takes
   about a second per task.
@@ -57,11 +90,14 @@ Every risky item is a named option. Defaults follow upstream except your exclusi
   Defender signatures 411 days old (stale image, and definition updates are excluded), and Windows Modules Installer
   service events caused by the script's own TrustedInstaller helper. The 7 log warnings also included a wrong USB
   selective suspend GUID, now fixed.
-- Not yet verified on real Windows: every v6 option, the power mode revert, removal of created keys, the TrustedInstaller
-  repair, the wrong account warning, `-ProfilePath`, `-Revert` on a real system, `-HealthCheckLaunch`, the restore
-  point retry, the NVIDIA download. Start pins: the log says cleared, but it has to be checked by eye.
+- 7 Nov 2026, the owner's ThinkPad (laptop profile, real hardware): run finished; health check 0 failed. Found then:
+  the forced 100% DPI group skewing the mouse profile, deleted time sync, TPM and Defrag tasks (restored by hand, now
+  in the keep list), and `NoRecentDocsHistory` breaking Quick Access pins. All fixed in v7.0 and v7.1.
+- Not yet verified on Windows 11 client: the v7.x defaults after a restart, `-HealthCheckLaunch`, the restore point
+  retry, the NVIDIA download. Start pins: the log says cleared, but it has to be checked by eye.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
-console colours, Task Manager always on top, HDR on battery, DDU and Safe Mode cleaning.
-Ideas queue: `-NoTrustedInstaller`, wildcard option names, a Windows runner for CI, script signing.
+console colours, Task Manager always on top, DDU and Safe Mode cleaning.
+Ideas queue: `-NoTrustedInstaller`, wildcard option names, script signing, a keep/disable/delete mode for services
+and startup entries modelled on `TaskMode`, partial revert by option, more vendors in `Explain-Processes`.
