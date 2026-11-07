@@ -3,6 +3,10 @@
 A focused, option driven Windows 10/11 tweak script derived from [ZOICWARE](https://github.com/zoicware/ZOICWARE) (MIT),
 with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ultimate) (MIT). Windows only.
 
+Download the ready-built `FocusedTweaks.ps1` from the repo's Releases page and check it against the
+`.sha256` file next to it: `(Get-FileHash .\FocusedTweaks.ps1).Hash`. Building it yourself needs Python and a
+ZOICWARE checkout at the commit pinned in `tools/build.py`.
+
 Run it from a Windows PowerShell (5.1) prompt in this folder. It asks for elevation itself when needed.
 
     Set-ExecutionPolicy -Scope Process Bypass

@@ -1,0 +1,49 @@
+# Push a tag like v7.0 to publish a release with the built FocusedTweaks.ps1, its SHA256 checksum and the
+# third party licence notices (ZOICWARE and FR33THY Ultimate are MIT and require the notice to travel with copies).
+name: windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/windows-build.yml
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FocusedTweaks
+          path: dist
+
+      - name: Checksum
+        shell: pwsh
+        working-directory: dist
+        run: |
+          $hash = (Get-FileHash FocusedTweaks.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  FocusedTweaks.ps1" | Set-Content FocusedTweaks.ps1.sha256 -Encoding ascii -NoNewline
+          "SHA256=$hash" >> $env:GITHUB_ENV
+
+      - name: Publish
+        shell: pwsh
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          Built from the template at $env:GITHUB_SHA with the pinned ZOICWARE commit.
+
+          SHA256 of FocusedTweaks.ps1: ``$env:SHA256``
+
+          Check it before running: ``(Get-FileHash .\FocusedTweaks.ps1).Hash`` must match (case does not matter).
+          Read the README and do a ``-DryRun`` first.
+          "@
+          gh release create $env:GITHUB_REF_NAME FocusedTweaks.ps1 FocusedTweaks.ps1.sha256 NOTICE.md `
+            --repo $env:GITHUB_REPOSITORY --title "FocusedTweaks $env:GITHUB_REF_NAME" --notes $notes
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
