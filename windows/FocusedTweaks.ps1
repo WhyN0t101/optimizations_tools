@@ -2641,6 +2641,14 @@ function Get-RegGroupOption {
         '100% DPI scaling' { return 'ForceDpi100' }
         'Disable fix scaling for apps' { return 'ForceDpi100' }
         'Disable automatic maintenance' { return 'NoAutoMaintenance' }
+        # Upstream groups that do the same job as an existing option belong to it, so skipping the option
+        # really keeps the feature (before, the Registry option still applied them).
+        'Turn off enhance pointer precision' { return 'MouseAccel' }
+        'Disable notifications' { return 'NotificationSettings' }
+        'Disable sleep study' { return 'SleepStudy' }
+        'Disable background apps global' { return 'PrivacyDenials' }
+        'Disable fault tolerant heap' { return 'FaultTolerantHeap' }
+        'Disable delivery optimization' { return 'SvcDeliveryOpt' }
         default { return 'Registry' }
     }
 }
@@ -2887,7 +2895,8 @@ function Set-ServiceStart {
     Set-RegValue -Path $reg -Name 'Start' -Value $(if ($Mode -eq 'Disabled') { 4 } else { 3 }) -Type DWord
     if ($Mode -eq 'Disabled' -and -not $script:DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
-            Stop-Service -InputObject $svc -Force -ErrorAction SilentlyContinue
+            # Disabled is what counts; a service that will not stop now stays stopped after the next restart.
+            if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) is disabled but did not stop within 30 s. It stops at the next restart." }
         }
     }
 }
@@ -3244,19 +3253,36 @@ function Disable-MemoryCompression {
     Write-Log 'Memory compression disabled (takes effect after a restart).' 'OK'
 }
 
+$SleepStudyLogs = 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic'
+
 function Disable-SleepStudy {
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
-    foreach ($log in 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic') {
-        & wevtutil.exe sl $log /e:false | Out-Null
+    # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
+    if ($script:State.SleepStudy -eq $false) {
+        $script:State.SleepStudy = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
     }
-    $script:State.SleepStudy = $true
+    foreach ($log in $SleepStudyLogs) {
+        & wevtutil.exe sl $log /e:false | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Log "wevtutil could not turn off $log ($LASTEXITCODE)." 'WARN' }
+    }
+}
+
+function Get-MaxPasswordAge {
+    # Days, or 'unlimited'. net accounts prints localised labels and words, but its line order is fixed: the third
+    # line is the maximum password age, and a number there is days while any word means unlimited.
+    $lines = @(& net.exe accounts)
+    if ($LASTEXITCODE -ne 0 -or $lines.Count -lt 3) { throw "net accounts failed ($LASTEXITCODE)." }
+    $value = ($lines[2] -split ':')[-1].Trim()
+    if ($value -match '^\d+$') { return $value }
+    return 'unlimited'
 }
 
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
+    if ($script:State.PwAge -eq $false) { $script:State.PwAge = Get-MaxPasswordAge }
     & net.exe accounts /maxpwage:unlimited | Out-Null
-    $script:State.PwAge = $true
+    if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:unlimited failed ($LASTEXITCODE)." }
 }
 
 function Reset-FaultTolerantHeap {
@@ -3581,16 +3607,36 @@ function Clear-TempFiles {
     }
 }
 
+function Stop-ServiceBounded {
+    # Stop-Service waits forever for a service that will not stop. Returns $true once it is stopped.
+    param([Parameter(Mandatory)][string]$Name, [int]$Seconds = 30)
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc -or $svc.Status -eq 'Stopped') { return $true }
+    try {
+        if ($svc.Status -ne 'StopPending') { $svc.Stop() }
+        $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds($Seconds))
+        return $true
+    }
+    catch { return $false }   # timed out, or the service refused the stop request
+}
+
 function Clear-UpdateDownloadCache {
     $path = Join-Path $env:SystemRoot 'SoftwareDistribution\Download'
     $stopped = @()
-    if (-not $script:DryRun) {
-        foreach ($name in 'wuauserv', 'bits') {
-            $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
-            if ($svc -and $svc.Status -eq 'Running') { $stopped += $name; Stop-Service -Name $name -Force -ErrorAction SilentlyContinue }
-        }
+    if (Test-DryRun "stop UsoSvc, wuauserv and bits for up to 30 s each while the cache is cleared, then start them again") { $notStopped = @() }
+    else {
+        # UsoSvc first: while it runs it starts wuauserv again, which made this step wait forever.
+        $notStopped = @(foreach ($name in 'UsoSvc', 'wuauserv', 'bits') {
+                $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+                if (-not $svc -or $svc.Status -eq 'Stopped') { continue }
+                $stopped += $name
+                if (-not (Stop-ServiceBounded -Name $name)) { $name }
+            })
     }
-    try { Clear-FolderContents -Label 'Update cache cleanup' -Path $path }
+    if ($notStopped.Count -gt 0) {
+        Write-Log "Update cache cleanup skipped: $($notStopped -join ', ') did not stop within 30 s. Windows Update may be installing something; run it again later." 'WARN'
+    }
+    try { if ($notStopped.Count -eq 0) { Clear-FolderContents -Label 'Update cache cleanup' -Path $path } }
     finally {
         foreach ($name in $stopped) {
             try { Start-Service -Name $name -ErrorAction Stop }
@@ -4301,8 +4347,23 @@ function Test-HealthSystem {
         }
     }
     if ($Opt['SleepStudy']) {
-        $on = @('Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic' | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
+        $on = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
         if ($on.Count -eq 0) { Write-Health 'PASS' 'System' 'Sleep Study and power diagnostic logs are off.' } else { Write-Health 'WARN' 'System' "$($on.Count) power diagnostic log(s) are still enabled." }
+    }
+    if ($Opt['PasswordExpiry'] -and [Environment]::OSVersion.Version.Build -gt 19045) {
+        $age = Get-MaxPasswordAge
+        if ($age -eq 'unlimited') { Write-Health 'PASS' 'System' 'Local passwords never expire.' }
+        else { Write-Health 'WARN' 'System' "Local passwords still expire after $age days." }
+    }
+    if ($Opt['MsiMode']) {
+        $display = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue)
+        $off = @($display | Where-Object {
+                $s = Get-RegSnapshot -Full "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\$($_.InstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties" -Name 'MSISupported'
+                -not ($s.Existed -and [int]$s.Value -eq 1)
+            })
+        if ($display.Count -eq 0) { Write-Health 'INFO' 'System' 'No display adapter found, so MSI mode could not be checked.' }
+        elseif ($off.Count -eq 0) { Write-Health 'PASS' 'System' "MSI interrupts are on for $($display.Count) display adapter(s)." }
+        else { Write-Health 'WARN' 'System' "MSI interrupts are off for: $(($off | ForEach-Object { $_.FriendlyName }) -join ', ')." }
     }
     if ($Opt['MouseAccel']) {
         $m = Get-RegSnapshot -Full 'HKEY_CURRENT_USER\Control Panel\Mouse' -Name 'MouseSpeed'
@@ -4649,12 +4710,29 @@ function Invoke-Revert {
     if ($script:State.PowerOverlay) { Invoke-Step 'Restore power mode' { Restore-PowerMode } }
     if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
     if ($script:State.MemCompress -eq $true) { Invoke-Step 'Restore memory compression' { Enable-MMAgent -MemoryCompression; Write-Log 'Memory compression re-enabled.' 'OK' } }
-    if ($script:State.SleepStudy -eq $true) {
+    if ($script:State.SleepStudy -ne $false) {
         Invoke-Step 'Restore Sleep Study logs' {
-            foreach ($log in 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic') { & wevtutil.exe sl $log /e:true | Out-Null }
+            # State from older runs only says $true (all were turned off); newer runs list the logs that were on.
+            $logs = @($SleepStudyLogs)
+            if ($script:State.SleepStudy -ne $true) { $logs = @($script:State.SleepStudy | Where-Object { $SleepStudyLogs -contains $_ }) }
+            foreach ($log in $logs) {
+                & wevtutil.exe sl $log /e:true | Out-Null
+                if ($LASTEXITCODE -ne 0) { Write-Log "wevtutil could not turn $log back on ($LASTEXITCODE)." 'WARN' }
+            }
+            Write-Log "Sleep Study logs restored: $($logs.Count) turned back on." 'OK'
         }
     }
-    if ($script:State.PwAge -eq $true) { Invoke-Step 'Restore password expiry' { & net.exe accounts /maxpwage:42 | Out-Null; Write-Log 'Maximum password age set back to 42 days.' 'OK' } }
+    if ($script:State.PwAge -ne $false) {
+        Invoke-Step 'Restore password expiry' {
+            # Older runs stored $true and no value: 42 days is the Windows default.
+            $age = '42'
+            if ($script:State.PwAge -ne $true) { $age = [string]$script:State.PwAge }
+            if ($age -notmatch '^(\d{1,3}|unlimited)$') { throw "Saved password age '$age' is not valid, not restoring it." }
+            & net.exe accounts "/maxpwage:$age" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:$age failed ($LASTEXITCODE)." }
+            Write-Log "Maximum password age set back to $age$(if ($age -ne 'unlimited') { ' days' })." 'OK'
+        }
+    }
     if ($script:State.ConsentDb) {
         Invoke-Step 'Restore consent database' {
             Stop-Service -Name camsvc -Force -ErrorAction SilentlyContinue
