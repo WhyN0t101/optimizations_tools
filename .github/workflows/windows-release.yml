@@ -17,7 +17,7 @@ jobs:
     needs: build
     runs-on: windows-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: FocusedTweaks
           path: dist
@@ -29,6 +29,8 @@ jobs:
           $hash = (Get-FileHash FocusedTweaks.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  FocusedTweaks.ps1" | Set-Content FocusedTweaks.ps1.sha256 -Encoding ascii -NoNewline
           "SHA256=$hash" >> $env:GITHUB_ENV
+          # The zip carries the profiles the README and the battery hint point to.
+          Compress-Archive -Path FocusedTweaks.ps1, NOTICE.md, README.md, profiles -DestinationPath FocusedTweaks.zip
 
       - name: Publish
         shell: pwsh
@@ -44,6 +46,6 @@ jobs:
           Check it before running: ``(Get-FileHash .\FocusedTweaks.ps1).Hash`` must match (case does not matter).
           Read the README and do a ``-DryRun`` first.
           "@
-          gh release create $env:GITHUB_REF_NAME FocusedTweaks.ps1 FocusedTweaks.ps1.sha256 NOTICE.md `
+          gh release create $env:GITHUB_REF_NAME FocusedTweaks.zip FocusedTweaks.ps1 FocusedTweaks.ps1.sha256 NOTICE.md `
             --repo $env:GITHUB_REPOSITORY --title "FocusedTweaks $env:GITHUB_REF_NAME" --notes $notes
           if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }

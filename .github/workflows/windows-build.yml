@@ -17,7 +17,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Fetch the pinned ZOICWARE commit
         shell: pwsh
@@ -56,9 +56,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Test-Parse failed under PowerShell 7' }
 
       - name: Keep the built script
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: FocusedTweaks
           path: |
             windows/FocusedTweaks.ps1
             windows/NOTICE.md
+            windows/README.md
+            windows/profiles/*.json
