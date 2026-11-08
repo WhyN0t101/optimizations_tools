@@ -70,6 +70,13 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
   mode, notifications, telemetry and CDP services, password age, MSI mode and time sync.
 - v7.2: `LegacyFeatures` (on: SMB 1.0, PowerShell 2.0, Recall, Work Folders, Media Player Legacy) and
   `HypervisorFeatures` (off: Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL, Sandbox).
+- v7.4 (not yet run on an NVIDIA machine): `NvidiaProfile` (on, NVIDIA GPUs only) merges 14 global settings into
+  the driver's Base Profile with Profile Inspector (low latency, prefer maximum performance, unlimited shader cache,
+  high performance texture filtering, threaded optimization), leaving G-SYNC, V-Sync, the frame rate limiter and
+  antialiasing alone. `NvidiaReBar` (off) forces Resizable BAR on. The driver settings database
+  (`ProgramData\NVIDIA Corporation\Drs`) is copied before the first import and `-Revert` puts it back. Profile
+  Inspector is only installed when an NVIDIA GPU is present. Last access time is set in the current Windows format
+  (0x80000001), because Windows resets the legacy value from upstream.
 
 ## Test status
 - Static checks (`tests/Test-Parse.ps1`) on Windows PowerShell 5.1 and PowerShell 7, on every push in CI, which also
@@ -93,8 +100,16 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - 7 Nov 2026, the owner's ThinkPad (laptop profile, real hardware): run finished; health check 0 failed. Found then:
   the forced 100% DPI group skewing the mouse profile, deleted time sync, TPM and Defrag tasks (restored by hand, now
   in the keep list), and `NoRecentDocsHistory` breaking Quick Access pins. All fixed in v7.0 and v7.1.
-- Not yet verified on Windows 11 client: the v7.x defaults after a restart, `-HealthCheckLaunch`, the restore point
-  retry, the NVIDIA download. Start pins: the log says cleared, but it has to be checked by eye.
+- 8 Nov 2026, Windows 11 VM (build 26200, VMware, 6 GB RAM, no TPM or Secure Boot), v7.3 with
+  `desktop-max.json`, full `Test-InVm.ps1` cycle: every stage exit code 0 and no errors. Health after the restart 58
+  passed, 0 failed; warnings were Gaming Services missing from the image, Defender signatures 418 days old (stale
+  image), last access time reset by Windows (fixed in v7.4) and the Start list view reset by Windows (now a note).
+  Benchmark before and after: timer 15.6 to 0.5 ms, Sleep(1) 15.9 to 1.6 ms, interrupts per second 27,397 to 3,049,
+  kernel call cost 30.5 to 13.2 us, CPU loop 618 to 422 ms. Revert: 1,277 values checked, 2 differ (one USB root hub
+  idle setting the driver rewrote, and `StartOobeAppsScanAfterUpdate`, now in the never-delete list). `RunKeys` also
+  removes the VMware Tools autostart entry, so `Test-InVm.ps1` puts that one entry back before restarting.
+- Not yet verified: `-HealthCheckLaunch`, the restore point retry, the NVIDIA download and the NVIDIA options (no
+  NVIDIA GPU in the test machines), memory compression above 8 GB in the VM. Start pins: check by eye.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
