@@ -1,7 +1,7 @@
 __pycache__/
 *.pyc
 *.log
-# local copy of the upstream sources used by tools/build.py
-ZOICWARE-main/
-ZOICWARE/
+# full local checkouts of upstream, if any, stay out of git; the files the build needs live in upstream/zoicware
+/ZOICWARE-main/
+/ZOICWARE/
 test-results/
