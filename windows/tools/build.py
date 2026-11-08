@@ -1,31 +1,44 @@
-"""Build FocusedTweaks.ps1 from tools/FocusedTweaks.template.ps1 plus data read from a ZOICWARE checkout.
+"""Build FocusedTweaks.ps1 from tools/FocusedTweaks.template.ps1 plus data read from ZOICWARE source files.
 
 Usage:
-    python tools/build.py --zoicware C:\\path\\to\\ZOICWARE-main --out FocusedTweaks.ps1
+    python tools/build.py --out FocusedTweaks.ps1
+
+By default the ZOICWARE files come from the copy in upstream/zoicware (the original repository is no longer on
+GitHub); --zoicware points at another folder that contains a ZOICWARE "src" directory.
 
 The template is the source of truth. Do not edit the generated FocusedTweaks.ps1 by hand,
 change tools/FocusedTweaks.template.ps1 and build again.
 """
-import argparse, os, re, io, sys
+import argparse, hashlib, os, re, io, sys
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
-ap.add_argument('--zoicware', required=True, help='folder that contains the ZOICWARE "src" directory (a clone or the unzipped release)')
-ap.add_argument('--template', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'FocusedTweaks.template.ps1'))
+ap.add_argument('--zoicware', default=os.path.join(HERE, '..', 'upstream', 'zoicware'),
+                help='folder that contains the ZOICWARE "src" directory (default: the copy in upstream/zoicware)')
+ap.add_argument('--template', default=os.path.join(HERE, 'FocusedTweaks.template.ps1'))
 ap.add_argument('--out', default='FocusedTweaks.ps1')
-ap.add_argument('--allow-other-commit', action='store_true', help='build from a ZOICWARE commit other than the pinned one (when updating upstream)')
+ap.add_argument('--allow-other-commit', action='store_true',
+                help='accept ZOICWARE files that differ from the pinned ones (when updating upstream)')
 args = ap.parse_args()
 SRC = os.path.join(args.zoicware, 'src')
 
-# The upstream data is checked by list sizes below, but only the exact commit makes a build reproducible.
-ZOICWARE_COMMIT = '2363922c51eeff9ce415e51ae4b8161174654082'  # 24 Oct 2026
-if os.path.isdir(os.path.join(args.zoicware, '.git')):
-    import subprocess
-    head = subprocess.run(['git', '-C', args.zoicware, 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
-    if head != ZOICWARE_COMMIT and not args.allow_other_commit:
-        sys.exit(f'ZOICWARE checkout is at {head}, expected {ZOICWARE_COMMIT}. '
-                 'Check out the pinned commit, or pass --allow-other-commit when updating upstream.')
-else:
-    print(f'warning: {args.zoicware} is not a git checkout, so the pinned commit {ZOICWARE_COMMIT[:7]} cannot be verified')
+# Only the exact upstream data makes a build reproducible. The three files are pinned by SHA256 of their text with
+# line endings removed, so a git checkout with CRLF and one with LF give the same result.
+ZOICWARE_COMMIT = '2363922c51eeff9ce415e51ae4b8161174654082'  # 24 Oct 2026, the files in upstream/zoicware
+ZOICWARE_FILES = {
+    'zFunctions.psm1': '75bdd32421f93ee76a09b63bbb32ffcbf69e5faa9474107effef20b29c220060',
+    'RegTweaks.txt': '2eaf9484b0130af4305fce7036ce77357e5b582783538893c6fc21f11efaf6cd',
+    'Unpin.ps1': '9bb6b001c3ca5d7186509c1909dee2016b07c55357d63fadb6aa1e763a96a43e',
+}
+for name, want in ZOICWARE_FILES.items():
+    path = os.path.join(SRC, name)
+    if not os.path.isfile(path):
+        sys.exit(f'ZOICWARE file missing: {path}')
+    with open(path, 'rb') as f:
+        got = hashlib.sha256(f.read().replace(b'\r', b'')).hexdigest()
+    if got != want and not args.allow_other_commit:
+        sys.exit(f'{path} does not match ZOICWARE {ZOICWARE_COMMIT[:7]} (SHA256 {got}). '
+                 'Use the files in upstream/zoicware, or pass --allow-other-commit when updating upstream.')
 
 def read(name):
     with open(os.path.join(SRC, name), encoding='utf-8') as f:
