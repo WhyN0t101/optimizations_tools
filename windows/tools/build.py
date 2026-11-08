@@ -219,7 +219,8 @@ print('mouse scales', [c[0] for c in cases])
 
 # 7. docs/OPTIONS.md, generated from $OptionInfo so the option reference cannot drift from the script.
 OPTION_GROUPS = [
-    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaTelemetryStrip']),
+    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
+                  'NvidiaTelemetryStrip']),
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
     ('Desktop, Start and sign in', ['NotificationSettings', 'RestartExplorer', 'ClearDesktopIcons', 'HideAllDesktopIcons',
