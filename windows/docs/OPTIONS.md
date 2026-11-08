@@ -73,7 +73,7 @@ Run `.\FocusedTweaks.ps1 -ListOptions` for the same list in the console.
 | `TelemetryPolicy` | on | yes | Telemetry, CEIP, app compatibility and advertising policy plus DiagTrack services |
 | `TelemetryHosts` | on | yes | Block 30 Microsoft telemetry domains in the hosts file |
 | `BiometricsPolicy` | on | yes | Policy that disables biometrics (Windows Hello fingerprint and face) |
-| `Cdp` | on | yes | Disable the Connected Devices Platform services and clear its cache |
+| `Cdp` | on | services yes; the cache folder is deleted (Windows rebuilds it) | Disable the Connected Devices Platform services and clear its cache |
 | `RazerAsusHosts` | on | yes | Block Razer and ASUS software download servers in the hosts file |
 | `DefenderQuiet` | on | yes | Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy) |
 
