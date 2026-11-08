@@ -129,7 +129,7 @@ $ErrorActionPreference = 'Stop'
 #region Options ---------------------------------------------------------------------------
 # Name = default state, description. Defaults mirror upstream unless noted.
 $OptionInfo = [ordered]@{
-    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, NVIDIA Profile Inspector, Autoruns')
+    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present')
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more)')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization')
@@ -214,6 +214,8 @@ $OptionInfo = [ordered]@{
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs')
     NvmeNativeDriver      = @($false, 'Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave')
     HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)')
+    NvidiaProfile         = @($true, 'NVIDIA GPUs only: import a low latency, maximum performance global profile with Profile Inspector (the driver settings are backed up first)')
+    NvidiaReBar           = @($false, 'NVIDIA GPUs only: force Resizable BAR on for every game. Off: helps some games and slows others, and needs ReBar on in the BIOS')
     NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins')
 }
 $Opt = @{}
@@ -1823,6 +1825,34 @@ $PackageIds = @(
     'Orbmu2k.nvidiaProfileInspector'
     'Microsoft.Sysinternals.Autoruns'
 )
+# Installed only when an NVIDIA GPU is present.
+$NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
+
+# NVIDIA global (Base Profile) settings for NvidiaProfile, from FR33THY Ultimate "5 Nvidia Settings" (MIT), imported
+# with Profile Inspector's merge import so nothing else in the profile changes. Left out on purpose: G-SYNC, V-Sync and
+# the frame rate limiter (people rely on them), forced antialiasing and anisotropic overrides (they override what games
+# ask for), and the preferred OpenGL GPU (its value names one specific card).
+$NvidiaBaseSettings = @(
+    @{ Name = 'Maximum Pre-Rendered Frames'; Id = 8102046; Value = 1 }
+    @{ Name = 'Preferred Refresh Rate'; Id = 6600001; Value = 1 }          # highest available
+    @{ Name = 'Ultra Low Latency - CPL State'; Id = 390467; Value = 2 }     # Ultra
+    @{ Name = 'Ultra Low Latency - Enabled'; Id = 277041152; Value = 1 }
+    @{ Name = 'Texture Filtering - Quality'; Id = 13510289; Value = 20 }    # high performance
+    @{ Name = 'Texture Filtering - Trilinear Optimization'; Id = 3066610; Value = 0 }
+    @{ Name = 'Texture Filtering - Negative LOD Bias'; Id = 1686376; Value = 0 }
+    @{ Name = 'Anisotropic Filter - Optimization'; Id = 8703344; Value = 1 }
+    @{ Name = 'Anisotropic Filter - Sample Optimization'; Id = 15151633; Value = 1 }
+    @{ Name = 'CUDA - Force P2 State'; Id = 1343646814; Value = 0 }         # keep full clocks under CUDA
+    @{ Name = 'CUDA - Sysmem Fallback Policy'; Id = 283962569; Value = 1 }  # prefer no system memory fallback
+    @{ Name = 'Power Management - Mode'; Id = 274197361; Value = 1 }        # prefer maximum performance
+    @{ Name = 'Shader Cache - Cache Size'; Id = 11306135; Value = 4294967295 } # unlimited
+    @{ Name = 'Threaded Optimization'; Id = 549528094; Value = 1 }
+)
+# Resizable BAR forced on for every application (NvidiaReBar), from Ultimate "7 ReBar Force".
+$NvidiaReBarSettings = @(
+    @{ Name = 'rBAR - Enable'; Id = 983226; Value = 1 }
+)
+$NvidiaDrsDir = Join-Path $env:ProgramData 'NVIDIA Corporation\Drs'
 
 # Apps removed by the debloat step (wildcards allowed). Anything matching $KeepApps is never removed.
 $AppsToRemove = @(
@@ -1861,6 +1891,12 @@ $TaskKeepBuiltIn = @(
     # Triggered by a Windows state notification (WNF): Task Scheduler refuses to register it again from its export
     # ("Element not found"), so deleting it could never be undone.
     '\Microsoft\Windows\Application Experience\SdbinstMergeDbTask'
+    '\Microsoft\Windows\UpdateOrchestrator\StartOobeAppsScanAfterUpdate'   # same: "Element not found" on restore
+)
+# Upstream sets NtfsDisableLastAccessUpdate to the legacy value 1, which current Windows replaces at boot with
+# 0x80000002 (system managed, last access ON). 0x80000001 is the user managed "off" that stays (fsutil writes it).
+$LastAccessRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsDisableLastAccessUpdate' -2147483647 'DWord'
 )
 $TimeSyncTask = @{ Path = '\Microsoft\Windows\Time Synchronization\'; Name = 'SynchronizeTime' }
 
@@ -2088,6 +2124,8 @@ $WindowsRewrittenValues = @(
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|AccentColor'
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationColor'
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationAfterglow'
+    # Start menu "All apps" list view: Windows 11 build 26200 resets it to its own default after a restart.
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Start|AllAppsViewMode'
 )
 #endregion
 
@@ -2119,6 +2157,7 @@ $script:State = @{
     TimerService = $null
     PowerOverlay = $null
     PowerOverlaySet = $null
+    NvidiaDrs  = $false
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
     CreatedKeys = [System.Collections.Generic.List[object]]::new()
     NetBindings = [System.Collections.Generic.List[object]]::new()
@@ -2191,7 +2230,7 @@ function Import-State {
             }
         }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet') {
+    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'NvidiaDrs') {
         if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
     }
 }
@@ -2779,7 +2818,9 @@ function Install-RuntimePackages {
         return
     }
     $acceptable = @(0, -1978335189, -1978335135)
+    $nvidia = Test-NvidiaGpu
     foreach ($id in $PackageIds) {
+        if ($NvidiaOnlyPackages -contains $id -and -not $nvidia) { Write-Log "Package $id skipped: no NVIDIA GPU."; continue }
         if (Test-DryRun "winget install $id") { continue }
         & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
@@ -2876,9 +2917,75 @@ function Remove-NvidiaTelemetry {
     Start-Service NVDisplay.ContainerLocalSystem -ErrorAction SilentlyContinue
 }
 
+function Test-NvidiaGpu {
+    return @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.PNPDeviceID -like 'PCI\VEN_10DE*' }).Count -gt 0
+}
+
+function Find-ProfileInspector {
+    # winget installs it as a portable package, per user or per machine; Ultimate uses its own folder.
+    $cmd = Get-Command nvidiaProfileInspector.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'),
+        (Join-Path $env:ProgramFiles 'WinGet\Packages'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Nvidia Profile Inspector')
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hit = Get-ChildItem -LiteralPath $root -Recurse -File -Depth 3 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(nvidiaProfileInspector|Nvidia Profile Inspector)\.exe$' } | Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+    return $null
+}
+
+function Save-NvidiaDrs {
+    # The driver keeps every profile setting in its DRS database. A copy taken before the first import is what
+    # -Revert puts back, so the import is fully undone. Taken once: later runs must not overwrite the original.
+    if ($script:State.NvidiaDrs) { return }
+    $backup = Join-Path $StateDir 'nvidia-drs'
+    New-Item -ItemType Directory -Path $backup -Force | Out-Null
+    $files = @(Get-ChildItem -LiteralPath $NvidiaDrsDir -Filter 'nvdrsdb*.bin' -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) { throw "No NVIDIA settings database found in $NvidiaDrsDir. Is the NVIDIA driver installed?" }
+    foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $backup -Force }
+    $script:State.NvidiaDrs = $true
+}
+
+function Import-NvidiaSettings {
+    param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][object[]]$Settings)
+    if (-not (Test-NvidiaGpu)) { Write-Log "$Label skipped: no NVIDIA GPU."; return }
+    $list = ($Settings | ForEach-Object { "$($_.Name) = $($_.Value)" }) -join ', '
+    if (Test-DryRun "import into the NVIDIA global profile with Profile Inspector ($Label): $list") { return }
+    $npi = Find-ProfileInspector
+    if (-not $npi) { throw 'NVIDIA Profile Inspector not found. Keep the Packages option on, or install it with: winget install Orbmu2k.nvidiaProfileInspector' }
+    Save-NvidiaDrs
+    $rows = foreach ($s in $Settings) {
+        "      <ProfileSetting>`r`n        <SettingNameInfo>$($s.Name)</SettingNameInfo>`r`n        <SettingID>$($s.Id)</SettingID>`r`n        <SettingValue>$($s.Value)</SettingValue>`r`n        <ValueType>Dword</ValueType>`r`n      </ProfileSetting>"
+    }
+    $nip = "<?xml version=`"1.0`" encoding=`"utf-16`"?>`r`n<ArrayOfProfile>`r`n  <Profile>`r`n    <ProfileName>Base Profile</ProfileName>`r`n    <Executables />`r`n    <Settings>`r`n" + ($rows -join "`r`n") + "`r`n    </Settings>`r`n  </Profile>`r`n</ArrayOfProfile>"
+    $file = Join-Path $StateDir ("nvidia-$Label.nip" -replace '\s', '-')
+    Set-Content -LiteralPath $file -Value $nip -Encoding Unicode
+    Get-ChildItem -LiteralPath $NvidiaDrsDir -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath $npi -ArgumentList '-silentImport', '-mergeImport', '-silent', "`"$file`"" -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { throw "Profile Inspector returned exit code $($proc.ExitCode) importing $Label." }
+    Write-Log "NVIDIA global profile updated ($Label): $list. Takes effect for games started from now on." 'OK'
+}
+
+function Restore-NvidiaDrs {
+    # Fixed backup path, never one read from the state file.
+    $backup = Join-Path $StateDir 'nvidia-drs'
+    $files = @(Get-ChildItem -LiteralPath $backup -Filter 'nvdrsdb*.bin' -File -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) { Write-Log "No NVIDIA settings backup in $backup, nothing to restore." 'WARN'; return }
+    # The display container holds the database open; stop it while the files are put back.
+    $svc = Get-Service -Name NVDisplay.ContainerLocalSystem -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') { [void](Stop-ServiceBounded -Name $svc.Name) }
+    try { foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $NvidiaDrsDir -Force } }
+    finally { if ($svc) { Start-Service -Name $svc.Name -ErrorAction SilentlyContinue } }
+    Write-Log 'NVIDIA settings database restored from before the run. Restart Windows so every app sees it.' 'OK'
+}
+
 function Install-NvidiaDriver {
-    $gpu = @(Get-CimInstance -ClassName Win32_VideoController | Where-Object { $_ -and $_.PNPDeviceID -like 'PCI\VEN_10DE*' })
-    if ($gpu.Count -eq 0) { Write-Log 'No NVIDIA GPU detected, skipping the driver install.' 'WARN'; return }
+    if (-not (Test-NvidiaGpu)) { Write-Log 'No NVIDIA GPU detected, skipping the driver install.' 'WARN'; return }
     $installer = Get-NvidiaInstallerPath
     if (Test-DryRun "extract and install the NVIDIA driver ($(if ($installer) { $installer } else { 'the downloaded package' }))") { return }
 
@@ -4195,6 +4302,7 @@ function Get-LaterOverrideKeys {
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $tables = @()
     if ($Opt['TelemetryPolicy']) { $tables += $TelemetryRegs }
+    if ($Opt['Registry']) { $tables += $LastAccessRegs }
     if ($Opt['BiometricsPolicy']) { $tables += $BiometricsRegs }
     if ($Opt['DriverExclusion']) { $tables += $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) { $tables += $SecurityUpdatesRegs }
@@ -4224,7 +4332,10 @@ function Test-HealthRegistry {
             'Set' {
                 $snap = Get-RegSnapshot -Full $full -Name $op.Name
                 if (-not (Test-RegMatchesOp -Snap $snap -Op $op)) {
-                    $bad.Add(('[{0}] {1}\{2} is {3}' -f $op.Group, $full, (Show-RegName $op.Name), (Format-RegValueShort $snap)))
+                    if ($WindowsRewrittenValues -contains "$full|$($op.Name)") {
+                        Write-Health 'INFO' 'Registry' "$full\$(Show-RegName $op.Name) is $(Format-RegValueShort $snap): Windows resets this value itself."
+                    }
+                    else { $bad.Add(('[{0}] {1}\{2} is {3}' -f $op.Group, $full, (Show-RegName $op.Name), (Format-RegValueShort $snap))) }
                 }
             }
             'DeleteValue' {
@@ -4251,6 +4362,7 @@ function Test-HealthRegistry {
         else { Write-Health 'INFO' 'Registry' "$runEntries startup entr(ies) were added to the Run keys since the cleanup. This is expected after installing software." }
     }
     if ($Opt['TelemetryPolicy']) { Test-HealthTweakTable -Label 'Telemetry policy' -Tweaks $TelemetryRegs }
+    if ($Opt['Registry']) { Test-HealthTweakTable -Label 'Last access time off' -Tweaks $LastAccessRegs }
     if ($Opt['BiometricsPolicy']) { Test-HealthTweakTable -Label 'Biometrics policy' -Tweaks $BiometricsRegs }
     if ($Opt['DriverExclusion']) { Test-HealthTweakTable -Label 'Driver exclusion' -Tweaks $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly'] -and -not $Opt['PauseUpdates']) { Test-HealthTweakTable -Label 'Update deferral' -Tweaks $SecurityUpdatesRegs }
@@ -4443,6 +4555,17 @@ function Test-HealthSystem {
     if ($Opt['SleepStudy']) {
         $on = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
         if ($on.Count -eq 0) { Write-Health 'PASS' 'System' 'Sleep Study and power diagnostic logs are off.' } else { Write-Health 'WARN' 'System' "$($on.Count) power diagnostic log(s) are still enabled." }
+    }
+    if (($Opt['NvidiaProfile'] -or $Opt['NvidiaReBar']) -and (Test-NvidiaGpu)) {
+        # Profile Inspector has no command to read settings back, so compare the driver database with the backup.
+        $backup = Join-Path $StateDir 'nvidia-drs'
+        $changed = @(Get-ChildItem -LiteralPath $backup -Filter 'nvdrsdb*.bin' -File -ErrorAction SilentlyContinue | Where-Object {
+                $live = Join-Path $NvidiaDrsDir $_.Name
+                (Test-Path -LiteralPath $live) -and (Get-FileHash -LiteralPath $live).Hash -ne (Get-FileHash -LiteralPath $_.FullName).Hash
+            })
+        if ($script:State.NvidiaDrs -ne $true) { Write-Health 'WARN' 'NVIDIA' 'The NVIDIA profile was not imported (no backup of the driver settings was taken). Check the run log.' }
+        elseif ($changed.Count -gt 0) { Write-Health 'PASS' 'NVIDIA' 'The NVIDIA global profile was imported (driver settings differ from the backup). Open Profile Inspector to see the values.' }
+        else { Write-Health 'WARN' 'NVIDIA' 'The NVIDIA driver settings are identical to the backup, so the import did not take, or was undone.' }
     }
     foreach ($g in $FeatureGroups.Keys) {
         if (-not $Opt[$g]) { continue }
@@ -4766,11 +4889,14 @@ function Invoke-Apply {
 
     if ($Opt['Packages']) { Invoke-Step 'Packages' { Install-RuntimePackages } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
+    if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
+    if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" { Disable-FeatureGroup -Group $g } } }
     if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff'] -or $Opt['TaskbarEndTask']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
+    if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' { Set-TweakList $LastAccessRegs } }
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
     if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
@@ -4856,6 +4982,7 @@ function Invoke-Revert {
     }
     if ($script:State.Tasks.Count -gt 0) { Invoke-Step 'Restore scheduled tasks' { Restore-Tasks } }
     if ($script:State.Features.Count -gt 0) { Invoke-Step 'Restore optional features' { Restore-Features } }
+    if ($script:State.NvidiaDrs -eq $true) { Invoke-Step 'Restore NVIDIA driver settings' { Restore-NvidiaDrs } }
     Invoke-Step 'Restore power plan' { Restore-PowerPlan }
     if ($script:State.PowerOverlay) { Invoke-Step 'Restore power mode' { Restore-PowerMode } }
     if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
