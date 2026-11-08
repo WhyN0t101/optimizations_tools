@@ -124,6 +124,23 @@ function Restart-Guest {
     Wait-GuestDesktop
 }
 
+function Restore-ToolsAutostart {
+    # RunKeys deletes HKLM\...\Run, which also holds the "VMware User Process" entry that starts the VMware Tools user
+    # process at sign in. Without it vmrun cannot start programs at the desktop after the restart, so put just that
+    # entry back before restarting. RunKeys itself was still tested by the Apply stage.
+    $fix = Join-Path $OutDir 'restore-tools-autostart.ps1'
+    @'
+$run = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+if (-not (Test-Path $run)) { New-Item -Path $run -Force | Out-Null }
+$exe = Join-Path $env:ProgramFiles 'VMware\VMware Tools\vmtoolsd.exe'
+Set-ItemProperty -Path $run -Name 'VMware User Process' -Value ('"' + $exe + '" -n vmusr')
+'@ | Set-Content -LiteralPath $fix -Encoding ASCII
+    [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $fix, "$guestDir\restore-tools-autostart.ps1") -Guest)
+    $r = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\restore-tools-autostart.ps1") -Guest -AllowFail
+    if ($r.Code -ne 0) { Write-Step "Could not restore the VMware Tools autostart entry ($($r.Output)); the restart may need the Tools user process started by hand." }
+    else { Write-Step 'VMware Tools autostart entry put back (RunKeys removed it)' }
+}
+
 function Invoke-GuestStage {
     param([string]$Name, [string]$Arguments)
     $runner = Join-Path $OutDir "run-$Name.ps1"
@@ -231,7 +248,7 @@ foreach ($stage in $Stages) {
         'Dry' { Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
         'Benchmark' { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
-        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restart-Guest }
+        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
         'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest }
     }
