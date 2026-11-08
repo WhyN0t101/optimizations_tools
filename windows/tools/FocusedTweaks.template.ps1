@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v7.2.
+    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v7.4.
 
 .DESCRIPTION
     A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
@@ -11,12 +11,14 @@
     display scaling, hide Lock, hide Sleep, hibernation, and the Bluetooth, printing and radio services.
     Machine profiles (-ProfilePath) relax the defaults, for example a laptop keeping Spectre mitigations.
 
-    Everything that changes the registry, hosts file, services, scheduled tasks, power plan, hibernation,
-    memory compression, sleep study logs, account password age and Defender is recorded first, and the state
-    is saved after every step, so -Revert can restore it even after an interrupted run.
+    Everything that changes the registry, hosts file, services, scheduled tasks, power plan and mode,
+    hibernation, memory compression, sleep study logs, account password age, optional features, the NVIDIA
+    driver settings and Defender is recorded first, and the state is saved after every step, so -Revert can
+    restore it even after an interrupted run.
 
-    Not reversible by -Revert: app debloat, software installed by winget or NVIDIA, NVIDIA driver files
-    removed by the telemetry strip, the fault tolerant heap reset, and the temp and update cache cleanup.
+    Not reversible by -Revert: app debloat, Quick Assist removal, software installed by winget or NVIDIA, NVIDIA
+    driver files removed by the telemetry strip, the fault tolerant heap reset, the Connected Devices Platform
+    cache, the temp and update cache cleanup, and System Protection once switched on.
 
     SpectreMeltdownOff, CoreIsolation and the TimerResolution service are on by default: they trade security
     or battery for speed. Switch them off with -Skip. DepOff stays off because it needs Secure Boot off.
@@ -101,8 +103,8 @@ param(
 
 # Needs administrator rights, but a '#Requires -RunAsAdministrator' line would stop the script before any code runs, so
 # right click, Run with PowerShell could never work. Instead start again elevated, with the same parameters.
-# -ListOptions only prints, so it runs without elevation.
-if (-not $ListOptions) {
+# -ListOptions and -ListRegGroups only print, so they run without elevation.
+if (-not ($ListOptions -or $ListRegGroups)) {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         if (-not $PSCommandPath) { throw 'This script needs administrator rights. Start PowerShell as administrator and run it from a file.' }
@@ -222,6 +224,9 @@ $Opt = @{}
 foreach ($k in $OptionInfo.Keys) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
 $BoundNames = @($PSBoundParameters.Keys)
+# What was typed on the command line, as opposed to read from a profile (see Resolve-Options and -Only).
+$CommandLineNames = @($PSBoundParameters.Keys)
+$ProfileNames = @()
 
 function Import-RunProfile {
     # A profile holds the same choices as the command line. Anything also given on the command line wins.
@@ -233,6 +238,7 @@ function Import-RunProfile {
     foreach ($prop in $data.PSObject.Properties) {
         $name = $prop.Name
         if ($BoundNames -contains $name) { continue }
+        $script:ProfileNames += $name
         if ($lists -contains $name) { Set-Variable -Scope Script -Name $name -Value @([string[]]@($prop.Value)) }
         elseif ($choices.ContainsKey($name)) {
             if ($choices[$name] -notcontains [string]$prop.Value) { throw "Profile: $name must be one of $($choices[$name] -join ', ')." }
@@ -249,17 +255,23 @@ function Import-RunProfile {
 }
 Import-RunProfile
 
-$ExplicitTaskMode = $BoundNames -contains 'TaskMode'
-$ExplicitPowerProfile = $BoundNames -contains 'PowerProfile'
-
 function Resolve-Options {
+    $enableList = $Enable; $skipList = $Skip
     if ($Only.Count -gt 0) {
-        # -Only runs just the options you name: everything else is switched off.
+        # -Only runs just the options you name: everything else is switched off. When -Only was typed on the command
+        # line, a profile's choices and Enable/Skip lists do not apply either, only what was typed. A profile that
+        # holds Only itself keeps its other settings, since its author chose them together.
+        $typed = $CommandLineNames -contains 'Only'
+        $keep = { param($n) ($CommandLineNames -contains $n) -or (-not $typed -and $ProfileNames -contains $n) }
         foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = $false }
-        if (-not $ExplicitTaskMode) { $script:TaskMode = 'None' }
-        if (-not $ExplicitPowerProfile) { $script:PowerProfile = 'Off' }
+        if (-not (& $keep 'TaskMode')) { $script:TaskMode = 'None' }
+        if (-not (& $keep 'PowerProfile')) { $script:PowerProfile = 'Off' }
+        if (-not (& $keep 'PowerMode')) { $script:PowerMode = 'Keep' }
+        if (-not (& $keep 'Defender')) { $script:Defender = 'Keep' }
+        if (-not (& $keep 'Enable')) { $enableList = @() }
+        if (-not (& $keep 'Skip')) { $skipList = @() }
     }
-    foreach ($pair in @(@($Only, $true), @($Enable, $true), @($Skip, $false))) {
+    foreach ($pair in @(@($Only, $true), @($enableList, $true), @($skipList, $false))) {
         foreach ($name in $pair[0]) {
             $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
             if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
@@ -371,7 +383,6 @@ $KeepApps = @(
     '*ImageExtension*', '*VideoExtension*', '*MediaExtensions*'
 )
 
-# Telemetry scheduled tasks, used by -TaskMode Disable.
 # Never deleted by TaskMode Delete, whatever the profile says: no speed gain, real breakage.
 $TaskKeepBuiltIn = @(
     '\Microsoft\Windows\Time Synchronization\*'
@@ -390,6 +401,7 @@ $LastAccessRegs = @(
 )
 $TimeSyncTask = @{ Path = '\Microsoft\Windows\Time Synchronization\'; Name = 'SynchronizeTime' }
 
+# Telemetry scheduled tasks, used by -TaskMode Disable.
 $TelemetryTasks = @(
     @{ Path = '\Microsoft\Windows\Application Experience\'; Name = 'Microsoft Compatibility Appraiser' }
     @{ Path = '\Microsoft\Windows\Application Experience\'; Name = 'ProgramDataUpdater' }
@@ -560,7 +572,6 @@ $PowerOverlayNames = @{
     'ded574b5-45a0-4f42-8737-46345c09c238' = 'OVERLAY_SCHEME_MAX'
 }
 
-# Values Windows protects even from TrustedInstaller. A mismatch here is reported as a note, not a warning.
 # Lock screen off (from ZOICWARE, optional tweaks).
 $LockScreenRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'
@@ -607,6 +618,7 @@ $NvmeRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\{75416E63-5912-4DFA-AE8F-3EFACCAFFB14}' '' 'Storage disks' 'String'
 )
 
+# Values Windows protects even from TrustedInstaller. A mismatch here is reported as a note, not a warning.
 $KnownStuckValues = @('HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\WMI\Autologger\Diagtrack-Listener|Start')
 # Values Windows recomputes on its own after a revert (the accent colours follow the theme once Explorer restarts),
 # so the revert check reports them as notes instead of differences.
@@ -647,6 +659,7 @@ $script:State = @{
     TimerService = $null
     PowerOverlay = $null
     PowerOverlaySet = $null
+    PowerOverlaySource = $null
     NvidiaDrs  = $false
     DesktopMoved = [System.Collections.Generic.List[object]]::new()
     CreatedKeys = [System.Collections.Generic.List[object]]::new()
@@ -720,7 +733,7 @@ function Import-State {
             }
         }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'NvidiaDrs') {
+    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
         if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
     }
 }
@@ -1031,21 +1044,32 @@ function Set-RegValue {
     }
 }
 
+function Remove-RegValueRaw {
+    # Deletes one value, falling back to TrustedInstaller when administrators may read the key but not write it. The
+    # key is opened inside the try: OpenSubKey(..., $true) itself throws on such keys, and that must reach the fallback.
+    param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
+    if (-not (Get-RegSnapshot -Full $Full -Name $Name).Existed) { return }
+    $key = $null
+    try {
+        $key = Open-RegKey -Full $Full -Write
+        if ($key) { $key.DeleteValue($Name, $false) }
+    }
+    catch {
+        if (-not (Test-AccessDenied $_)) { throw }
+        $nameArg = if ($Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Name) }
+        [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $Full) $nameArg /f | Out-Null")
+    }
+    finally { if ($key) { $key.Close() } }
+    if ((Get-RegSnapshot -Full $Full -Name $Name).Existed) { throw 'The value is still there, even after trying as TrustedInstaller.' }
+}
+
 function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
     try {
         Save-RegSnapshot -Full $full -Name $Name
-        $key = Open-RegKey -Full $full -Write
-        if (-not $key) { return }
-        try { $key.DeleteValue($Name, $false) }
-        catch {
-            if (-not (Test-AccessDenied $_)) { throw }
-            $nameArg = if ($Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Name) }
-            [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $full) $nameArg /f | Out-Null")
-        }
-        finally { $key.Close() }
+        Remove-RegValueRaw -Full $full -Name $Name
     }
     catch {
         $script:Failures++
@@ -1096,17 +1120,7 @@ function Restore-RegValue {
             [void](Invoke-AsTI -PsCommand (Format-TiRegAdd -Full $Entry.Path -Name $Entry.Name -Value $value -Kind $Entry.Kind))
         }
     }
-    else {
-        $key = Open-RegKey -Full $Entry.Path -Write
-        if (-not $key) { return }
-        try { $key.DeleteValue($Entry.Name, $false) }
-        catch {
-            if (-not (Test-AccessDenied $_)) { throw }
-            $nameArg = if ($Entry.Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Entry.Name) }
-            [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $Entry.Path) $nameArg /f | Out-Null")
-        }
-        finally { $key.Close() }
-    }
+    else { Remove-RegValueRaw -Full $Entry.Path -Name $Entry.Name }
 }
 
 function Set-TweakList {
@@ -1405,7 +1419,8 @@ function Remove-NvidiaTelemetry {
         }
     }
     foreach ($pattern in '*NvDriverUpdateCheckDaily*', '*NVIDIA GeForce Experience SelfUpdate*', '*NvProfileUpdaterDaily*', '*NvProfileUpdaterOnLogon*', '*NvTmRep_CrashReport*') {
-        Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+        # Recorded like every other task change, so -Revert turns them back on.
+        foreach ($task in @(Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue)) { Disable-TaskRecorded -Task $task }
     }
     Start-Service NVDisplay.ContainerLocalSystem -ErrorAction SilentlyContinue
 }
@@ -1542,12 +1557,35 @@ function Disable-ServiceGroups {
     foreach ($name in ($enabled | Select-Object -Unique)) { Set-ServiceStart -Name $name -Mode Disabled }
 }
 
+function Get-TaskRecord {
+    param([string]$Path, [string]$Name)
+    return @($script:State.Tasks | Where-Object { $_.Path -eq $Path -and $_.Name -eq $Name }) | Select-Object -First 1
+}
+
 function Save-TaskState {
+    # Returns what it did: 'new', 'upgraded' (a Disabled record became Deleted) or 'kept'. The first record keeps the
+    # original WasEnabled; a task disabled by one run and deleted by a later one must still be restorable from XML.
     param($Task, [string]$Action, [string]$XmlFile = $null)
-    $recorded = Test-RecordedFirst $script:State.Tasks { param($e) $e.Path -eq $Task.TaskPath -and $e.Name -eq $Task.TaskName }
-    if (-not $recorded) {
+    $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
+    if (-not $e) {
         $script:State.Tasks.Add([pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = ($Task.State -ne 'Disabled'); XmlFile = $XmlFile })
+        return 'new'
     }
+    if ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') {
+        $e.Action = 'Deleted'
+        $e.XmlFile = $XmlFile
+        return 'upgraded'
+    }
+    return 'kept'
+}
+
+function Undo-TaskRecord {
+    # A delete that failed must not leave a record claiming the task was removed.
+    param($Task, [string]$Outcome)
+    $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
+    if (-not $e) { return }
+    if ($Outcome -eq 'new') { [void]$script:State.Tasks.Remove($e) }
+    elseif ($Outcome -eq 'upgraded') { $e.Action = 'Disabled'; $e.XmlFile = $null }
 }
 
 function Disable-TaskRecorded {
@@ -1555,7 +1593,7 @@ function Disable-TaskRecorded {
     $full = "$($Task.TaskPath)$($Task.TaskName)"
     if ($Task.State -eq 'Disabled') { return }
     if (Test-DryRun "disable task $full") { return }
-    Save-TaskState -Task $Task -Action 'Disabled'
+    [void](Save-TaskState -Task $Task -Action 'Disabled')
     try { Disable-ScheduledTask -InputObject $Task -ErrorAction Stop | Out-Null }
     catch {
         # Through cmd.exe: schtasks reports failure on stderr, which stops the step under 'Stop' in PowerShell 5.1.
@@ -1594,15 +1632,29 @@ function Remove-AllScheduledTasks {
         $seen++
         if ($seen % 40 -eq 0) { Write-Log "Scheduled tasks: $seen of $($tasks.Count) processed, still working." }
         $file = Join-Path $dir (($full -replace '[\\/:*?"<>| ]', '_') + '.xml')
+        $outcome = $null
         try {
-            Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
-            Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
+            # The first export is the original. A later run may meet a copy that Windows registered again (UsoSvc
+            # after the cache cleanup) and the script then disabled; exporting that would overwrite the original.
+            $prior = Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName
+            $haveOriginal = $prior -and $prior.Action -eq 'Deleted' -and $prior.XmlFile -and (Test-Path -LiteralPath $prior.XmlFile)
+            if (-not $haveOriginal) {
+                Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
+                $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
+            }
             Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop
             $deleted++
         }
-        catch { $failed++ }
+        catch {
+            $failed++
+            if ($outcome) { Undo-TaskRecord -Task $t -Outcome $outcome }
+            Write-Log "Task $full not deleted: $($_.Exception.Message)"
+        }
     }
-    if (-not $script:DryRun) { Write-Log "Scheduled tasks deleted: $deleted (backups in $dir). $failed could not be removed (protected by the system)." 'OK' }
+    if (-not $script:DryRun) {
+        $level = 'OK'; if ($failed -gt 0) { $level = 'WARN' }
+        Write-Log "Scheduled tasks deleted: $deleted (backups in $dir). $failed could not be removed (protected by the system, listed above)." $level
+    }
 }
 
 function Invoke-TaskMode {
@@ -1613,27 +1665,42 @@ function Invoke-TaskMode {
     }
 }
 
+function Set-TaskEnabledState {
+    # Brings a task back to enabled or disabled as it was before the run.
+    param([string]$Path, [string]$Name, [bool]$Enabled)
+    $now = Get-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop
+    if ($Enabled -and $now.State -eq 'Disabled') { Enable-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop | Out-Null }
+    elseif (-not $Enabled -and $now.State -ne 'Disabled') { Disable-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop | Out-Null }
+}
+
 function Restore-Tasks {
     param([object[]]$Tasks = @($script:State.Tasks))
     $denied = [System.Collections.Generic.List[object]]::new()
+    $problems = 0
     foreach ($t in $Tasks) {
         try {
             if ($t.Action -eq 'Deleted') {
-                if ($t.XmlFile -and (Test-Path -LiteralPath $t.XmlFile)) {
-                    Register-ScheduledTask -Xml (Get-Content -LiteralPath $t.XmlFile -Raw) -TaskName $t.Name -TaskPath $t.Path -Force -ErrorAction Stop | Out-Null
+                if (-not $t.XmlFile -or -not (Test-Path -LiteralPath $t.XmlFile)) {
+                    Write-Log "Could not restore task $($t.Path)$($t.Name): its backup file is missing ($($t.XmlFile))." 'WARN'
+                    $problems++
+                    continue
                 }
+                Register-ScheduledTask -Xml (Get-Content -LiteralPath $t.XmlFile -Raw) -TaskName $t.Name -TaskPath $t.Path -Force -ErrorAction Stop | Out-Null
             }
-            elseif ($t.WasEnabled) { Enable-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction Stop | Out-Null }
+            # The export may hold a disabled copy (a task disabled by one run, deleted by a later one).
+            Set-TaskEnabledState -Path $t.Path -Name $t.Name -Enabled ([bool]$t.WasEnabled)
         }
         catch {
-            # Tasks whose principal is SYSTEM or a service (BitLocker, DeviceDirectoryClient, EDP and more) can be
-            # deleted by an administrator but only registered again by SYSTEM. Retry those as TrustedInstaller.
-            if ($t.Action -eq 'Deleted' -and (Test-AccessDenied $_)) { $denied.Add($t) }
-            else { Write-Log "Could not restore task $($t.Path)$($t.Name). $($_.Exception.Message)" 'WARN' }
+            # Tasks whose principal is SYSTEM or a service (BitLocker, DeviceDirectoryClient, the Update Orchestrator
+            # and more) can be deleted or disabled by an administrator but only registered or enabled again by
+            # SYSTEM. Retry those as TrustedInstaller.
+            if (Test-AccessDenied $_) { $denied.Add($t) }
+            else { Write-Log "Could not restore task $($t.Path)$($t.Name). $($_.Exception.Message)" 'WARN'; $problems++ }
         }
     }
-    if ($denied.Count -gt 0) { Restore-ProtectedTasks -Tasks $denied }
-    Write-Log 'Scheduled tasks restored.' 'OK'
+    if ($denied.Count -gt 0) { $problems += Restore-ProtectedTasks -Tasks $denied }
+    if ($problems -eq 0) { Write-Log "Scheduled tasks restored: $(@($Tasks).Count)." 'OK' }
+    else { Write-Log "Scheduled tasks restored with $problems problem(s), listed above." 'WARN' }
 }
 
 function Restore-SelectedTasks {
@@ -1649,9 +1716,16 @@ function Restore-ProtectedTasks {
     param([object[]]$Tasks)
     # One TrustedInstaller call for all of them (each call stops and restarts the service). The commands go into a
     # file in the state folder, because the service command line goes through cmd.exe and its 8191 character limit.
+    # Each line registers the task again (Deleted) and sets it enabled or disabled as it was; the result is checked
+    # below, so a failure inside the batch still shows up as a warning.
     $calls = foreach ($t in $Tasks) {
-        'try {{ Register-ScheduledTask -Xml (Get-Content -LiteralPath {0} -Raw) -TaskName {1} -TaskPath {2} -Force -ErrorAction Stop | Out-Null }} catch {{ }}' -f
-            (ConvertTo-PsLiteral $t.XmlFile), (ConvertTo-PsLiteral $t.Name), (ConvertTo-PsLiteral $t.Path)
+        $register = ''
+        if ($t.Action -eq 'Deleted') {
+            $register = 'Register-ScheduledTask -Xml (Get-Content -LiteralPath {0} -Raw) -TaskName {1} -TaskPath {2} -Force -ErrorAction Stop | Out-Null; ' -f
+                (ConvertTo-PsLiteral $t.XmlFile), (ConvertTo-PsLiteral $t.Name), (ConvertTo-PsLiteral $t.Path)
+        }
+        $state = 'Disable-ScheduledTask'; if ($t.WasEnabled) { $state = 'Enable-ScheduledTask' }
+        'try {{ {0}{1} -TaskPath {2} -TaskName {3} -ErrorAction Stop | Out-Null }} catch {{ }}' -f $register, $state, (ConvertTo-PsLiteral $t.Path), (ConvertTo-PsLiteral $t.Name)
     }
     $file = Join-Path $StateDir 'restore-protected-tasks.ps1'
     Set-Content -LiteralPath $file -Value $calls -Encoding UTF8
@@ -1660,10 +1734,14 @@ function Restore-ProtectedTasks {
     finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     $restored = 0
     foreach ($t in $Tasks) {
-        if (Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue) { $restored++ }
+        $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
+        if ($now -and (($now.State -ne 'Disabled') -eq [bool]$t.WasEnabled)) { $restored++ }
+        elseif ($now) { Write-Log "Task $($t.Path)$($t.Name) is back but still $($now.State), not even TrustedInstaller could change it." 'WARN' }
         else { Write-Log "Could not restore task $($t.Path)$($t.Name), not even as TrustedInstaller." 'WARN' }
     }
-    Write-Log "Protected tasks restored as TrustedInstaller: $restored of $($Tasks.Count)." 'OK'
+    $level = 'OK'; if ($restored -lt @($Tasks).Count) { $level = 'WARN' }
+    Write-Log "Protected tasks restored as TrustedInstaller: $restored of $(@($Tasks).Count)." $level
+    return @($Tasks).Count - $restored
 }
 #endregion
 
@@ -1683,7 +1761,10 @@ function Invoke-TelemetryTweaks {
     if ($Opt['BiometricsPolicy']) { Set-TweakList $BiometricsRegs }
     if ($Opt['Cdp']) {
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
-        if (-not $script:DryRun) { Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform') -Recurse -Force -ErrorAction SilentlyContinue }
+        $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
+        if ((Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
+            Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     if ($Opt['TelemetryHosts']) { Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
 }
@@ -1716,7 +1797,7 @@ function Set-UpdatePolicies {
             if ($t.Name -in 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdatesPeriodInDays') { $v = $deferDays }
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
-        Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
+        # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
         if ($Opt['PauseStopsUpdateTasks']) { Disable-UpdateTasks }
         if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays). Security patches are delayed for that period." 'WARN' }
     }
@@ -1795,13 +1876,26 @@ function Set-PerformancePowerPlan {
     foreach ($old in @(Get-TweakedPlanGuids)) { if ($old -ne $guid) { powercfg /delete $old | Out-Null } }
 }
 
+function Get-PowerSource {
+    # 'Ac' or 'Dc' (battery). powercfg /OverlaySetActive changes the overlay of whichever source is active.
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        if ([System.Windows.Forms.SystemInformation]::PowerStatus.PowerLineStatus -eq 'Offline') { return 'Dc' }
+    }
+    catch { }   # no way to tell: treat as AC, which is also what a desktop is
+    return 'Ac'
+}
+
 function Set-PowerModeOverlay {
     $overlay = if ($PowerMode -eq 'Best') { 'OVERLAY_SCHEME_MAX' } else { 'OVERLAY_SCHEME_NONE' }
     if (Test-DryRun "set the Windows power mode overlay to $overlay") { return }
     if (-not $script:State.PowerOverlay) {
-        # Recorded first so -Revert can put the previous power mode back. A missing value means Windows' default.
-        $prev = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name 'ActiveOverlayAcPowerScheme'
+        # Recorded first so -Revert can put the previous power mode back, for the same power source the change hits.
+        # A missing value means Windows' default.
+        $source = Get-PowerSource
+        $prev = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$($source)PowerScheme"
         $script:State.PowerOverlay = $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
+        $script:State.PowerOverlaySource = $source
     }
     powercfg /OverlaySetActive $overlay | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN'; return }
@@ -1816,7 +1910,17 @@ function Restore-PowerMode {
         if ($guid -notmatch '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$') { throw "Unexpected saved power mode '$guid', not restoring it." }
         $name = $guid
     }
-    powercfg /OverlaySetActive $name | Out-Null
+    # The overlay can only be set for the active power source. State from older runs has no source: AC.
+    $source = 'Ac'
+    if ($script:State.PowerOverlaySource -eq 'Dc') { $source = 'Dc' }
+    if ((Get-PowerSource) -ne $source) {
+        # powercfg only reaches the active source, so write the other source's stored overlay directly; Windows
+        # uses it the next time that source becomes active.
+        Write-RegRaw -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$($source)PowerScheme" -Value $guid -Kind 'String'
+        Write-Log "Power mode for $(if ($source -eq 'Dc') { 'battery' } else { 'AC power' }) restored ($name). It applies when the PC next runs on that power source." 'OK'
+        return
+    }
+    $null = Invoke-Native powercfg.exe @('/OverlaySetActive', $name)
     if ($LASTEXITCODE -ne 0) { throw "powercfg could not set the power mode back to $name." }
     Write-Log "Power mode restored ($name)." 'OK'
 }
@@ -2048,8 +2152,11 @@ function Clear-StartPins {
     if (Test-DryRun 'clear every pinned app in the Start menu (the current layout is backed up first)') { return }
     $file = Join-Path $script:StartLayoutDir 'start2.bin'
     $backup = Join-Path $StateDir 'start2.bin.original'
-    if ((Test-Path -LiteralPath $file) -and -not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $file -Destination $backup -Force }
-    if (Test-Path -LiteralPath $backup) { $script:State.StartLayout = $backup }
+    # Backed up once per run cycle, keyed on the state: a backup left by an earlier, reverted cycle is outdated.
+    if (-not $script:State.StartLayout -and (Test-Path -LiteralPath $file)) {
+        Copy-Item -LiteralPath $file -Destination $backup -Force
+        $script:State.StartLayout = $backup
+    }
     $bytes = [Convert]::FromBase64String(($EmptyStartLayout -join ''))
     # Same approach as upstream: stop the shell host, replace the layout file, let the Start menu reload.
     Stop-Process -Name sihost -Force -ErrorAction SilentlyContinue
@@ -2065,6 +2172,8 @@ function Restore-StartPins {
     Start-Sleep -Seconds 1
     Copy-Item -LiteralPath $script:State.StartLayout -Destination (Join-Path $script:StartLayoutDir 'start2.bin') -Force
     Stop-Process -Name StartMenuExperienceHost -Force -ErrorAction SilentlyContinue
+    # Used up: the next run takes a fresh backup of whatever layout exists then.
+    Remove-Item -LiteralPath $script:State.StartLayout -Force -ErrorAction SilentlyContinue
     Write-Log 'Start menu layout restored.' 'OK'
 }
 
@@ -3281,9 +3390,15 @@ function Test-RevertResult {
     }
     if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) Windows recomputes itself (accent colours) differ, as expected." }
     $badReg = $items.Count
-    foreach ($t in @($script:State.Tasks | Where-Object { $_.Action -eq 'Deleted' })) {
-        if (-not (Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue)) {
-            $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task not restored: $($t.Path)$($t.Name)" })
+    foreach ($t in @($script:State.Tasks)) {
+        $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
+        if (-not $now) {
+            if ($t.Action -eq 'Deleted') { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task not restored: $($t.Path)$($t.Name)" }) }
+            continue
+        }
+        # Disabled by the run and still disabled, although it was enabled before.
+        if ($t.WasEnabled -and $now.State -eq 'Disabled') {
+            $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task still disabled: $($t.Path)$($t.Name)" })
         }
     }
     if ($script:State.Features.Count -gt 0) {
@@ -3387,7 +3502,11 @@ function Invoke-Apply {
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" { Disable-FeatureGroup -Group $g } } }
-    if ($Opt['Registry'] -or $Opt['Uac'] -or $Opt['RunKeys'] -or $Opt['PrivacyDenials'] -or $Opt['CoreIsolation'] -or $Opt['HideLockOption'] -or $Opt['HideSleepOption'] -or $Opt['RegHibernateOff'] -or $Opt['TaskbarEndTask']) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
+    # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
+    # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.
+    $regOps = ConvertFrom-RegText -Text $UpstreamRegText   # returned as one list object, so unroll it from a variable
+    $regOwners = @($regOps | ForEach-Object { Get-RegOpOption $_ } | Select-Object -Unique)
+    if (@($regOwners | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
     if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' { Set-TweakList $LastAccessRegs } }
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
@@ -3438,7 +3557,12 @@ function Invoke-Apply {
         if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' { Disable-UpdateTasks } }
     }
     if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
-    if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) { $script:PostApply = $true; Invoke-Step 'Health check' { Invoke-HealthCheck } }
+    if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) {
+        $script:PostApply = $true
+        Invoke-Step 'Health check' { Invoke-HealthCheck }
+        # A run whose own health check fails must not end with "Finished without errors" and exit code 0.
+        if ($script:Health.FAIL -gt 0) { $script:Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
+    }
 }
 
 function Invoke-Revert {

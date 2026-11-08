@@ -83,7 +83,12 @@ foreach ($o in 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff', 'BlockFeatureUpg
 $used = @([regex]::Matches($text, "\`$Opt\['([A-Za-z0-9]+)'\]") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 $unknown = @($used | Where-Object { -not $OptionInfo.Contains($_) })
 Check 'Every option the code reads is defined' ($unknown.Count -eq 0) ($unknown -join ', ')
-$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and -not $FeatureGroups.Contains($_) -and -not $MenuBlocks.Contains($_) -and (Get-RegGroupOption $_) -ne $_ -and (Get-RegOpOption ([pscustomobject]@{ Name = $_; Group = '' })) -ne $_ -and $_ -notin 'Registry', 'CoreIsolation', 'HideLockOption', 'HideSleepOption', 'ForceDpi100', 'NoAutoMaintenance' })
+# Options that own an upstream registry group are used through the mapping, not through a literal $Opt['Name'].
+$regOps = ConvertFrom-RegText -Text $UpstreamRegText
+$regOwners = @($regOps | ForEach-Object { Get-RegOpOption $_ } | Select-Object -Unique)
+$unused = @($OptionInfo.Keys | Where-Object { $used -notcontains $_ -and -not $ServiceGroups.Contains($_) -and -not $FeatureGroups.Contains($_) -and -not $MenuBlocks.Contains($_) -and $regOwners -notcontains $_ })
+Check 'The registry import is started from the option mapping' ($text -match '\$regOwners = @\(\$regOps \| ForEach-Object \{ Get-RegOpOption') ''
+Check 'The mapping finds the owners it should (NoAutoMaintenance, ForceDpi100, CoreIsolation, TaskbarEndTask)' (@('NoAutoMaintenance', 'ForceDpi100', 'CoreIsolation', 'TaskbarEndTask' | Where-Object { $regOwners -notcontains $_ }).Count -eq 0) ($regOwners -join ', ')
 Check 'Every defined option is used' ($unused.Count -eq 0) ($unused -join ', ')
 
 Check 'Registry paths in ControlSet001 are written to CurrentControlSet' ((ConvertTo-FullRegPath 'HKLM\SYSTEM\ControlSet001\Services\X') -eq 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\X')

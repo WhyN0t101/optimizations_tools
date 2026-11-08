@@ -262,6 +262,7 @@ NOT_REVERTED = {
     'RemoveQuickAssist': 'no, add it back with Add-WindowsCapability',
     'NvidiaTelemetryStrip': 'no, reinstall the driver',
     'FaultTolerantHeap': 'no',
+    'Cdp': 'services yes; the cache folder is deleted (Windows rebuilds it)',
     'TempCleanup': 'no, files are deleted',
     'UpdateCacheCleanup': 'no, files are deleted',
     'EnableSystemRestore': 'no, System Protection stays on',
