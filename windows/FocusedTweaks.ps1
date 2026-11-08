@@ -2822,7 +2822,10 @@ function Install-RuntimePackages {
     foreach ($id in $PackageIds) {
         if ($NvidiaOnlyPackages -contains $id -and -not $nvidia) { Write-Log "Package $id skipped: no NVIDIA GPU."; continue }
         if (Test-DryRun "winget install $id") { continue }
-        & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Null
+        # Tools this script later runs elevated go into an administrator-only folder (see Find-ProfileInspector).
+        $scope = @()
+        if ($NvidiaOnlyPackages -contains $id) { $scope = @('--scope', 'machine') }
+        & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @scope | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
         else { $script:Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
     }
@@ -2922,18 +2925,17 @@ function Test-NvidiaGpu {
 }
 
 function Find-ProfileInspector {
-    # winget installs it as a portable package, per user or per machine; Ultimate uses its own folder.
-    $cmd = Get-Command nvidiaProfileInspector.exe -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    $roots = @(
-        (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'),
-        (Join-Path $env:ProgramFiles 'WinGet\Packages'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Nvidia Profile Inspector')
+    # This runs elevated, so only folders that need administrator rights to write are searched: never PATH or
+    # %LOCALAPPDATA%, where any program running as the user could plant a file named like Profile Inspector.
+    # Packages installs it per machine (winget --scope machine); Ultimate uses its own folder under Program Files.
+    $candidates = @(
+        @(Get-ChildItem -Path (Join-Path $env:ProgramFiles 'WinGet\Packages\Orbmu2k.nvidiaProfileInspector_*') -Directory -ErrorAction SilentlyContinue)
+        @(Get-Item -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Nvidia Profile Inspector') -ErrorAction SilentlyContinue)
     )
-    foreach ($root in $roots) {
-        if (-not (Test-Path -LiteralPath $root)) { continue }
-        $hit = Get-ChildItem -LiteralPath $root -Recurse -File -Depth 3 -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^(nvidiaProfileInspector|Nvidia Profile Inspector)\.exe$' } | Select-Object -First 1
+    foreach ($dir in $candidates) {
+        $hit = Get-ChildItem -LiteralPath $dir.FullName -Recurse -File -Depth 2 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(nvidiaProfileInspector|Nvidia Profile Inspector)\.exe$' -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+            Select-Object -First 1
         if ($hit) { return $hit.FullName }
     }
     return $null
@@ -2957,7 +2959,7 @@ function Import-NvidiaSettings {
     $list = ($Settings | ForEach-Object { "$($_.Name) = $($_.Value)" }) -join ', '
     if (Test-DryRun "import into the NVIDIA global profile with Profile Inspector ($Label): $list") { return }
     $npi = Find-ProfileInspector
-    if (-not $npi) { throw 'NVIDIA Profile Inspector not found. Keep the Packages option on, or install it with: winget install Orbmu2k.nvidiaProfileInspector' }
+    if (-not $npi) { throw 'NVIDIA Profile Inspector not found in an administrator-only folder. Keep the Packages option on, or install it with: winget install Orbmu2k.nvidiaProfileInspector --scope machine' }
     Save-NvidiaDrs
     $rows = foreach ($s in $Settings) {
         "      <ProfileSetting>`r`n        <SettingNameInfo>$($s.Name)</SettingNameInfo>`r`n        <SettingID>$($s.Id)</SettingID>`r`n        <SettingValue>$($s.Value)</SettingValue>`r`n        <ValueType>Dword</ValueType>`r`n      </ProfileSetting>"
