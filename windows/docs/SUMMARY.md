@@ -33,7 +33,7 @@ Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with th
 `-PowerMode Keep|Balanced|Best`, `-PauseDays`, `-NvidiaDownload|-NvidiaInstaller`, `-HealthCheck`, `-HealthCheckLaunch`,
 `-ProfilePath file.json`, `-Revert`, `-RestoreTask`, `-Benchmark`, `-StartupReview`, `-SkipRestorePoint`.
 Profiles: `desktop-max.json`, `laptop.json` (keeps UAC, mitigations and core isolation, no timer service),
-`privacy.json` (no security or update trade-offs), `example.json`. A battery without a profile prints a hint.
+`privacy.json` (keeps UAC, mitigations, core isolation, updates and the Defender and update tasks), `example.json`. A battery without a profile prints a hint.
 `tools/Explain-Processes.ps1` (read only) explains running processes, services and optional features, gives
 Keep/Manual/Remove advice for common Windows and vendor services, and compares two machines.
 

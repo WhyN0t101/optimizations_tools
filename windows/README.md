@@ -14,7 +14,8 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
 3. Pick a profile, or none for the maximum performance defaults:
    `profiles\desktop-max.json` (desktop, all out), `profiles\laptop.json` (keeps security and battery life),
-   `profiles\privacy.json` (privacy first, no security or update trade-offs).
+   `profiles\privacy.json` (privacy first: keeps UAC, mitigations, core isolation, Windows Update, driver updates
+   and the Defender and update tasks; Defender stays on with cloud sample submission off).
 4. See what it would do, then do it, then restart:
 
        .\FocusedTweaks.ps1 -ProfilePath .\profiles\laptop.json -DryRun

@@ -12,7 +12,8 @@
     "FastShutdown",
     "PauseUpdates",
     "SecurityUpdatesOnly",
-    "PauseStopsUpdateTasks"
+    "PauseStopsUpdateTasks",
+    "DriverExclusion"
   ],
   "TaskMode": "Delete",
   "Defender": "Keep",
@@ -20,5 +21,10 @@
   "PowerMode": "Keep",
   "PauseDays": 30,
   "SkipRegGroup": [],
-  "TaskKeep": []
+  "TaskKeep": [
+    "\\Microsoft\\Windows\\Windows Defender\\*",
+    "\\Microsoft\\Windows\\UpdateOrchestrator\\*",
+    "\\Microsoft\\Windows\\WindowsUpdate\\*",
+    "\\Microsoft\\Windows\\InstallService\\*"
+  ]
 }
