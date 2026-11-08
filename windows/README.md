@@ -47,7 +47,8 @@ svchost, which vendor each process belongs to, which app started each WebView, a
 for common Windows, Lenovo, Intel, Dolby, Realtek and Synaptics services. Compare two machines with
 `-SaveSnapshot desktop.json` on one, then `-Compare desktop.json, laptop.json`.
 
-Building it yourself needs Python and a ZOICWARE checkout at the commit pinned in `tools/build.py`.
+Building it yourself needs only Python: `python tools/build.py --out FocusedTweaks.ps1` in this folder. The ZOICWARE
+data comes from the copy in `upstream/zoicware/`, checked against pinned SHA256 values.
 
 ## Options
 

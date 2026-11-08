@@ -10,7 +10,9 @@ https://github.com/zoicware/ZOICWARE
 MIT License. Copyright (c) 2024 zoicware.
 
 Used for: the registry tweak list, telemetry and update policy data, domain lists, mouse profiles, the empty Start menu
-layout and the option structure. The generated script embeds this data; `tools/build.py` reads it from a ZOICWARE checkout.
+layout and the option structure. The generated script embeds this data; `tools/build.py` reads it from unchanged copies
+of three ZOICWARE files kept in `upstream/zoicware/` together with ZOICWARE's own `LICENSE`, because the original
+repository is no longer available on GitHub (commit 2363922 of 24 Oct 2026).
 
 ## Ultimate
 
