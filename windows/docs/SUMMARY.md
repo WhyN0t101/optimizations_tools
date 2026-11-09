@@ -124,6 +124,10 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   a new health area "Edition" name the policy values the edition does not honour: telemetry level 0 (Enterprise,
   Education and Server only) and the update deferral and target version policies (Pro, Enterprise and Education).
   Every other policy value on Home or Pro is counted as "unconfirmed" and not judged. Values are still written.
+- A-05: `state.json` is written to a temporary file and swapped in; the version before it stays as
+  `state.json.bak`. A state file that cannot be read falls back to the `.bak` with a warning. When neither can be
+  read, every mode (including `-Revert`) stops with one clear message and exit code 4 before changing anything.
+  `-Revert` removes the `.bak` together with the state it archives.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

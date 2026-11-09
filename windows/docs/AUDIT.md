@@ -35,7 +35,7 @@ How to read this file:
 | A-02 | High | A second run deletes the Run keys again without a new backup | Open |
 | A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Open |
 | A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Open |
-| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Open |
+| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed |
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Open |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Open |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |

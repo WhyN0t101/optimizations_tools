@@ -31,7 +31,7 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
 $wantedVars = '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
@@ -170,6 +170,37 @@ Check 'Edition report on Enterprise is empty' (@(Get-EditionReport -Edition 'Ent
 foreach ($k in $OptionInfo.Keys) { $script:Opt[$k] = $false }
 Check 'Edition report is empty when no option writes a policy value' (@(Get-EditionReport -Edition 'Core').Count -eq 0)
 Check 'Edition gaps are reported in the plan, the run log and the health check' ($text -match 'Not applicable on this edition: ' -and $text -match 'are not applicable on this edition, so Windows ignores them' -and $text -match "Invoke-HealthArea 'Edition' \{ Test-HealthEdition \}" -and $text -notmatch "EditionID -eq 'Core'")
+
+# A-05: the state file is replaced atomically, the version before it is kept, and an unreadable file is handled.
+$stateInit = @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$script:State' }, $true))[0].Extent.Text
+function Reset-TestState {
+    Invoke-Expression $stateInit
+    $script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $script:LogLines = [System.Collections.Generic.List[string]]::new()
+}
+function Write-Log { param([string]$Message, [string]$Level = 'INFO') $script:LogLines.Add("[$Level] $Message") }
+$script:DryRun = $false
+$StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-state-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
+$StateFile = Join-Path $StateDir 'state.json'
+$record = { param($n) [pscustomobject]@{ Path = 'HKEY_CURRENT_USER\Software\X'; Name = $n; Existed = $true; Kind = 'DWord'; Value = 1 } }
+Reset-TestState
+$script:State.Registry.Add((& $record 'One')); Save-State
+Check 'State: the first save writes state.json and leaves no temporary or backup file' ((Test-Path -LiteralPath $StateFile) -and -not (Test-Path -LiteralPath "$StateFile.tmp") -and -not (Test-Path -LiteralPath "$StateFile.bak"))
+$script:State.Registry.Add((& $record 'Two')); Save-State
+$bakCount = @((Get-Content -LiteralPath "$StateFile.bak" -Raw | ConvertFrom-Json).Registry).Count
+Check 'State: a later save keeps the version before it as state.json.bak' ($bakCount -eq 1 -and @((Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json).Registry).Count -eq 2 -and -not (Test-Path -LiteralPath "$StateFile.tmp"))
+$full = [IO.File]::ReadAllText($StateFile)
+[IO.File]::WriteAllText($StateFile, $full.Substring(0, [int]($full.Length / 2)))   # what a crash during an in-place write left behind
+Reset-TestState; Import-State
+Check 'State: a truncated state.json falls back to state.json.bak and says so' ($script:State.Registry.Count -eq 1 -and $script:State.Registry[0].Name -eq 'One' -and @($script:LogLines | Where-Object { $_ -like '`[WARN`]*previous version*' }).Count -eq 1)
+[IO.File]::WriteAllText("$StateFile.bak", '{ "Registry": [')
+Reset-TestState; $message = ''
+try { Import-State } catch { $message = $_.Exception.Message }
+Check 'State: when neither file can be read the error is one clear sentence' ($message -like 'The saved state in * cannot be read*' -and $message -match 'state\.json:' -and $message -match 'state\.json\.bak:' -and $script:State.Registry.Count -eq 0)
+Check 'State: an unreadable state stops every mode with exit code 4 before anything changes' ($text -match "try \{ Import-State \}\r\ncatch \{ Write-Log \`$_\.Exception\.Message 'ERROR'; exit 4 \}")
+Check 'State: -Revert removes the backup of the cycle it reverted' ($text -match 'Remove-Item -LiteralPath "\$StateFile\.bak" -Force')
+Remove-Item -LiteralPath $StateDir -Recurse -Force
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))

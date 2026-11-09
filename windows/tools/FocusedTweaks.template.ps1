@@ -715,7 +715,28 @@ function Save-State {
             }
             else { $_ }
         })
-    ConvertTo-Json -InputObject $copy -Depth 8 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+    # Written to a temporary file and swapped in, so a crash during the write cannot leave a truncated state file.
+    # The version before it stays as state.json.bak, which Read-StateFile falls back to.
+    $temp = "$StateFile.tmp"
+    ConvertTo-Json -InputObject $copy -Depth 8 | Set-Content -LiteralPath $temp -Encoding UTF8
+    if (Test-Path -LiteralPath $StateFile) { [IO.File]::Replace($temp, $StateFile, "$StateFile.bak") }
+    else { [IO.File]::Move($temp, $StateFile) }
+}
+
+function Read-StateFile {
+    # The parsed state from state.json or, when that cannot be read, from state.json.bak (one step older).
+    $problems = @()
+    foreach ($file in $StateFile, "$StateFile.bak") {
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        try {
+            $raw = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            if ($null -eq $raw) { throw 'the file is empty.' }
+            if ($problems.Count -gt 0) { Write-Log "The state file could not be read ($($problems -join ' ')). Using the previous version, $file. Changes made by the last step of that run may be missing from it." 'WARN' }
+            return $raw
+        }
+        catch { $problems += "$(Split-Path $file -Leaf): $($_.Exception.Message)" }
+    }
+    throw "The saved state in $StateDir cannot be read, so nothing was changed and -Revert cannot use it ($($problems -join ' ')). Keep the folder as it is: the task, registry key and hosts backups in it are intact."
 }
 
 function Invoke-Step {
@@ -736,7 +757,7 @@ function Invoke-Step {
 
 function Import-State {
     if (-not (Test-Path -LiteralPath $StateFile)) { return }
-    $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
+    $raw = Read-StateFile
     foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
         if ($raw.PSObject.Properties[$section] -and $raw.$section) {
             foreach ($item in @($raw.$section)) {
@@ -3752,6 +3773,8 @@ function Invoke-Revert {
     Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
+    # The .bak belongs to the cycle just reverted; a later run must never fall back to it.
+    Remove-Item -LiteralPath "$StateFile.bak" -Force -ErrorAction SilentlyContinue
     Write-Log "State archived to $archive"
 }
 #endregion
@@ -3759,7 +3782,9 @@ function Invoke-Revert {
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
 Initialize-StateDir
-Import-State
+# An unreadable state file ends every mode here with one clear line, before anything is changed.
+try { Import-State }
+catch { Write-Log $_.Exception.Message 'ERROR'; exit 4 }
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
 if ($Benchmark) { Invoke-Benchmark; exit 0 }
