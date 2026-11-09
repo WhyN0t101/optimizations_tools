@@ -35,21 +35,21 @@ How to read this file:
 | A-02 | High | A second run deletes the Run keys again without a new backup | Open |
 | A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Open |
 | A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Open |
-| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed |
+| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed in `a0599ff` |
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Open |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Open |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |
-| A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed |
+| A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed in `7321371` |
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
 | A-11 | Medium | The run log has no option, before value or after value per change | Open |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Open |
 | A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Open |
-| A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed |
-| A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed |
-| A-16 | Low | No Windows 10 notice | Fixed |
+| A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |
+| A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed in `28ddcd6` |
+| A-16 | Low | No Windows 10 notice | Fixed in `057dd70` |
 | A-17 | Low | Three revert paths use fixed values, not recorded originals | Open |
 | A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call | Open |
-| A-19 | Low | No tests for the journal, repeated runs or option parsing | Fixed |
+| A-19 | Low | No tests for the journal, repeated runs or option parsing | Fixed in `0c309a6` |
 | A-20 | Info | Relative paths survive self elevation (no defect) | No defect |
 
 ### A-01 (High) Journal persistence
