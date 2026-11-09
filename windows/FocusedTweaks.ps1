@@ -49,7 +49,7 @@
     .\FocusedTweaks.ps1 -ProfilePath .\profiles\laptop.json -DryRun
 
 .EXAMPLE
-    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
+    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Application Experience\*'
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -DryRun
@@ -291,7 +291,7 @@ if ($ListOptions) {
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
-    Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\TPM\*''.'
+    Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
 }
 Resolve-Options

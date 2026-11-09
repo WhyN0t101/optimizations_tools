@@ -25,7 +25,7 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
        .\FocusedTweaks.ps1 -HealthCheck
        .\FocusedTweaks.ps1 -Revert
-       .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
+       .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Application Experience\*'
 
 App removal, installed software and the temp cleanup cannot be undone; everything else can.
 

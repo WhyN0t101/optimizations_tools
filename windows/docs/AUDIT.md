@@ -29,28 +29,28 @@ How to read this file:
 
 ### Summary
 
-| ID | Severity | Title |
-|---|---|---|
-| A-01 | High | The journal reaches disk only at the end of a step, not before each change |
-| A-02 | High | A second run deletes the Run keys again without a new backup |
-| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks |
-| A-04 | Medium | A failed step is logged and skipped; nothing is rolled back |
-| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` |
-| A-06 | Medium | No read back after a normal registry write; success is not logged per value |
-| A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success |
-| A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected |
-| A-09 | Medium | Edition check covers one edition ID and is not per setting |
-| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance |
-| A-11 | Medium | The run log has no option, before value or after value per change |
-| A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) |
-| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks |
-| A-14 | Low | The `-RestoreTask` examples name paths that are never deleted |
-| A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` |
-| A-16 | Low | No Windows 10 notice |
-| A-17 | Low | Three revert paths use fixed values, not recorded originals |
-| A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call |
-| A-19 | Low | No tests for the journal, repeated runs or option parsing |
-| A-20 | Info | Relative paths survive self elevation (no defect) |
+| ID | Severity | Title | Status |
+|---|---|---|---|
+| A-01 | High | The journal reaches disk only at the end of a step, not before each change | Open |
+| A-02 | High | A second run deletes the Run keys again without a new backup | Open |
+| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Open |
+| A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Open |
+| A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Open |
+| A-06 | Medium | No read back after a normal registry write; success is not logged per value | Open |
+| A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Open |
+| A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |
+| A-09 | Medium | Edition check covers one edition ID and is not per setting | Open |
+| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
+| A-11 | Medium | The run log has no option, before value or after value per change | Open |
+| A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Open |
+| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Open |
+| A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed |
+| A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Open |
+| A-16 | Low | No Windows 10 notice | Open |
+| A-17 | Low | Three revert paths use fixed values, not recorded originals | Open |
+| A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call | Open |
+| A-19 | Low | No tests for the journal, repeated runs or option parsing | Open |
+| A-20 | Info | Relative paths survive self elevation (no defect) | No defect |
 
 ### A-01 (High) Journal persistence
 
@@ -295,14 +295,14 @@ How to read this file:
 
 ### B findings
 
-| ID | Severity | Finding |
-|---|---|---|
-| B-01 | High | The benchmark cannot support the performance claims |
-| B-02 | High | Security controls are off by default with no per machine evidence of a gain |
-| B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time |
-| B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle |
-| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware |
-| B-06 | Medium | The only before and after numbers in the repository come from a VM |
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| B-01 | High | The benchmark cannot support the performance claims | Open |
+| B-02 | High | Security controls are off by default with no per machine evidence of a gain | Open |
+| B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Open |
+| B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Open |
+| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Open |
+| B-06 | Medium | The only before and after numbers in the repository come from a VM | Open |
 
 **B-01 (High) Benchmark methodology.** `Invoke-Benchmark` (2722-2768).
 

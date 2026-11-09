@@ -58,6 +58,11 @@ Check 'Upstream groups that duplicate an option belong to that option' ($wrong.C
 $featureConflicts = @($FeatureGroups.Keys | Where-Object { -not $OptionInfo.Contains($_) })
 Check 'Feature groups have options; hypervisor features are kept by default, legacy ones removed' ($featureConflicts.Count -eq 0 -and $OptionInfo['LegacyFeatures'][0] -and -not $OptionInfo['HypervisorFeatures'][0]) ($featureConflicts -join ', ')
 Check 'Hard floor: time sync, Defrag, TPM and BitLocker tasks are never deleted' ((Test-NameMatch '\Microsoft\Windows\Time Synchronization\SynchronizeTime' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\Defrag\ScheduledDefrag' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\TPM\Tpm-Maintenance' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\BitLocker\BitLocker MDM policy Refresh' $TaskKeepBuiltIn))
+# A-14: the -RestoreTask examples must name tasks a run can delete or disable, never a path on the keep list.
+$readmeText = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot -Parent) 'README.md'))
+$restoreExamples = @([regex]::Matches($text + $readmeText, "-RestoreTask '+(\\[^'\r\n]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$keptExamples = @($restoreExamples | Where-Object { Test-NameMatch ($_ -replace '\*', 'AnyTask') $TaskKeepBuiltIn })
+Check 'The -RestoreTask examples (help, -ListOptions hint, README) are not on the built-in keep list' ($restoreExamples.Count -ge 1 -and $keptExamples.Count -eq 0) ("found $($restoreExamples.Count); kept: $($keptExamples -join ', ')")
 $mustKeep = 'Microsoft.WindowsStore', 'Microsoft.XboxGamingOverlay', 'Microsoft.GamingApp', 'Microsoft.MicrosoftEdge.Stable', 'Microsoft.Paint', 'Microsoft.Windows.Photos', 'Microsoft.WindowsCalculator', 'Microsoft.DesktopAppInstaller'
 $unprotected = @($mustKeep | Where-Object { -not (Test-NameMatch $_ $KeepApps) })
 Check 'Apps you wanted kept are on the keep list' ($unprotected.Count -eq 0) ($unprotected -join ', ')

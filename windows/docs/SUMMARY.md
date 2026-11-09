@@ -111,6 +111,11 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - Not yet verified: `-HealthCheckLaunch`, the restore point retry, the NVIDIA download and the NVIDIA options (no
   NVIDIA GPU in the test machines), memory compression above 8 GB in the VM. Start pins: check by eye.
 
+## Changed
+Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has run in the VM yet.
+- A-14: the `-RestoreTask` examples (README, help, `-ListOptions`) now name `\Microsoft\Windows\Application
+  Experience\*`. The old examples named time sync and TPM tasks, which are never deleted.
+
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
 console colours, Task Manager always on top, DDU and Safe Mode cleaning.
