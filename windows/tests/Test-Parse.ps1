@@ -31,9 +31,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -151,6 +151,25 @@ $w10 = Get-Windows10Notice -Build 19045
 Check 'Windows 10 notice names ESU, 12 October 2027 and the two update options' ($w10 -match 'ESU' -and $w10 -match '12 October 2027' -and $w10 -match 'PauseUpdates' -and $w10 -match 'SecurityUpdatesOnly')
 Check 'Windows 11 gets no Windows 10 notice' ($null -eq (Get-Windows10Notice -Build 22000) -and $null -eq (Get-Windows10Notice -Build 26200))
 Check 'The run logs the Windows 10 notice' ($text -match '\$windows10 = Get-Windows10Notice\r\n\s+if \(\$windows10\) \{ Write-Log \$windows10 ''WARN'' \}')
+
+# A-09: edition awareness. Home is every Core* edition; values without a documented rule are 'unknown', never guessed.
+$dc = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
+$wu = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
+$verdict = { param($e, $p, $n, $v) (Get-EditionVerdict -Edition $e -Full $p -Name $n -Value $v).Verdict }
+Check 'Edition: telemetry level 0 is not applicable on Home and Pro, applies on Enterprise' ((& $verdict 'Core' $dc 'AllowTelemetry' 0) -eq 'not applicable' -and (& $verdict 'Professional' $dc 'AllowTelemetry' 0) -eq 'not applicable' -and (& $verdict 'Enterprise' $dc 'AllowTelemetry' 0) -eq 'applies')
+Check 'Edition: every Home edition ID is matched (Core*)' (@('Core', 'CoreN', 'CoreSingleLanguage', 'CoreCountrySpecific' | Where-Object { (& $verdict $_ $wu 'DeferQualityUpdates' 1) -ne 'not applicable' }).Count -eq 0)
+Check 'Edition: update deferral applies on Pro' ((& $verdict 'Professional' $wu 'DeferQualityUpdates' 1) -eq 'applies')
+Check 'Edition: a policy value without a rule is unknown on Home and Pro, never guessed' ((& $verdict 'Core' $wu 'SetAllowOptionalContent' 0) -eq 'unknown' -and (& $verdict 'Professional' $wu 'SetAllowOptionalContent' 0) -eq 'unknown' -and (& $verdict 'ProfessionalEducation' $dc 'AllowTelemetry' 0) -eq 'unknown')
+Check 'Edition: values outside a Policies key are not judged' ((& $verdict 'Core' 'HKEY_CURRENT_USER\Control Panel\Mouse' 'MouseSpeed' '0') -eq 'applies')
+$script:Opt = @{}; foreach ($k in $OptionInfo.Keys) { $script:Opt[$k] = $true }
+$SkipRegGroup = @(); $script:Opt['BlockFeatureUpgrades'] = $false   # that option reads the live Windows version
+$homeGaps = @(Get-EditionReport -Edition 'CoreSingleLanguage')
+$homeIgnored = @($homeGaps | Where-Object { $_.Verdict -eq 'not applicable' } | ForEach-Object { $_.Name } | Sort-Object -Unique)
+Check 'Edition report on Home lists the telemetry level and the update deferrals as not applicable' ($homeIgnored -contains 'AllowTelemetry' -and $homeIgnored -contains 'DeferFeatureUpdatesPeriodInDays' -and $homeIgnored -contains 'DeferQualityUpdates' -and @($homeGaps | Where-Object { -not $_.Honoured -and $_.Verdict -eq 'not applicable' }).Count -eq 0) ($homeIgnored -join ', ')
+Check 'Edition report on Enterprise is empty' (@(Get-EditionReport -Edition 'Enterprise').Count -eq 0)
+foreach ($k in $OptionInfo.Keys) { $script:Opt[$k] = $false }
+Check 'Edition report is empty when no option writes a policy value' (@(Get-EditionReport -Edition 'Core').Count -eq 0)
+Check 'Edition gaps are reported in the plan, the run log and the health check' ($text -match 'Not applicable on this edition: ' -and $text -match 'are not applicable on this edition, so Windows ignores them' -and $text -match "Invoke-HealthArea 'Edition' \{ Test-HealthEdition \}" -and $text -notmatch "EditionID -eq 'Core'")
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))

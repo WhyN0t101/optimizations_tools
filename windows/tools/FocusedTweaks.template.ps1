@@ -631,6 +631,21 @@ $WindowsRewrittenValues = @(
     # Start menu "All apps" list view: Windows 11 build 26200 resets it to its own default after a restart.
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Start|AllAppsViewMode'
 )
+
+# Policy values that Microsoft documents for some editions only. Honoured and Ignored are EditionID wildcards
+# (Core* is every Home edition). An edition in neither list gets 'unknown', and so does every other value under a
+# Policies key on an edition outside $EditionFullPolicy: nothing here guesses (docs/AUDIT.md A-09 and U-07).
+$EditionRules = @(
+    # Diagnostic data level 0 (Security) exists on Enterprise, Education and Server; Home and Pro treat it as 1 (Required).
+    @{ Names = @('AllowTelemetry'); Value = 0; Label = 'Enterprise, Education and Server'
+        Honoured = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*'); Ignored = @('Core*', 'Professional', 'ProfessionalN') }
+    # Windows Update for Business (deferrals, target version) is documented for Pro, Enterprise and Education.
+    @{ Names = @('DeferFeatureUpdates', 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdates', 'DeferQualityUpdatesPeriodInDays', 'ProductVersion', 'TargetReleaseVersion', 'TargetReleaseVersionInfo')
+        Label = 'Pro, Enterprise and Education'
+        Honoured = @('Professional*', 'Enterprise*', 'IoTEnterprise*', 'Education*'); Ignored = @('Core*') }
+)
+# Editions on which Group Policy values are taken as honoured when no rule above says otherwise.
+$EditionFullPolicy = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*')
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
@@ -3317,6 +3332,19 @@ function Test-HealthAppLaunch {
     }
 }
 
+function Test-HealthEdition {
+    # The registry checks above only prove a value is set. This says which policy values the edition does not honour.
+    $edition = Get-EditionId
+    $gaps = @(Get-EditionReport -Edition $edition)
+    $notApplicable = @($gaps | Where-Object { $_.Verdict -eq 'not applicable' })
+    foreach ($gap in $notApplicable) {
+        Write-Health 'INFO' 'Edition' "$($gap.Path)\$($gap.Name) is not applicable on this edition ($edition): it is honoured on $($gap.Honoured) only, so Windows ignores it even though the registry value is set."
+    }
+    $unknown = $gaps.Count - $notApplicable.Count
+    if ($unknown -gt 0) { Write-Health 'INFO' 'Edition' "$unknown policy value(s) have no confirmed effect on this edition ($edition). A matching registry value does not prove that Windows applies them." }
+    if ($gaps.Count -eq 0) { Write-Health 'PASS' 'Edition' "Every policy value the options write is honoured on this edition ($edition)." }
+}
+
 function Restore-SavedRunSettings {
     # Standalone checks judge the state against the options used for the last run.
     $run = $script:State.Run
@@ -3354,6 +3382,7 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
+    Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }
     Invoke-HealthArea 'Tasks' { Test-HealthTasks }
     Invoke-HealthArea 'Updates' { Test-HealthUpdates }
@@ -3449,8 +3478,66 @@ function Get-Windows10Notice {
     return 'Windows 10 detected. It receives security updates only through Extended Security Updates (ESU), until 12 October 2027. The PauseUpdates and SecurityUpdatesOnly options delay those updates too.'
 }
 
+function Get-EditionId {
+    $p = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
+    if ($p -and $p.PSObject.Properties['EditionID']) { return [string]$p.EditionID }
+    return ''
+}
+
+function Get-EditionVerdict {
+    # 'applies', 'not applicable' or 'unknown' for one registry value on one edition, plus the editions that honour it.
+    param([string]$Edition, [string]$Full, [string]$Name, $Value)
+    $result = { param($verdict, $label) [pscustomobject]@{ Verdict = $verdict; Honoured = $label } }
+    if ($Full -notlike '*\Policies\*') { return & $result 'applies' '' }
+    foreach ($rule in $EditionRules) {
+        if ($rule.Names -notcontains $Name) { continue }
+        if ($rule.ContainsKey('Value') -and [string]$Value -ne [string]$rule.Value) { continue }
+        if (Test-NameMatch $Edition $rule.Honoured) { return & $result 'applies' $rule.Label }
+        if (Test-NameMatch $Edition $rule.Ignored) { return & $result 'not applicable' $rule.Label }
+        return & $result 'unknown' $rule.Label
+    }
+    if (Test-NameMatch $Edition $EditionFullPolicy) { return & $result 'applies' '' }
+    return & $result 'unknown' ''
+}
+
+function Get-PolicyTweaks {
+    # Every value under a Policies key that the chosen options write, as full path, name and value.
+    $seen = @{}
+    $add = {
+        param($path, $name, $value)
+        $full = ConvertTo-FullRegPath $path
+        if ($full -like '*\Policies\*') { $seen["$full|$name"] = [pscustomobject]@{ Path = $full; Name = $name; Value = $value } }
+    }
+    $ops = ConvertFrom-RegText -Text $UpstreamRegText
+    foreach ($op in $ops) {
+        if ($op.Action -ne 'Set' -or -not $Opt[(Get-RegOpOption $op)] -or (Test-NameMatch $op.Group $SkipRegGroup)) { continue }
+        & $add $op.Path $op.Name $op.Value
+    }
+    $tables = [ordered]@{
+        TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
+        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = $PauseRegs; DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+    }
+    foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
+    if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
+    return @($seen.Values | Sort-Object Path, Name)
+}
+
+function Get-EditionReport {
+    # The policy values of this run that the edition ignores ('not applicable') or may ignore ('unknown').
+    param([string]$Edition = (Get-EditionId))
+    foreach ($t in @(Get-PolicyTweaks)) {
+        $v = Get-EditionVerdict -Edition $Edition -Full $t.Path -Name $t.Name -Value $t.Value
+        if ($v.Verdict -ne 'applies') { [pscustomobject]@{ Path = $t.Path; Name = $t.Name; Verdict = $v.Verdict; Honoured = $v.Honoured } }
+    }
+}
+
 function Show-Plan {
     Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
+    $edition = Get-EditionId
+    $editionGaps = @(Get-EditionReport -Edition $edition)
+    $notApplicable = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' })
+    Write-Log "  Edition: $edition. $($notApplicable.Count) policy value(s) not applicable on this edition, $($editionGaps.Count - $notApplicable.Count) with an unconfirmed effect on it."
+    foreach ($gap in $notApplicable) { Write-Log "    Not applicable on this edition: $($gap.Path)\$($gap.Name) (honoured on $($gap.Honoured) only). The value is still written." }
     $on = @($OptionInfo.Keys | Where-Object { $Opt[$_] })
     $off = @($OptionInfo.Keys | Where-Object { -not $Opt[$_] })
     Write-Log "  Options on : $($on -join ', ')"
@@ -3499,9 +3586,11 @@ function Invoke-Apply {
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
-    $edition = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
-    if ($edition -and $edition.PSObject.Properties['EditionID'] -and $edition.EditionID -eq 'Core') {
-        Write-Log 'Windows Home detected. Several policies (telemetry level, update deferral) may be ignored on this edition.' 'WARN'
+    $editionGaps = @(Get-EditionReport)
+    $ignored = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' }).Count
+    if ($editionGaps.Count -gt 0) {
+        $level = 'INFO'; if ($ignored -gt 0) { $level = 'WARN' }
+        Write-Log "Edition $(Get-EditionId): $ignored policy value(s) of this run are not applicable on this edition, so Windows ignores them; for $($editionGaps.Count - $ignored) more the effect on this edition is not confirmed. The plan and the health check name them." $level
     }
     if (-not $SkipRestorePoint -and -not $script:DryRun) { Invoke-Step 'Restore point' { New-SafetyRestorePoint } }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }

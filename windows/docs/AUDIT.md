@@ -39,7 +39,7 @@ How to read this file:
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Open |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Open |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |
-| A-09 | Medium | Edition check covers one edition ID and is not per setting | Open |
+| A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed |
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
 | A-11 | Medium | The run log has no option, before value or after value per change | Open |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Open |

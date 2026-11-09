@@ -120,6 +120,10 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
 - A-16: on Windows 10 (builds below 22000) a run warns that security updates arrive only through ESU, until
   12 October 2027 (Microsoft's end of support page, checked 9 Nov 2026), and that `PauseUpdates` and
   `SecurityUpdatesOnly` delay them.
+- A-09: edition awareness. Every Home edition is recognised (`Core*`, before only `Core`). The plan, the run log and
+  a new health area "Edition" name the policy values the edition does not honour: telemetry level 0 (Enterprise,
+  Education and Server only) and the update deferral and target version policies (Pro, Enterprise and Education).
+  Every other policy value on Home or Pro is counted as "unconfirmed" and not judged. Values are still written.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
