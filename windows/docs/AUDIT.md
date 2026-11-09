@@ -49,7 +49,7 @@ How to read this file:
 | A-16 | Low | No Windows 10 notice | Fixed |
 | A-17 | Low | Three revert paths use fixed values, not recorded originals | Open |
 | A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call | Open |
-| A-19 | Low | No tests for the journal, repeated runs or option parsing | Open |
+| A-19 | Low | No tests for the journal, repeated runs or option parsing | Fixed |
 | A-20 | Info | Relative paths survive self elevation (no defect) | No defect |
 
 ### A-01 (High) Journal persistence

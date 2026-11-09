@@ -128,6 +128,10 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   `state.json.bak`. A state file that cannot be read falls back to the `.bak` with a warning. When neither can be
   read, every mode (including `-Revert`) stops with one clear message and exit code 4 before changing anything.
   `-Revert` removes the `.bak` together with the state it archives.
+- A-19: `tests/Test-Parse.ps1` now also covers the journal rules: the first original of a value is kept on a second
+  snapshot and after a save and load, state survives a round trip (date-like strings, binary data), `Remove-RegKey`
+  on repeat, comma lists (A-15) and the atomic state write (A-05). It uses a scratch key under
+  `HKCU\Software\FocusedTweaksTest-<id>` and a temp folder, and removes both.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

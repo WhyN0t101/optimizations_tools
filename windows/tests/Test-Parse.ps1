@@ -1,5 +1,6 @@
 <#
-Static checks for FocusedTweaks.ps1. No admin rights needed and nothing is changed on the machine.
+Static checks for FocusedTweaks.ps1. No admin rights needed and nothing is left changed on the machine: the tests
+work in temp folders and in a scratch key under HKCU\Software\FocusedTweaksTest-<id>, and remove both again.
 Run:  powershell -ExecutionPolicy Bypass -File tests\Test-Parse.ps1
 Exit code 1 if any check fails.
 #>
@@ -31,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Save-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -201,6 +202,53 @@ Check 'State: when neither file can be read the error is one clear sentence' ($m
 Check 'State: an unreadable state stops every mode with exit code 4 before anything changes' ($text -match "try \{ Import-State \}\r\ncatch \{ Write-Log \`$_\.Exception\.Message 'ERROR'; exit 4 \}")
 Check 'State: -Revert removes the backup of the cycle it reverted' ($text -match 'Remove-Item -LiteralPath "\$StateFile\.bak" -Force')
 Remove-Item -LiteralPath $StateDir -Recurse -Force
+
+# A-19: the journal rules, against a scratch key under HKCU that is removed again at the end.
+$scratch = 'HKEY_CURRENT_USER\Software\FocusedTweaksTest-' + [guid]::NewGuid().ToString('N')
+$StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-state-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
+$StateFile = Join-Path $StateDir 'state.json'
+$script:Failures = 0
+Reset-TestState
+try {
+    Write-RegRaw -Full $scratch -Name 'V' -Value 1 -Kind 'DWord'
+    Save-RegSnapshot -Full $scratch -Name 'V'
+    Write-RegRaw -Full $scratch -Name 'V' -Value 2 -Kind 'DWord'
+    Save-RegSnapshot -Full $scratch -Name 'V'
+    Check 'Journal: a second snapshot of a value keeps the first original' ($script:State.Registry.Count -eq 1 -and $script:State.Registry[0].Existed -and [int]$script:State.Registry[0].Value -eq 1)
+    Save-RegSnapshot -Full $scratch -Name 'Missing'
+    # Values that JSON could change on the way: a string that looks like a date, an expandable string and binary data.
+    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'When'; Existed = $true; Kind = 'String'; Value = '2026-11-08T10:00:00Z' })
+    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'Dir'; Existed = $true; Kind = 'ExpandString'; Value = '%SystemRoot%\x' })
+    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'Bin'; Existed = $true; Kind = 'Binary'; Value = (ConvertTo-StoredValue -Value ([byte[]](0, 171, 255)) -Kind Binary) })
+    $script:State.Hibernate = $true; $script:State.PwAge = '42'; $script:State.Hosts.Add('telemetry')
+    Save-State
+    Reset-TestState; Import-State
+    $byName = @{}; foreach ($e in $script:State.Registry) { $byName[$e.Name] = $e }
+    Check 'State save and load: registry records come back unchanged' ($script:State.Registry.Count -eq 5 -and [int]$byName['V'].Value -eq 1 -and -not $byName['Missing'].Existed -and $byName['When'].Value -is [string] -and $byName['When'].Value -ceq '2026-11-08T10:00:00Z' -and $byName['Dir'].Value -ceq '%SystemRoot%\x' -and ((ConvertFrom-StoredValue -Value $byName['Bin'].Value -Kind Binary) -join ',') -eq '0,171,255')
+    Check 'State save and load: lists and single values come back' ($script:State.Hibernate -eq $true -and [string]$script:State.PwAge -eq '42' -and @($script:State.Hosts) -contains 'telemetry')
+    Save-RegSnapshot -Full $scratch -Name 'V'
+    Check 'Journal: a later run that loaded the state still keeps the first original' (@($script:State.Registry | Where-Object { $_.Name -eq 'V' }).Count -eq 1 -and [int]$byName['V'].Value -eq 1)
+
+    # Remove-RegKey twice, as on a second run. The first export is the original and must survive. Entries added to the
+    # key between the runs are in no backup yet: that is docs/AUDIT.md A-02, fixed with the journal work.
+    $runKey = "$scratch\Run"
+    Write-RegRaw -Full $runKey -Name 'First' -Value 'first.exe' -Kind 'String'
+    Remove-RegKey -Path $runKey
+    $export = [string]$script:State.KeyBackups[0].File
+    $firstExport = [IO.File]::ReadAllText($export)
+    Check 'Remove-RegKey: the key is exported, recorded and deleted' ($null -eq (Open-RegKey -Full $runKey) -and $script:State.KeyBackups.Count -eq 1 -and $firstExport -match '"First"="first\.exe"')
+    Write-RegRaw -Full $runKey -Name 'Second' -Value 'second.exe' -Kind 'String'
+    Remove-RegKey -Path $runKey
+    Check 'Remove-RegKey on repeat: the key is deleted again and the first export is left as it was' ($null -eq (Open-RegKey -Full $runKey) -and $script:State.KeyBackups.Count -eq 1 -and [IO.File]::ReadAllText($export) -ceq $firstExport -and $script:Failures -eq 0)
+    Remove-RegKey -Path $runKey
+    Check 'Remove-RegKey: a key that is already gone is not an error' ($script:Failures -eq 0 -and $script:State.KeyBackups.Count -eq 1)
+}
+finally {
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(($scratch -replace '^HKEY_CURRENT_USER\\', ''), $false)
+    Remove-Item -LiteralPath $StateDir -Recurse -Force
+}
+Check 'The scratch registry key is gone after the tests' ($null -eq (Open-RegKey -Full $scratch))
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))

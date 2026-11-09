@@ -18,7 +18,8 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
   Test-Smoke refuses to run outside GitHub Actions. Server lacks Store apps, Quick Assist and restore points,
   so read Server-only failures with that in mind; the VM test is still the full Windows 11 check.
 - `tests/Test-Parse.ps1` is a static check that needs no admin rights and changes nothing. Run it with both `pwsh` and
-  `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links.
+  `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links, and tests
+  the journal rules in a scratch key under `HKCU\Software\FocusedTweaksTest-<id>`; both are removed again.
 - `profiles/example.json` shows the format for `-ProfilePath`.
 - Windows only. The script elevates itself.
 
