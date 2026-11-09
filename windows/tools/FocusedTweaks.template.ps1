@@ -272,7 +272,9 @@ function Resolve-Options {
         if (-not (& $keep 'Skip')) { $skipList = @() }
     }
     foreach ($pair in @(@($Only, $true), @($enableList, $true), @($skipList, $false))) {
-        foreach ($name in $pair[0]) {
+        # powershell -File passes "A,B" as one string, so each entry is split on commas here. Only option names are
+        # split: registry group titles (-SkipRegGroup) can contain a comma.
+        foreach ($name in @($pair[0] | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
             $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
             if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
             $Opt[$match] = $pair[1]

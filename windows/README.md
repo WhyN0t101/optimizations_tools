@@ -34,9 +34,6 @@ App removal, installed software and the temp cleanup cannot be undone; everythin
     .\FocusedTweaks.ps1 -ListOptions
     .\FocusedTweaks.ps1 -HealthCheck -HealthCheckLaunch
 
-Lists such as `-Enable A,B` only work from the prompt like this. `powershell -File .\FocusedTweaks.ps1 -Enable A,B`
-passes `A,B` as one name and fails with "Unknown option".
-
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 
