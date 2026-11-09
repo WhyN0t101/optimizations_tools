@@ -3441,6 +3441,14 @@ function Get-UserMismatch {
     return "Per user settings (mouse, desktop, Start pins, notifications, End task, user Temp) will go to $($me.Name), but the desktop belongs to $($names -join ', '). Sign in as that account and run it elevated there, unless this is what you want."
 }
 
+function Get-Windows10Notice {
+    # Windows 10 gets security updates only through Extended Security Updates, which Microsoft's end of support page
+    # (microsoft.com/windows/end-of-support, checked 9 Nov 2026) says run until 12 October 2027. Returns $null on Windows 11.
+    param([int]$Build = [Environment]::OSVersion.Version.Build)
+    if ($Build -ge 22000) { return $null }
+    return 'Windows 10 detected. It receives security updates only through Extended Security Updates (ESU), until 12 October 2027. The PauseUpdates and SecurityUpdatesOnly options delay those updates too.'
+}
+
 function Show-Plan {
     Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
     $on = @($OptionInfo.Keys | Where-Object { $Opt[$_] })
@@ -3489,6 +3497,8 @@ function Invoke-Apply {
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
     }
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
+    $windows10 = Get-Windows10Notice
+    if ($windows10) { Write-Log $windows10 'WARN' }
     $edition = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
     if ($edition -and $edition.PSObject.Properties['EditionID'] -and $edition.EditionID -eq 'Core') {
         Write-Log 'Windows Home detected. Several policies (telemetry level, update deferral) may be ignored on this edition.' 'WARN'

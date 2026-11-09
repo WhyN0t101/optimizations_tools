@@ -117,6 +117,9 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   Experience\*`. The old examples named time sync and TPM tasks, which are never deleted.
 - A-15: `-Enable`, `-Skip` and `-Only` accept `A,B` as one string, so lists also work through `powershell -File`.
   `-SkipRegGroup` is not split, because a group title can contain a comma.
+- A-16: on Windows 10 (builds below 22000) a run warns that security updates arrive only through ESU, until
+  12 October 2027 (Microsoft's end of support page, checked 9 Nov 2026), and that `PauseUpdates` and
+  `SecurityUpdatesOnly` delay them.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

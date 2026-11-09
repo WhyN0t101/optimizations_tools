@@ -46,7 +46,7 @@ How to read this file:
 | A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Open |
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed |
 | A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed |
-| A-16 | Low | No Windows 10 notice | Open |
+| A-16 | Low | No Windows 10 notice | Fixed |
 | A-17 | Low | Three revert paths use fixed values, not recorded originals | Open |
 | A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call | Open |
 | A-19 | Low | No tests for the journal, repeated runs or option parsing | Open |

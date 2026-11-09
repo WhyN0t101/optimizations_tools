@@ -31,7 +31,7 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Import-RunProfile', 'Resolve-Options', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
 $wantedVars = '$UpstreamRegText', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
@@ -145,6 +145,12 @@ Check 'Option lists: an array and a comma separated string give the same options
 Check 'Option lists: -Only accepts a comma separated string' ((Get-ResolvedOptions @() @() @('MpoOff,DepOff')) -eq 'DepOff,MpoOff')
 $threw = $false; try { [void](Get-ResolvedOptions @('MpoOff,NoSuchOption') @()) } catch { $threw = $true }
 Check 'Option lists: an unknown name inside a comma list is refused' $threw
+
+# A-16: Windows 10 gets the ESU notice, Windows 11 does not, and the run logs it.
+$w10 = Get-Windows10Notice -Build 19045
+Check 'Windows 10 notice names ESU, 12 October 2027 and the two update options' ($w10 -match 'ESU' -and $w10 -match '12 October 2027' -and $w10 -match 'PauseUpdates' -and $w10 -match 'SecurityUpdatesOnly')
+Check 'Windows 11 gets no Windows 10 notice' ($null -eq (Get-Windows10Notice -Build 22000) -and $null -eq (Get-Windows10Notice -Build 26200))
+Check 'The run logs the Windows 10 notice' ($text -match '\$windows10 = Get-Windows10Notice\r\n\s+if \(\$windows10\) \{ Write-Log \$windows10 ''WARN'' \}')
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))
