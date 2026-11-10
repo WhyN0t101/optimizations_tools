@@ -73,7 +73,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |
 | A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed in `28ddcd6` |
 | A-16 | Low | No Windows 10 notice | Fixed in `057dd70` |
-| A-17 | Low | Three revert paths use fixed values, not recorded originals | Open |
+| A-17 | Low | Three revert paths use fixed values, not recorded originals | Fixed |
 | A-18 | Low | The TrustedInstaller helper leaves servicing broken if the process is killed mid call | Open |
 | A-19 | Low | No tests for the journal, repeated runs or option parsing | Fixed in `0c309a6` |
 | A-20 | Info | Relative paths survive self elevation (no defect) | No defect |

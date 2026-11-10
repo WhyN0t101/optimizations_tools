@@ -150,6 +150,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
 - A-02: every deletion of a registry key (the Run keys and four other upstream keys) is exported to its own
   timestamped file, also on a later run. `-Revert` imports all exports newest first, so the original wins where they
   overlap and entries added between runs come back too.
+- A-17: `-Defender Disable` and `-Defender Enable` record the three Defender preferences they change (real time,
+  behaviour and download scanning) the first time; `-Revert` puts those values back instead of switching all three on.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

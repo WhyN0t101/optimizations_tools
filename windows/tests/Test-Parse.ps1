@@ -32,7 +32,7 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
 $wantedVars = '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
@@ -329,7 +329,7 @@ try {
         $s.Count -eq 1 -and $s[0].Value -is [string] -and $s[0].Value -ceq '2026-01-02T03:04:05Z' -and $script:State.Registry.Count -eq 2 -and $script:State.KeyBackups.Count -eq 1 -and
         $script:State.Tasks.Count -eq 1 -and $script:State.Tasks[0].XmlFile -eq 'C:\t.xml' -and @($script:State.Removed) -contains 'Microsoft.BingNews' -and @($script:State.Features) -contains 'SMB1Protocol' -and
         @($script:State.CreatedKeys) -contains 'HKEY_CURRENT_USER\Software\X\New' -and $script:State.Power.Custom -eq '11111111-2222-3333-4444-555555555555' -and $script:State.Defender -eq $true -and
-        [string]$script:State.PwAge -eq '42' -and @($script:State.SleepStudy).Count -eq 1
+        $null -eq $script:State.DefenderPrefs -and [string]$script:State.PwAge -eq '42' -and @($script:State.SleepStudy).Count -eq 1
     }
     Check 'Migration: a version 1 state file loads with every record' ((& $checkV1) -and $script:JournalSeq -eq 0 -and $script:LogLines.Count -eq 0)
     Save-State
@@ -338,6 +338,21 @@ try {
     Check 'Migration: saving writes version 2 with the journal position, and nothing is lost on the way' ($saved.StateVersion -eq 2 -and $null -ne $saved.PSObject.Properties['JournalSeq'] -and (& $checkV1))
     Remove-Item -LiteralPath $StateFile, "$StateFile.bak" -Force -ErrorAction SilentlyContinue
 
+    # A-17: the Defender preferences are recorded once, before -Defender changes them, and -Revert puts them back.
+    Reset-TestState
+    $script:mp = [pscustomobject]@{ DisableRealtimeMonitoring = $false; DisableBehaviorMonitoring = $true; DisableIOAVProtection = $false }
+    function Get-MpPreference { [CmdletBinding()] param() $script:mp }
+    function Set-MpPreference { [CmdletBinding()] param([bool]$DisableRealtimeMonitoring, [bool]$DisableBehaviorMonitoring, [bool]$DisableIOAVProtection) $script:mpSet = '{0},{1},{2}' -f $DisableRealtimeMonitoring, $DisableBehaviorMonitoring, $DisableIOAVProtection }
+    Save-DefenderPrefs
+    $script:mp = [pscustomobject]@{ DisableRealtimeMonitoring = $true; DisableBehaviorMonitoring = $true; DisableIOAVProtection = $true }
+    Save-DefenderPrefs
+    Check 'Defender: the preferences are recorded the first time only' ($script:State.Defender -eq $true -and $script:State.DefenderPrefs.DisableRealtimeMonitoring -eq $false -and $script:State.DefenderPrefs.DisableBehaviorMonitoring -eq $true)
+    Restore-DefenderPrefs
+    Check 'Defender: -Revert restores the recorded preferences, not fixed values' ($script:mpSet -eq 'False,True,False')
+    $script:State.DefenderPrefs = $null
+    Restore-DefenderPrefs
+    Check 'Defender: state from an older version without preferences still turns protection back on' ($script:mpSet -eq 'False,False,False')
+    Remove-Item function:\Get-MpPreference, function:\Set-MpPreference
 }
 finally {
     . ([scriptblock]::Create($realWriteRegRaw))

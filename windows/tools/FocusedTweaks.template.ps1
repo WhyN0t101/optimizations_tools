@@ -675,6 +675,7 @@ $script:State = @{
     Hosts      = [System.Collections.Generic.List[object]]::new()
     Power      = $null
     Defender   = $false
+    DefenderPrefs = $null
     Hibernate  = $null
     MemCompress = $null
     SleepStudy = $false
@@ -975,7 +976,7 @@ function Import-State {
                 }
             }
         }
-        foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
+        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
             if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
         }
         # Version 1 files (v7.4 and older) have no JournalSeq; there was no journal then, so every line is newer.
@@ -2560,7 +2561,7 @@ function Set-DefenderState {
             throw 'Tamper Protection is on. Turn it off yourself in Windows Security (Virus and threat protection settings), then run again. This script does not try to bypass it.'
         }
         if (Test-DryRun 'disable Defender real time protection through policy and Set-MpPreference') { return }
-        Set-StateValue -Name 'Defender' -Value $true
+        Save-DefenderPrefs
         Set-RegValue -Path $root -Name 'DisableAntiSpyware' -Value 1
         foreach ($v in $rtpValues) { Set-RegValue -Path $rtp -Name $v -Value 1 }
         Set-MpPreference -DisableRealtimeMonitoring $true -DisableBehaviorMonitoring $true -DisableIOAVProtection $true -ErrorAction Stop
@@ -2568,7 +2569,7 @@ function Set-DefenderState {
     }
     else {
         if (Test-DryRun 'remove Defender policy blocks and enable real time protection') { return }
-        Set-StateValue -Name 'Defender' -Value $true
+        Save-DefenderPrefs
         Remove-RegValue -Path $root -Name 'DisableAntiSpyware'
         foreach ($v in $rtpValues) { Remove-RegValue -Path $rtp -Name $v }
         Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
@@ -2576,6 +2577,30 @@ function Set-DefenderState {
     }
 }
 
+function Save-DefenderPrefs {
+    # docs/AUDIT.md A-17: the three preferences -Defender changes are recorded the first time, so -Revert puts back
+    # what was there instead of switching everything on.
+    if ($script:State.Defender -eq $true) { return }
+    $p = Get-MpPreference -ErrorAction Stop
+    Set-StateValue -Name 'DefenderPrefs' -Value ([pscustomobject]@{
+            DisableRealtimeMonitoring = [bool]$p.DisableRealtimeMonitoring
+            DisableBehaviorMonitoring = [bool]$p.DisableBehaviorMonitoring
+            DisableIOAVProtection     = [bool]$p.DisableIOAVProtection
+        })
+    Set-StateValue -Name 'Defender' -Value $true
+}
+
+function Restore-DefenderPrefs {
+    $prefs = $script:State.DefenderPrefs
+    if (-not $prefs) {
+        # State from v7.4 and older holds no preferences, only that -Defender was used.
+        Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
+        Write-Log 'Defender real time protection enabled (no recorded preferences: the state comes from an older version).' 'OK'
+        return
+    }
+    Set-MpPreference -DisableRealtimeMonitoring ([bool]$prefs.DisableRealtimeMonitoring) -DisableBehaviorMonitoring ([bool]$prefs.DisableBehaviorMonitoring) -DisableIOAVProtection ([bool]$prefs.DisableIOAVProtection) -ErrorAction Stop
+    Write-Log "Defender preferences restored as recorded: DisableRealtimeMonitoring $([bool]$prefs.DisableRealtimeMonitoring), DisableBehaviorMonitoring $([bool]$prefs.DisableBehaviorMonitoring), DisableIOAVProtection $([bool]$prefs.DisableIOAVProtection)." 'OK'
+}
 #endregion
 
 #region Quiet Defender, network, cleanup, mitigations, timer ------------------------------
@@ -4043,10 +4068,7 @@ function Invoke-Revert {
         }
     }
     if ($script:State.Defender -eq $true) {
-        Invoke-Step 'Re-enable Defender real time protection' {
-            Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
-            Write-Log 'Defender real time protection enabled.' 'OK'
-        }
+        Invoke-Step 'Restore Defender preferences' { Restore-DefenderPrefs }
     }
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
