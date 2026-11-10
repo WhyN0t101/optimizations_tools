@@ -89,7 +89,7 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
 | A-11 | Medium | The run log has no option, before value or after value per change | Fixed in `3bc0a0e` |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Fixed (revised) |
-| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Fixed |
+| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Fixed in `b98a47d` |
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |
 | A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed in `28ddcd6` |
 | A-16 | Low | No Windows 10 notice | Fixed in `057dd70` |
@@ -348,7 +348,7 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 | B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Fixed (revised) |
 | B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Fixed (revised) |
 | B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Fixed (MemoryCompression threshold; other two rows kept by design) |
-| B-06 | Medium | The only before and after numbers in the repository come from a VM | Fixed |
+| B-06 | Medium | The only before and after numbers in the repository come from a VM | Fixed in `196b937` |
 
 **B-01 (High) Benchmark methodology.** `Invoke-Benchmark` (2722-2768).
 
