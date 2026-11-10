@@ -40,6 +40,10 @@
     the command line win over the profile. Starter profiles: desktop-max.json, laptop.json, privacy.json.
 
     Use -Revert to undo a run, or -RestoreTask <task path wildcards> to bring back only some deleted or disabled tasks.
+
+    Unattended: -Json prints one result object and nothing else on the console (the log file still gets everything);
+    a real run with -Json needs -Force, since it cannot answer questions. Exit codes: 0 ok, 1 failures (or a failed
+    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable.
     tools\Explain-Processes.ps1 explains what is running and why, without changing anything.
 
 .EXAMPLE
@@ -100,6 +104,7 @@ param(
     [switch]$StartupReview,
     [switch]$AllowManaged,
     [string[]]$SkipCheck = @(),
+    [switch]$Json,
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
 
@@ -110,6 +115,11 @@ if (-not ($ListOptions -or $ListRegGroups)) {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         if (-not $PSCommandPath) { throw 'This script needs administrator rights. Start PowerShell as administrator and run it from a file.' }
+        # An unattended caller cannot accept an elevation prompt and would never see the result of the new window.
+        if ($Json) {
+            ConvertTo-Json -InputObject ([ordered]@{ ExitCode = 3; Result = 'pre flight refused'; Reason = 'Administrator rights are needed. Start the -Json run from an elevated PowerShell.' })
+            exit 3
+        }
         $quote = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
         $forwarded = foreach ($entry in $PSBoundParameters.GetEnumerator()) {
             if ($entry.Value -is [switch]) { if ($entry.Value.IsPresent) { "-$($entry.Key)" } }
@@ -2217,8 +2227,44 @@ function Write-Log {
     if ($Level -eq 'WARN') { $script:Warnings++ }
     $line = '{0:HH:mm:ss} [{1}] {2}' -f (Get-Date), $Level, $Message
     $colour = switch ($Level) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'ERROR' { 'Red' } default { 'Gray' } }
-    Write-Host $line -ForegroundColor $colour
+    # With -Json the console gets only the result object; the log file still gets every line.
+    if (-not $Json) { Write-Host $line -ForegroundColor $colour }
     Add-Content -Path $LogFile -Value $line
+}
+
+# docs/AUDIT.md C-5: exit codes, also in the README and in the -Json result.
+$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable' }
+$script:PreflightResults = @()
+
+function Get-RunMode {
+    if ($Revert) { return 'revert' }
+    if ($RestoreTask.Count -gt 0) { return 'restoretask' }
+    if ($HealthCheck) { return 'healthcheck' }
+    if ($Benchmark) { return 'benchmark' }
+    if ($StartupReview) { return 'startupreview' }
+    if ($script:DryRun) { return 'dryrun' }
+    return 'apply'
+}
+
+function Get-RunResult {
+    # The object -Json prints: what ran, how it ended, and where the details are.
+    param([int]$Code, [string]$Reason = '')
+    $health = $null
+    if ($script:HealthItems.Count -gt 0) { $health = [ordered]@{ Counts = $script:Health; Items = @($script:HealthItems) } }
+    $journal = $null
+    if (Test-Path -LiteralPath $JournalFile) { $journal = $JournalFile }
+    return [ordered]@{
+        ExitCode = $Code; Result = $ExitCodes[$Code]; Reason = $Reason; Mode = (Get-RunMode)
+        Failures = $script:Failures; Warnings = $script:Warnings; Preflight = @($script:PreflightResults); Health = $health
+        Log = $LogFile; Journal = $journal; StateDir = $StateDir
+    }
+}
+
+function Exit-Run {
+    # Every exit after start up goes through here, so -Json always prints exactly one result object.
+    param([int]$Code, [string]$Reason = '')
+    if ($Json) { Write-Output (ConvertTo-Json -InputObject (Get-RunResult -Code $Code -Reason $Reason) -Depth 6) }
+    exit $Code
 }
 
 function Test-DryRun {
@@ -4628,7 +4674,7 @@ function Show-StartupReview {
     $file = Join-Path $StateDir ('startup-review-{0:yyyyMMdd-HHmmss}.txt' -f (Get-Date))
     $text = ($rows | Sort-Object Kind, Name | Format-Table Kind, Name, Command, Where -AutoSize -Wrap | Out-String -Width 220)
     Set-Content -LiteralPath $file -Value $text -Encoding UTF8
-    Write-Host $text
+    if (-not $Json) { Write-Host $text }
     Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by Packages) shows more detail."
 }
 
@@ -4684,8 +4730,10 @@ function Invoke-Benchmark {
         if ($before -and $before.Metrics.PSObject.Properties[$k]) { $old = $before.Metrics.$k }
         [pscustomobject]@{ Measurement = $k; Now = $m[$k]; Before = $old; Change = $(if ($null -ne $old -and $null -ne $m[$k] -and [double]$old -ne 0) { '{0:+0.0;-0.0;0}%' -f ((([double]$m[$k] - [double]$old) / [double]$old) * 100) } else { '' }) }
     }
-    Write-Host ($rows | Format-Table -AutoSize | Out-String)
-    Write-Host ($context.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
+    if (-not $Json) {
+        Write-Host ($rows | Format-Table -AutoSize | Out-String)
+        Write-Host ($context.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
+    }
     if ($before) { Write-Log "Compared with the benchmark of $($before.When). Lower is better for every measurement." }
     else { Write-Log 'First benchmark on this machine. Run it again after a run and a restart to compare.' }
     $file = Join-Path $StateDir ('benchmark-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
@@ -4707,7 +4755,7 @@ function Write-Health {
     $script:HealthItems.Add([pscustomobject]@{ Status = $Status; Area = $Area; Message = $Message })
     $colour = switch ($Status) { 'PASS' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Gray' } }
     $line = '{0:HH:mm:ss} [{1}] {2,-9} {3}' -f (Get-Date), $Status, $Area, $Message
-    Write-Host $line -ForegroundColor $colour
+    if (-not $Json) { Write-Host $line -ForegroundColor $colour }
     Add-Content -Path $LogFile -Value $line
 }
 
@@ -5644,7 +5692,7 @@ function Invoke-Apply {
         if (-not ($script:RestorePoint -and $script:RestorePoint.Created) -and -not (Confirm-NoRestorePoint -Reason $why)) {
             Write-Log 'Cancelled before any tweak: no restore point, and continuing without one was not confirmed.' 'WARN'
             Save-State
-            exit 2
+            Exit-Run 2 'No restore point, and continuing without one was not confirmed.'
         }
     }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
@@ -5807,38 +5855,39 @@ if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Rever
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
 try { Import-State }
-catch { Write-Log $_.Exception.Message 'ERROR'; exit 4 }
+catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
-if ($Benchmark) { Invoke-Benchmark; exit 0 }
-if ($StartupReview) { Show-StartupReview; exit 0 }
+if ($Benchmark) { Invoke-Benchmark; Exit-Run 0 }
+if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
     Invoke-HealthCheck
-    exit ([int]($script:Health.FAIL -gt 0))
+    Exit-Run ([int]($script:Health.FAIL -gt 0))
 }
 if ($RestoreTask.Count -gt 0) {
     if ($Revert -or $DryRun) { throw '-RestoreTask cannot be combined with -Revert or -DryRun.' }
     Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
-    exit ([int]($script:Failures -gt 0))
+    Exit-Run ([int]($script:Failures -gt 0))
 }
 if ($Revert) { Invoke-Revert }
 else {
+    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
     if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
     }
     Show-Plan
-    if (-not (Invoke-Preflight)) { exit 3 }
-    if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; exit 2 }
+    if (-not (Invoke-Preflight)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
+    if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; Exit-Run 2 'The run was not confirmed.' }
     Invoke-Apply
     Save-State
 }
 
-if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; exit 0 }
+if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
 if ($script:Failures -gt 0) { Write-Log "Finished with $($script:Failures) failure(s) and $($script:Warnings) warning(s). Review the log: $LogFile" 'WARN' }
 else { Write-Log "Finished without errors ($($script:Warnings) warning(s)). Log: $LogFile" 'OK' }
 if (-not $Revert -and (Test-Path -LiteralPath $JournalFile)) { Write-Log "Every change with its option, value before, value after and result (OK, MISMATCH, FAILED): $JournalFile" }
 Write-Log 'Restart Windows so service, policy and power changes take full effect.'
-exit ([int]($script:Failures -gt 0))
+Exit-Run ([int]($script:Failures -gt 0))
 #endregion

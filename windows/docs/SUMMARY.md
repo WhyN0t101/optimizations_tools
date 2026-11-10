@@ -161,6 +161,11 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   Protection and System Protection (System Restore off by policy, or a restore point less than 24 hours old). A PC
   joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy is refused (exit code 3) unless
   `-AllowManaged`; `-SkipCheck <name>` skips any check. A dry run reports a block and goes on.
+- C-5: `-Json` prints one result object (exit code and its meaning, reason, mode, failure and warning counts,
+  pre flight and health results, log, journal and state paths) and keeps the console otherwise quiet; a real run
+  with `-Json` needs `-Force`. Exit codes are documented in the README and the help: 0 ok, 1 failures, 2 cancelled,
+  3 pre flight refused, 4 state unreadable. Every exit after start up goes through one function. The smoke test
+  passes `-AllowManaged`, since the hosted runner image may be joined to a directory.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

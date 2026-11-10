@@ -39,6 +39,18 @@ edition, Tamper Protection and System Protection, and says why each warning fire
 manages (domain, Microsoft Entra ID, MDM or domain Group Policy) unless you pass `-AllowManaged`; skip any check by
 name with `-SkipCheck`, for example `-SkipCheck PendingReboot`.
 
+For unattended use, run it from an elevated PowerShell with `-Json -Force`: the console then gets one JSON object
+(exit code, reason, pre flight results, health results and the paths of the log and the change journal) and nothing
+else; the log file still gets every line. Exit codes, with or without `-Json`:
+
+| Code | Meaning |
+|---|---|
+| 0 | Finished without errors (or a dry run, `-Benchmark`, `-StartupReview`) |
+| 1 | Some changes failed, or the health check reported a failure |
+| 2 | Cancelled: not confirmed, no restore point and not confirmed, or `-Json` without `-Force` |
+| 3 | Refused by a pre flight check, or `-Json` without administrator rights |
+| 4 | The saved state cannot be read (nothing was changed) |
+
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 

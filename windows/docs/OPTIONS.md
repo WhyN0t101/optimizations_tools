@@ -156,6 +156,7 @@ Run `.\FocusedTweaks.ps1 -ListOptions` for the same list in the console.
 | `-TaskKeep` | task path wildcards | none | Scheduled tasks never deleted |
 | `-SkipCheck` | PendingReboot, WindowsUpdate, PowerSource, Managed, Edition, TamperProtection, SystemProtection | none | Pre flight checks to skip by name |
 | `-AllowManaged` | switch | off | Run on a PC joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy (refused otherwise) |
+| `-Json` | switch | off | Print one JSON result object and nothing else on the console; a real run also needs `-Force` |
 
 Modes that change nothing: `-DryRun`, `-ListOptions`, `-ListRegGroups`, `-HealthCheck`, `-Benchmark`,
 `-StartupReview`. `-Revert` undoes the last run.
