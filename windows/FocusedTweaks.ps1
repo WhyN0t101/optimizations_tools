@@ -21,7 +21,8 @@
     cache, the temp and update cache cleanup, and System Protection once switched on.
 
     SpectreMeltdownOff, CoreIsolation and the TimerResolution service are on by default: they trade security
-    or battery for speed. Switch them off with -Skip. DepOff stays off because it needs Secure Boot off.
+    or battery for speed. Switch them off with -Skip. The former DepOff option is gone (no speed gain, and it needed
+    Secure Boot off); -Revert still restores DEP for state files from runs that used it.
 
     Not ported from upstream (they edit per app settings.dat hives or are cosmetic): Store and App Actions
     settings, calendar expansion, priority notification blob, terminal and console colours, Task Manager
@@ -205,7 +206,6 @@ $OptionInfo = [ordered]@{
     TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible', 'Folklore', '')
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible', 'Folklore', '')
     SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart', 'Documented', 'https://support.microsoft.com/en-us/topic/kb4073119-windows-client-guidance-for-it-pros-to-protect-against-silicon-based-microarchitectural-and-speculative-execution-side-channel-vulnerabilities-35820a8a-ae13-1299-88cc-357f104f5b11')
-    DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart', 'Folklore', '')
     TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Windows 11 only; skipped on machines with a battery', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod')
     DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-selective-suspend')
     DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)', 'n/a', '')
@@ -4468,15 +4468,8 @@ function Get-BcdValue {
     return $null
 }
 
-function Disable-Dep {
-    if (Test-DryRun 'set the boot option nx to AlwaysOff (Data Execution Prevention off, Secure Boot must be off)') { return }
-    if (-not $script:State.Dep) { Set-StateValue -Name 'Dep' -Value ([pscustomobject]@{ Previous = (Get-BcdValue 'nx') }) }
-    $out = Invoke-Native bcdedit.exe @('/set', 'nx', 'AlwaysOff')
-    if ($LASTEXITCODE -ne 0) { throw "bcdedit could not set nx (Secure Boot must be off for this): $($out.Trim())" }
-    Write-Log 'Data Execution Prevention is switched off. Restart Windows to apply.' 'WARN'
-}
-
 function Restore-Dep {
+    # Kept for state files from v7.4 and older, whose runs could turn DEP off with the removed DepOff option.
     # The saved value comes from a file, so only values bcdedit accepts for nx are passed on.
     $previous = $script:State.Dep.Previous
     if ($previous -and @('OptIn', 'OptOut', 'AlwaysOn', 'AlwaysOff') -notcontains [string]$previous) { throw "Unexpected saved nx value '$previous', not restoring it." }
@@ -5418,11 +5411,6 @@ function Test-HealthSystem {
         if ($qa.Count -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $env:windir 'System32\quickassist.exe'))) { Write-Health 'PASS' 'System' 'Quick Assist is removed.' }
         else { Write-Health 'WARN' 'System' 'Quick Assist is still present. A restart may finish the removal.' }
     }
-    if ($Opt['DepOff']) {
-        $nx = Get-BcdValue 'nx'
-        if ($nx -eq 'AlwaysOff') { Write-Health 'PASS' 'System' 'Data Execution Prevention is off in the boot configuration (nx AlwaysOff).' }
-        else { Write-Health 'WARN' 'System' "Data Execution Prevention is not off (nx is $(if ($nx) { $nx } else { 'not set' })). Secure Boot must be off for bcdedit to accept the change." }
-    }
     if ($Opt['IPv4Only']) {
         $v6 = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue } | Where-Object { $_.Enabled })
         if ($v6.Count -eq 0) { Write-Health 'PASS' 'System' 'IPv6 is off on every physical network adapter.' }
@@ -5865,7 +5853,7 @@ function Confirm-Run {
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
     if ($TaskMode -eq 'Delete') { $notes += 'Scheduled tasks will be deleted (backups are kept), except time sync, SSD retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks.' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
-    if ($Opt['SpectreMeltdownOff'] -or $Opt['DepOff']) { $notes += 'CPU and memory security mitigations will be turned off.' }
+    if ($Opt['SpectreMeltdownOff']) { $notes += 'CPU security mitigations will be turned off.' }
     if ($Opt['WriteCacheFlushOff']) { $notes += 'Disk write cache flushing will be turned off (a power cut can lose data).' }
     if ($Opt['FastShutdown']) { $notes += 'Hung apps will be closed at shutdown without asking.' }
     if ($script:UserMismatch) { $notes += 'Per user settings go to another account than the one at the desktop (see the warning above).' }
@@ -5943,7 +5931,6 @@ function Invoke-Apply {
     if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' -Option 'NetAdapterPower' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
     if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' -Option 'NetAdapterEee' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
     if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' -Option 'SpectreMeltdownOff' { Disable-SpectreMeltdownMitigations } }
-    if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' -Option 'DepOff' { Disable-Dep } }
     if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' -Option 'TimerResolution' { Install-TimerResolutionService } }
     if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' -Option 'DevicePowerSaving' { Set-DevicePowerSaving } }
     if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' -Option 'DeviceWakeOff' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }

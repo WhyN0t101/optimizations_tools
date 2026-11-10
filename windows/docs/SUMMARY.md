@@ -204,6 +204,9 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   `-Skip HardwareGpuScheduling` now keeps the Windows setting.
 - B-05: `MemoryCompression` turns compression off only with 32 GB of RAM or more (was: above 8 GB). With 9 to
   31 GB, compression under load replaces page file reads, so it stays on.
+- `DepOff` removed (approved): turning Data Execution Prevention off gains no speed and needed Secure Boot off. A
+  profile that names it is refused as an unknown option. `-Revert` still restores DEP from state files of runs that
+  used it.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

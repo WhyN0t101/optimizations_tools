@@ -86,7 +86,7 @@ Check 'Binary registry values survive a round trip' ((ConvertFrom-StoredValue -V
 $endTask = @($ops | Where-Object { $_.Name -eq 'TaskbarEndTask' })
 Check 'End task registry value maps to its own option, on by default' ($endTask.Count -eq 1 -and (Get-RegGroupOption $endTask[0].Group) -eq 'TaskbarEndTask' -and $OptionInfo['TaskbarEndTask'][0])
 foreach ($o in 'SpectreMeltdownOff', 'TimerResolution', 'FastShutdown', 'SearchIndexingOff') { Check "$o is on by default (maximum performance)" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
-Check 'DepOff is off by default (needs Secure Boot off)' (-not $OptionInfo['DepOff'][0])
+Check 'DepOff is removed, and -Revert still restores DEP for state from runs that used it' (-not $OptionInfo.Contains('DepOff') -and $text -notmatch 'function Disable-Dep' -and $text -match "if \(\`$script:State\.Dep\) \{ Invoke-Step 'Restore Data Execution Prevention' \{ Restore-Dep \} \}")
 Check 'KeepDefinitionUpdates is on by default, so Defender, which stays on, keeps current signatures (A-13)' ($OptionInfo['KeepDefinitionUpdates'][0])
 foreach ($o in 'DefenderQuiet', 'NetAdapterPower', 'NetAdapterEee', 'TempCleanup', 'UpdateCacheCleanup') { Check "$o exists and is on by default" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
 Check 'Quiet Defender sets 6 policy values and never turns protection off' (@($DefenderQuietRegs).Count -eq 6 -and @($DefenderQuietRegs | Where-Object { $_.Name -like 'Disable*Protection*' -or $_.Name -like 'DisableRealtime*' -or $_.Name -eq 'DisableAntiSpyware' }).Count -eq 0)
@@ -172,10 +172,10 @@ function Get-ResolvedOptions([string[]]$EnableList, [string[]]$SkipList, [string
     Resolve-Options
     return (@($OptionInfo.Keys | Where-Object { $script:Opt[$_] } | Sort-Object) -join ',')
 }
-$asArray = Get-ResolvedOptions @('MpoOff', 'DepOff') @('Packages', 'Debloat')
-$asString = Get-ResolvedOptions @('MpoOff, DepOff') @('Packages,Debloat')
-Check 'Option lists: an array and a comma separated string give the same options' ($asArray -eq $asString -and $asArray -match '\bMpoOff\b' -and $asArray -match '\bDepOff\b' -and $asArray -notmatch '\bPackages\b' -and $asArray -notmatch '\bDebloat\b')
-Check 'Option lists: -Only accepts a comma separated string' ((Get-ResolvedOptions @() @() @('MpoOff,DepOff')) -eq 'DepOff,MpoOff')
+$asArray = Get-ResolvedOptions @('MpoOff', 'NvmeNativeDriver') @('Packages', 'Debloat')
+$asString = Get-ResolvedOptions @('MpoOff, NvmeNativeDriver') @('Packages,Debloat')
+Check 'Option lists: an array and a comma separated string give the same options' ($asArray -eq $asString -and $asArray -match '\bMpoOff\b' -and $asArray -match '\bNvmeNativeDriver\b' -and $asArray -notmatch '\bPackages\b' -and $asArray -notmatch '\bDebloat\b')
+Check 'Option lists: -Only accepts a comma separated string' ((Get-ResolvedOptions @() @() @('MpoOff,NvmeNativeDriver')) -eq 'MpoOff,NvmeNativeDriver')
 $threw = $false; try { [void](Get-ResolvedOptions @('MpoOff,NoSuchOption') @()) } catch { $threw = $true }
 Check 'Option lists: an unknown name inside a comma list is refused' $threw
 
