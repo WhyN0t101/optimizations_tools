@@ -34,6 +34,11 @@ App removal, installed software and the temp cleanup cannot be undone; everythin
     .\FocusedTweaks.ps1 -ListOptions
     .\FocusedTweaks.ps1 -HealthCheck -HealthCheckLaunch
 
+Before every run the script checks for a pending restart, Windows Update at work, battery power, the Windows
+edition, Tamper Protection and System Protection, and says why each warning fired. It refuses a PC that someone else
+manages (domain, Microsoft Entra ID, MDM or domain Group Policy) unless you pass `-AllowManaged`; skip any check by
+name with `-SkipCheck`, for example `-SkipCheck PendingReboot`.
+
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 

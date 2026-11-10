@@ -64,7 +64,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 | A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed in `a0599ff` |
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Fixed in `3bc0a0e` |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Fixed |
-| A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |
+| A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Fixed |
 | A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed in `7321371` |
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
 | A-11 | Medium | The run log has no option, before value or after value per change | Fixed in `3bc0a0e` |

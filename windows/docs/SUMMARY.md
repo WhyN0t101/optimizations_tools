@@ -156,6 +156,11 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   the log quotes what it said (an error, or the warning it gives when one was made in the last 24 hours, which was
   logged as "Restore point created." before). The run then asks before continuing without one; `-Force` continues
   with a warning.
+- C-2, A-08: pre flight checks before every run, each logged with the reason it fired: pending restart, Windows
+  servicing at work (TiWorker), battery power, management, edition (replaces the old run log line), Tamper
+  Protection and System Protection (System Restore off by policy, or a restore point less than 24 hours old). A PC
+  joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy is refused (exit code 3) unless
+  `-AllowManaged`; `-SkipCheck <name>` skips any check. A dry run reports a block and goes on.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

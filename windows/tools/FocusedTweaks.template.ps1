@@ -98,6 +98,8 @@ param(
     [string]$ProfilePath,
     [switch]$Benchmark,
     [switch]$StartupReview,
+    [switch]$AllowManaged,
+    [string[]]$SkipCheck = @(),
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
 
@@ -293,6 +295,7 @@ if ($ListOptions) {
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
+    Write-Host 'Pre flight checks run before every run; skip one by name with -SkipCheck <name>. A managed PC (domain, Entra ID, MDM) is refused unless -AllowManaged.'
     Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
 }
@@ -3680,10 +3683,7 @@ function Test-HealthSystem {
         elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }
         else { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is not installed." }
     }
-    $pending = (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
-    (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
-    ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
-    if ($pending -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
+    if ((Test-RebootPending) -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
 }
 
 function Test-HealthEvents {
@@ -3850,6 +3850,150 @@ function Test-RevertResult {
 #endregion
 
 #region Orchestration ---------------------------------------------------------------------
+# docs/AUDIT.md C-2 and A-08: checks run before a run, each with a name that -SkipCheck accepts.
+$PreflightChecks = @('PendingReboot', 'WindowsUpdate', 'PowerSource', 'Managed', 'Edition', 'TamperProtection', 'SystemProtection')
+
+function Test-RebootPending {
+    return (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+    (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+    ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
+}
+
+function Get-ManagedFacts {
+    # Signs that someone else manages this PC: a domain, Microsoft Entra ID, an MDM enrolment, or Group Policy objects
+    # from a domain (their DSPath is an LDAP path; the local policy's is 'LocalGPO').
+    $facts = [ordered]@{ PartOfDomain = $false; Domain = ''; EntraJoined = $false; MdmProviders = @(); DomainGpos = 0 }
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($cs) { $facts.PartOfDomain = [bool]$cs.PartOfDomain; $facts.Domain = [string]$cs.Domain }
+    $join = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo'
+    if ($join) { try { $facts.EntraJoined = $join.SubKeyCount -gt 0 } finally { $join.Close() } }
+    $enrolments = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Enrollments'
+    if ($enrolments) {
+        try {
+            foreach ($n in $enrolments.GetSubKeyNames()) {
+                $k = $enrolments.OpenSubKey($n)
+                if (-not $k) { continue }
+                try {
+                    $provider = [string]$k.GetValue('ProviderID', '')
+                    $state = $k.GetValue('EnrollmentState', $null)
+                    if ($provider -and $null -ne $state -and [int]$state -eq 1) { $facts.MdmProviders += $provider }
+                }
+                finally { $k.Close() }
+            }
+        }
+        finally { $enrolments.Close() }
+    }
+    $history = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\History'
+    if ($history) {
+        try {
+            foreach ($extension in $history.GetSubKeyNames()) {
+                $e = $history.OpenSubKey($extension)
+                if (-not $e) { continue }
+                try {
+                    foreach ($gpo in $e.GetSubKeyNames()) {
+                        $g = $e.OpenSubKey($gpo)
+                        if (-not $g) { continue }
+                        try { if ([string]$g.GetValue('DSPath', '') -match '^(LDAP://)?cn=') { $facts.DomainGpos++ } }
+                        finally { $g.Close() }
+                    }
+                }
+                finally { $e.Close() }
+            }
+        }
+        finally { $history.Close() }
+    }
+    return [pscustomobject]$facts
+}
+
+function Get-ManagedReasons {
+    param($Facts)
+    if ($Facts.PartOfDomain) { "joined to the Active Directory domain $($Facts.Domain)" }
+    if ($Facts.EntraJoined) { 'joined to Microsoft Entra ID' }
+    foreach ($p in @($Facts.MdmProviders)) { "enrolled in device management (MDM provider $p)" }
+    if ($Facts.DomainGpos -gt 0) { "$($Facts.DomainGpos) Group Policy object setting(s) from a domain are applied" }
+}
+
+function Get-PreflightFacts {
+    $tamperChecked = [bool]($Opt['DefenderQuiet'] -or $Defender -eq 'Disable')
+    $tamper = $null
+    if ($tamperChecked) {
+        try { $tamper = [bool](Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected } catch { $tamper = $null }
+    }
+    $gaps = @(Get-EditionReport)
+    $ignored = @($gaps | Where-Object { $_.Verdict -eq 'not applicable' }).Count
+    $latest = @(Get-RestorePoints | ForEach-Object { ConvertFrom-DmtfDate $_.CreationTime } | Where-Object { $_ } | Sort-Object -Descending) | Select-Object -First 1
+    $srPolicy = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' -Name 'DisableSR'
+    return [pscustomobject]@{
+        RebootPending      = [bool](Test-RebootPending)
+        Servicing          = [bool](Get-Process -Name 'TiWorker' -ErrorAction SilentlyContinue)
+        HasBattery         = [bool](Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)
+        OnBattery          = ((Get-PowerSource) -eq 'Dc')
+        Managed            = Get-ManagedFacts
+        Edition            = Get-EditionId
+        EditionIgnored     = $ignored
+        EditionUnknown     = $gaps.Count - $ignored
+        TamperChecked      = $tamperChecked
+        TamperProtected    = $tamper
+        LatestRestorePoint = $latest
+        SystemRestoreOff   = [bool]($srPolicy.Existed -and [int]$srPolicy.Value -eq 1)
+        SkipRestorePoint   = [bool]$SkipRestorePoint
+    }
+}
+
+function Get-PreflightResults {
+    # One result per check: PASS, INFO, WARN or BLOCK, with the reason it fired. Only Managed blocks; -AllowManaged
+    # turns that into a warning, and -SkipCheck turns any check into SKIPPED.
+    param([Parameter(Mandatory)]$Facts, [string[]]$Skip = @(), [switch]$AllowManaged, [DateTime]$Now = (Get-Date))
+    foreach ($name in $Skip) {
+        if (-not ($PreflightChecks | Where-Object { $_ -ieq $name })) { throw "Unknown check '$name' for -SkipCheck. Valid: $($PreflightChecks -join ', ')." }
+    }
+    $new = { param($check, $status, $message) [pscustomobject]@{ Check = $check; Status = $status; Message = $message } }
+    $results = @(
+        if ($Facts.RebootPending) { & $new 'PendingReboot' 'WARN' 'A restart is pending (servicing, Windows Update or a file rename). Restart first: Windows can overwrite values changed now, and the health check would read the state before the restart.' }
+        else { & $new 'PendingReboot' 'PASS' 'No restart is pending.' }
+        if ($Facts.Servicing) { & $new 'WindowsUpdate' 'WARN' 'Windows servicing is installing something right now (TiWorker is running). Wait until Windows Update is done: it can reset or lock values this run changes.' }
+        else { & $new 'WindowsUpdate' 'PASS' 'Windows servicing is idle.' }
+        if ($Facts.OnBattery) { & $new 'PowerSource' 'WARN' 'Running on battery. The power plan and device power saving steps are skipped on battery machines, and a benchmark taken now is not comparable with one on AC power.' }
+        elseif ($Facts.HasBattery) { & $new 'PowerSource' 'INFO' 'Battery present, running on AC power.' }
+        else { & $new 'PowerSource' 'PASS' 'No battery (desktop).' }
+        $reasons = @(Get-ManagedReasons -Facts $Facts.Managed)
+        if ($reasons.Count -eq 0) { & $new 'Managed' 'PASS' 'Not joined to a domain or Entra ID, not enrolled in MDM, no domain Group Policy.' }
+        elseif ($AllowManaged) { & $new 'Managed' 'WARN' "This PC is managed: $($reasons -join '; '). Allowed by -AllowManaged: its policies can undo or fight these changes, and SvcOther disables Netlogon, which domain sign in needs." }
+        else { & $new 'Managed' 'BLOCK' "This PC is managed: $($reasons -join '; '). Its policies can undo or fight these changes, and SvcOther disables Netlogon, which domain sign in needs. Run it on a PC you manage yourself, or pass -AllowManaged to run anyway." }
+        $editionText = "Edition $($Facts.Edition): $($Facts.EditionIgnored) policy value(s) of this run are not applicable on this edition, so Windows ignores them; for $($Facts.EditionUnknown) more the effect on this edition is not confirmed. The plan and the health check name them."
+        if ($Facts.EditionIgnored -gt 0) { & $new 'Edition' 'WARN' $editionText }
+        elseif ($Facts.EditionUnknown -gt 0) { & $new 'Edition' 'INFO' $editionText }
+        else { & $new 'Edition' 'PASS' "Edition $($Facts.Edition) honours every policy value of this run." }
+        if (-not $Facts.TamperChecked) { & $new 'TamperProtection' 'INFO' 'No Defender option of this run depends on Tamper Protection.' }
+        elseif ($null -eq $Facts.TamperProtected) { & $new 'TamperProtection' 'INFO' 'Defender status is not available, so Tamper Protection was not checked.' }
+        elseif ($Facts.TamperProtected) { & $new 'TamperProtection' 'WARN' 'Tamper Protection is on, so Defender may ignore or undo the Defender settings of this run. The run asks you to turn it off first.' }
+        else { & $new 'TamperProtection' 'PASS' 'Tamper Protection is off.' }
+        if ($Facts.SkipRestorePoint) { & $new 'SystemProtection' 'INFO' 'No restore point will be made (-SkipRestorePoint).' }
+        elseif ($Facts.SystemRestoreOff) { & $new 'SystemProtection' 'WARN' 'System Restore is turned off by policy (DisableSR 1), so no restore point can be made.' }
+        elseif ($Facts.LatestRestorePoint -and $Facts.LatestRestorePoint -gt $Now.AddHours(-24)) { & $new 'SystemProtection' 'WARN' "The newest restore point is from $($Facts.LatestRestorePoint.ToString('yyyy-MM-dd HH:mm')), less than 24 hours ago, so Windows will probably refuse a new one. -Enable EnableSystemRestore allows it." }
+        elseif ($Facts.LatestRestorePoint) { & $new 'SystemProtection' 'PASS' "The newest restore point is from $($Facts.LatestRestorePoint.ToString('yyyy-MM-dd HH:mm'))." }
+        else { & $new 'SystemProtection' 'INFO' 'No restore point exists yet. If System Protection is off for the system drive, -Enable EnableSystemRestore turns it on.' }
+    )
+    foreach ($r in $results) {
+        if ($Skip | Where-Object { $_ -ieq $r.Check }) { $r.Message = "Skipped by -SkipCheck $($r.Check). It said: [$($r.Status)] $($r.Message)"; $r.Status = 'SKIPPED' }
+    }
+    return $results
+}
+
+function Invoke-Preflight {
+    # Logs every check with the reason it fired. Returns $false when a check blocks a real run; a dry run goes on.
+    $script:PreflightResults = @(Get-PreflightResults -Facts (Get-PreflightFacts) -Skip $SkipCheck -AllowManaged:$AllowManaged)
+    foreach ($p in $script:PreflightResults) {
+        $level = switch ($p.Status) { 'WARN' { 'WARN' } 'BLOCK' { 'ERROR' } default { 'INFO' } }
+        Write-Log "Pre flight $($p.Check) [$($p.Status)]: $($p.Message)" $level
+    }
+    $blocks = @($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' })
+    if ($blocks.Count -eq 0) { return $true }
+    if ($script:DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
+    Write-Log "Run refused by the pre flight check(s) $(@($blocks | ForEach-Object { $_.Check }) -join ', '). Nothing was changed. Skip a check by name with -SkipCheck." 'ERROR'
+    return $false
+}
+
 function Get-UserMismatch {
     # Per user settings go to the account running the script. When a standard user elevates with another account, that
     # is the admin account, not the person at the desktop. Returns a warning in that case, otherwise $null.
@@ -3982,12 +4126,6 @@ function Invoke-Apply {
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
-    $editionGaps = @(Get-EditionReport)
-    $ignored = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' }).Count
-    if ($editionGaps.Count -gt 0) {
-        $level = 'INFO'; if ($ignored -gt 0) { $level = 'WARN' }
-        Write-Log "Edition $(Get-EditionId): $ignored policy value(s) of this run are not applicable on this edition, so Windows ignores them; for $($editionGaps.Count - $ignored) more the effect on this edition is not confirmed. The plan and the health check name them." $level
-    }
     if (-not $SkipRestorePoint -and -not $script:DryRun) {
         $script:RestorePoint = $null
         Invoke-Step 'Restore point' { $script:RestorePoint = New-SafetyRestorePoint }
@@ -4181,6 +4319,7 @@ else {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
     }
     Show-Plan
+    if (-not (Invoke-Preflight)) { exit 3 }
     if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; exit 2 }
     Invoke-Apply
     Save-State

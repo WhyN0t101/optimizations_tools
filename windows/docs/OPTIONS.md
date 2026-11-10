@@ -154,6 +154,8 @@ Run `.\FocusedTweaks.ps1 -ListOptions` for the same list in the console.
 | `-PauseDays` | 1 to 730 | 365 | Length of the update pause |
 | `-SkipRegGroup` | title wildcards | none | Leave out upstream registry groups (`-ListRegGroups` lists them) |
 | `-TaskKeep` | task path wildcards | none | Scheduled tasks never deleted |
+| `-SkipCheck` | PendingReboot, WindowsUpdate, PowerSource, Managed, Edition, TamperProtection, SystemProtection | none | Pre flight checks to skip by name |
+| `-AllowManaged` | switch | off | Run on a PC joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy (refused otherwise) |
 
 Modes that change nothing: `-DryRun`, `-ListOptions`, `-ListRegGroups`, `-HealthCheck`, `-Benchmark`,
 `-StartupReview`. `-Revert` undoes the last run.
