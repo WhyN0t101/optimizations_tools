@@ -32,7 +32,7 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
 $wantedVars = '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
@@ -362,6 +362,39 @@ finally {
 Check 'The scratch registry key is gone after the tests' ($null -eq (Open-RegKey -Full $scratch))
 Check 'Revert archives the journal with the state, so the next run starts a new one' ($text -match 'Move-Item -LiteralPath \$JournalFile -Destination')
 Check 'Every state change in the script goes through the journal' (@([regex]::Matches($text, '\$script:State\.\w+(\.\w+)? = |\$script:State\.\w+\.(Add|Remove)\(')).Count -eq 3)
+
+# A-07: a restore point counts only when System Restore lists one made since the step started.
+function ConvertTo-TestDmtf([DateTime]$When) {
+    $minutes = [int][TimeZoneInfo]::Local.GetUtcOffset($When).TotalMinutes
+    $sign = '+'; if ($minutes -lt 0) { $sign = '-' }
+    '{0:yyyyMMddHHmmss}.000000{1}{2:000}' -f $When, $sign, [Math]::Abs($minutes)
+}
+$dmtf = ConvertFrom-DmtfDate '20261110120000.000000+060'
+Check 'Restore point: DMTF times are read with their UTC offset' ($dmtf -eq ([DateTimeOffset]::new([DateTime]::new(2026, 11, 10, 12, 0, 0), [TimeSpan]::FromMinutes(60))).LocalDateTime -and $null -eq (ConvertFrom-DmtfDate 'garbage'))
+Reset-TestState
+$script:Opt = @{ EnableSystemRestore = $false }
+$script:points = @([pscustomobject]@{ CreationTime = (ConvertTo-TestDmtf (Get-Date).AddHours(-3)) })
+function Get-RestorePoints { $script:points }
+function Checkpoint-Computer { [CmdletBinding()] param($Description, $RestorePointType) Write-Warning 'A new system restore point cannot be created because one has already been created within the past 1440 minutes.' }
+$rp = New-SafetyRestorePoint
+Check 'Restore point: the 24 hour refusal, which arrives as a warning, is reported with Windows'' own words and not as success' (-not $rp.Created -and $rp.Reason -match '1440 minutes' -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] Restore point NOT created. Windows said: A new system restore point cannot be created*' }).Count -eq 1 -and @($script:LogLines | Where-Object { $_ -like '`[OK`]*' }).Count -eq 0)
+function Checkpoint-Computer { [CmdletBinding()] param($Description, $RestorePointType) }
+$rp = New-SafetyRestorePoint
+Check 'Restore point: silence from Checkpoint-Computer without a new point is not success either' (-not $rp.Created -and $rp.Reason -match 'lists no restore point made since the run started')
+function Checkpoint-Computer { [CmdletBinding()] param($Description, $RestorePointType) $script:points += [pscustomobject]@{ CreationTime = (ConvertTo-TestDmtf (Get-Date)) } }
+Reset-TestState
+$rp = New-SafetyRestorePoint
+Check 'Restore point: a point that System Restore lists counts as created' ($rp.Created -and @($script:LogLines | Where-Object { $_ -like '`[OK`] Restore point created*' }).Count -eq 1)
+Remove-Item function:\Checkpoint-Computer, function:\Get-RestorePoints
+$Force = $true; Reset-TestState
+Check 'Restore point: -Force continues without one and says why' ((Confirm-NoRestorePoint -Reason 'x') -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] Continuing without a restore point because of -Force*' }).Count -eq 1)
+$Force = $false
+function Read-Host { param($Prompt) $script:answer }
+$script:answer = 'yes'; $lower = Confirm-NoRestorePoint -Reason 'x'
+$script:answer = 'YES'; $upper = Confirm-NoRestorePoint -Reason 'x'
+Remove-Item function:\Read-Host
+Check 'Restore point: without -Force the run continues only after YES' (-not $lower -and $upper)
+Check 'Restore point: an unconfirmed run without a restore point stops before any tweak' ($text -match "Invoke-Step 'Restore point' \{ \`$script:RestorePoint = New-SafetyRestorePoint \}" -and $text -match "Cancelled before any tweak: no restore point")
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))

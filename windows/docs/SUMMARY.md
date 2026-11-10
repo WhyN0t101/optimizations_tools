@@ -152,6 +152,10 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   overlap and entries added between runs come back too.
 - A-17: `-Defender Disable` and `-Defender Enable` record the three Defender preferences they change (real time,
   behaviour and download scanning) the first time; `-Revert` puts those values back instead of switching all three on.
+- A-07: a restore point counts only when System Restore lists one made since the step started. When Windows refuses,
+  the log quotes what it said (an error, or the warning it gives when one was made in the last 24 hours, which was
+  logged as "Restore point created." before). The run then asks before continuing without one; `-Force` continues
+  with a warning.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

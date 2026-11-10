@@ -3090,25 +3090,78 @@ function Set-HostsBlock {
 #endregion
 
 #region Software: packages, debloat, NVIDIA ----------------------------------------------
+function ConvertFrom-DmtfDate {
+    # System Restore stores times as DMTF text (yyyyMMddHHmmss.ffffff+UUU, UUU = minutes from UTC). Local time, or $null.
+    param($Value)
+    if ($Value -is [DateTime]) { return $Value }
+    $m = [regex]::Match([string]$Value, '^(\d{14})\.\d{6}([+-])(\d{3})$')
+    if (-not $m.Success) { return $null }
+    $clock = [DateTime]::ParseExact($m.Groups[1].Value, 'yyyyMMddHHmmss', [Globalization.CultureInfo]::InvariantCulture)
+    $offset = [TimeSpan]::FromMinutes([int]$m.Groups[3].Value)
+    if ($m.Groups[2].Value -eq '-') { $offset = $offset.Negate() }
+    return ([DateTimeOffset]::new($clock, $offset)).LocalDateTime
+}
+
+function Get-RestorePoints {
+    # Through CIM, which works in Windows PowerShell 5.1 and PowerShell 7 alike (Get-ComputerRestorePoint is 5.1 only).
+    return @(Get-CimInstance -Namespace 'root/default' -ClassName 'SystemRestore' -ErrorAction SilentlyContinue)
+}
+
+function Test-RestorePointSince {
+    param([DateTime]$Since, [object[]]$Points = @())
+    foreach ($p in $Points) {
+        $made = ConvertFrom-DmtfDate $p.CreationTime
+        if ($made -and $made -ge $Since.AddSeconds(-2)) { return $true }
+    }
+    return $false
+}
+
+function Invoke-Checkpoint {
+    # Asks Windows for a restore point and returns what it said when it refused: the error, or the warning Windows
+    # gives when one was made in the last 24 hours. Empty when it said nothing.
+    $said = $null
+    try { Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop -WarningAction SilentlyContinue -WarningVariable said }
+    catch { return $_.Exception.Message }
+    return ((@($said) | ForEach-Object { "$_" }) -join ' ').Trim()
+}
+
 function New-SafetyRestorePoint {
-    try {
-        Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-        Write-Log 'Restore point created.' 'OK'
-        return
+    # docs/AUDIT.md A-07: a restore point counts only when System Restore lists one made since this step started, so a
+    # refusal that arrives as a warning (one per 24 hours) is not mistaken for success. Returns Created and Reason.
+    $start = Get-Date
+    $reason = Invoke-Checkpoint
+    if (Test-RestorePointSince -Since $start -Points (Get-RestorePoints)) {
+        Write-Log 'Restore point created (System Restore lists it).' 'OK'
+        return [pscustomobject]@{ Created = $true; Reason = '' }
     }
-    catch { $reason = $_.Exception.Message }
-    if (-not $Opt['EnableSystemRestore']) {
-        Write-Log "Restore point not created (System Protection may be off, or one was made in the last 24 hours). Continuing. Run with -Enable EnableSystemRestore to turn System Protection on for $env:SystemDrive and retry. $reason" 'WARN'
-        return
+    if (-not $reason) { $reason = 'Checkpoint-Computer reported nothing, but System Restore lists no restore point made since the run started.' }
+    if ($Opt['EnableSystemRestore']) {
+        Write-Log "Restore point not created. Windows said: $reason Turning System Protection on for $env:SystemDrive and trying again (EnableSystemRestore)."
+        try {
+            # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
+            Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
+            Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
+        }
+        catch { $reason = "$reason Turning System Protection on failed: $($_.Exception.Message)" }
+        $retry = Invoke-Checkpoint
+        if (Test-RestorePointSince -Since $start -Points (Get-RestorePoints)) {
+            Write-Log 'Restore point created after turning System Protection on (-Revert does not turn it off again).' 'OK'
+            return [pscustomobject]@{ Created = $true; Reason = '' }
+        }
+        if ($retry) { $reason = $retry }
     }
-    try {
-        # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
-        Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
-        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
-        Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-        Write-Log 'Restore point created after turning System Protection on (-Revert does not turn it off again).' 'OK'
-    }
-    catch { Write-Log "Restore point still not created. The System Restore or Volume Shadow Copy service may be disabled on this machine. $($_.Exception.Message)" 'WARN' }
+    $hint = " Run with -Enable EnableSystemRestore to turn System Protection on for $env:SystemDrive and allow more than one restore point a day."
+    if ($Opt['EnableSystemRestore']) { $hint = ' The System Restore or Volume Shadow Copy service may be disabled on this machine.' }
+    Write-Log "Restore point NOT created. Windows said: $reason$hint" 'WARN'
+    return [pscustomobject]@{ Created = $false; Reason = $reason }
+}
+
+function Confirm-NoRestorePoint {
+    # A run that turns off mitigations and deletes tasks should not start without a way back unless the user agrees.
+    param([string]$Reason)
+    if ($Force) { Write-Log "Continuing without a restore point because of -Force. Reason it failed: $Reason" 'WARN'; return $true }
+    $answer = Read-Host "No restore point was created ($Reason). -Revert still undoes what this script records. Type YES to continue without one"
+    return ($answer -ceq 'YES')
 }
 
 function Install-RuntimePackages {
@@ -5445,7 +5498,17 @@ function Invoke-Apply {
         $level = 'INFO'; if ($ignored -gt 0) { $level = 'WARN' }
         Write-Log "Edition $(Get-EditionId): $ignored policy value(s) of this run are not applicable on this edition, so Windows ignores them; for $($editionGaps.Count - $ignored) more the effect on this edition is not confirmed. The plan and the health check name them." $level
     }
-    if (-not $SkipRestorePoint -and -not $script:DryRun) { Invoke-Step 'Restore point' { New-SafetyRestorePoint } }
+    if (-not $SkipRestorePoint -and -not $script:DryRun) {
+        $script:RestorePoint = $null
+        Invoke-Step 'Restore point' { $script:RestorePoint = New-SafetyRestorePoint }
+        $why = 'the restore point step failed'
+        if ($script:RestorePoint) { $why = $script:RestorePoint.Reason }
+        if (-not ($script:RestorePoint -and $script:RestorePoint.Created) -and -not (Confirm-NoRestorePoint -Reason $why)) {
+            Write-Log 'Cancelled before any tweak: no restore point, and continuing without one was not confirmed.' 'WARN'
+            Save-State
+            exit 2
+        }
+    }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
 
     if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
