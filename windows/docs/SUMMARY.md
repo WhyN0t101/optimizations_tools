@@ -108,8 +108,10 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
   `desktop-max.json`, full `Test-InVm.ps1` cycle: every stage exit code 0 and no errors. Health after the restart 58
   passed, 0 failed; warnings were Gaming Services missing from the image, Defender signatures 418 days old (stale
   image), last access time reset by Windows (fixed in v7.4) and the Start list view reset by Windows (now a note).
-  Benchmark before and after: timer 15.6 to 0.5 ms, Sleep(1) 15.9 to 1.6 ms, interrupts per second 27,397 to 3,049,
-  kernel call cost 30.5 to 13.2 us, CPU loop 618 to 422 ms. Revert: 1,277 values checked, 2 differ (one USB root hub
+  Functional check, not performance evidence (one sample each, in a VMware guest whose hypervisor sets timers and
+  interrupts): the benchmark before and after showed the options took effect, timer 15.6 to 0.5 ms and Sleep(1)
+  15.9 to 1.6 ms (timer service), interrupts per second 27,397 to 3,049, kernel call cost 30.5 to 13.2 us and the
+  CPU loop 618 to 422 ms. Real speed gains need `-Benchmark` on physical hardware. Revert: 1,277 values checked, 2 differ (one USB root hub
   idle setting the driver rewrote, and `StartOobeAppsScanAfterUpdate`, now in the never-delete list). `RunKeys` also
   removes the VMware Tools autostart entry, so `Test-InVm.ps1` puts that one entry back before restarting.
 - Not yet verified: `-HealthCheckLaunch`, the restore point retry, the NVIDIA download and the NVIDIA options (no
@@ -178,6 +180,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   mitigations, MPO, timer service). A comparison is refused when the machine differs, and a change whose ranges
   overlap is marked as within noise. `-BenchmarkBaseline <name>` keeps a named baseline. Results from a VM are
   marked `ValidForPerformance: false`. Benchmark files from v7.4 are not compared (one sample, no context).
+- B-06: the VM benchmark figures of 8 Nov 2026 are now described as a functional check (the options took effect),
+  not as performance evidence.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
