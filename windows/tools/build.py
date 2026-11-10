@@ -250,7 +250,7 @@ OPTION_GROUPS = [
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),
     ('Power, devices and network', ['DisableHibernate', 'MsiMode', 'MemoryCompression', 'SleepStudy', 'NetAdapterPower',
                                     'NetAdapterEee', 'DevicePowerSaving', 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff',
-                                    'TimerResolution', 'NvmeNativeDriver', 'IPv4Only']),
+                                    'TimerResolution', 'HardwareGpuScheduling', 'NvmeNativeDriver', 'IPv4Only']),
     ('Security trade-offs', ['SpectreMeltdownOff', 'DepOff']),
     ('System and cleanup', ['NoAutoMaintenance', 'PasswordExpiry', 'FaultTolerantHeap', 'FastShutdown', 'TimeServerPool', 'EnableSystemRestore',
                             'TempCleanup', 'UpdateCacheCleanup', 'HealthCheckAfter']),

@@ -232,6 +232,7 @@ $OptionInfo = [ordered]@{
     MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
+    HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
     NvmeNativeDriver      = @($false, 'Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave', 'Documented', 'https://techcommunity.microsoft.com/blog/windowsservernewsandbestpractices/announcing-native-nvme-in-windows-server-2025-ushering-in-a-new-era-of-storage-p/4477353')
     HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)', 'n/a', '')
     NvidiaProfile         = @($true, 'NVIDIA GPUs only: import a low latency, maximum performance global profile with Profile Inspector (the driver settings are backed up first)', 'Folklore', '')
@@ -3086,6 +3087,7 @@ function Get-RegGroupOption {
         'Disable background apps global' { return 'PrivacyDenials' }
         'Disable fault tolerant heap' { return 'FaultTolerantHeap' }
         'Disable delivery optimization' { return 'SvcDeliveryOpt' }
+        'Turn on hardware accelerated GPU scheduling' { return 'HardwareGpuScheduling' }
         default { return 'Registry' }
     }
 }
@@ -3105,12 +3107,41 @@ function Show-RegGroups {
     }
 }
 
+function Test-HagsDriverSupport {
+    # Hardware accelerated GPU scheduling needs a WDDM 2.7 driver (DirectX blog, June 2020). The first field of a
+    # display driver's version is the WDDM version it is built for (27 = WDDM 2.7, 31 = WDDM 3.1); the Microsoft Basic
+    # Display Adapter reports 10.x. One capable adapter is enough, so hybrid graphics laptops qualify.
+    param([string[]]$DriverVersions = @())
+    foreach ($v in $DriverVersions) {
+        $m = [regex]::Match([string]$v, '^(\d+)\.')
+        if ($m.Success -and [int]$m.Groups[1].Value -ge 27) { return $true }
+    }
+    return $false
+}
+
+function Get-GatedRegOptions {
+    # Upstream registry options that this machine cannot use, with the reason. Their values are not written, and the
+    # health check notes them instead of judging them.
+    $gated = @{}
+    if ($Opt['HardwareGpuScheduling']) {
+        $versions = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.DriverVersion } | Where-Object { $_ })
+        if (-not (Test-HagsDriverSupport -DriverVersions $versions)) {
+            $found = 'none'; if ($versions.Count -gt 0) { $found = $versions -join ', ' }
+            $gated['HardwareGpuScheduling'] = "no display driver is WDDM 2.7 or later (driver versions found: $found)"
+        }
+    }
+    return $gated
+}
+
 function Import-UpstreamRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $applied = 0; $byOption = 0; $byGroup = 0
+    $gated = Get-GatedRegOptions
+    foreach ($g in $gated.Keys) { Write-Log "$g skipped on this PC: $($gated[$g])." 'WARN' }
     foreach ($op in $ops) {
         $script:JournalOption = Get-RegOpOption $op
         if (-not $Opt[$script:JournalOption]) { $byOption++; continue }
+        if ($gated.ContainsKey($script:JournalOption)) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
@@ -5051,9 +5082,12 @@ function Test-HealthRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $later = Get-LaterOverrideKeys
     $checked = 0; $overridden = 0; $bad = [System.Collections.Generic.List[string]]::new(); $runEntries = 0
+    $gated = Get-GatedRegOptions
+    foreach ($g in $gated.Keys) { Write-Health 'INFO' 'Registry' "$g is not applied on this PC: $($gated[$g])." }
     foreach ($op in $ops) {
         $optName = Get-RegOpOption $op
         if (-not $Opt[$optName]) { continue }
+        if ($gated.ContainsKey($optName)) { continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { continue }
         $full = ConvertTo-FullRegPath $op.Path
         if ($op.Action -ne 'DeleteKey' -and $later.Contains("$full|$($op.Name)")) { $overridden++; continue }
