@@ -59,6 +59,16 @@ Check 'Upstream groups that duplicate an option belong to that option' ($wrong.C
 $featureConflicts = @($FeatureGroups.Keys | Where-Object { -not $OptionInfo.Contains($_) })
 Check 'Feature groups have options; hypervisor features are kept by default, legacy ones removed' ($featureConflicts.Count -eq 0 -and $OptionInfo['LegacyFeatures'][0] -and -not $OptionInfo['HypervisorFeatures'][0]) ($featureConflicts -join ', ')
 Check 'Hard floor: time sync, Defrag, TPM and BitLocker tasks are never deleted' ((Test-NameMatch '\Microsoft\Windows\Time Synchronization\SynchronizeTime' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\Defrag\ScheduledDefrag' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\TPM\Tpm-Maintenance' $TaskKeepBuiltIn) -and (Test-NameMatch '\Microsoft\Windows\BitLocker\BitLocker MDM policy Refresh' $TaskKeepBuiltIn))
+# A-03: TaskMode Delete stays the default, so protection and updaters are on the built-in keep list instead.
+$keptTasks = '\Microsoft\Windows\Windows Defender\Windows Defender Scheduled Scan', '\Microsoft\Windows\Windows Defender\Windows Defender Cache Maintenance',
+'\Microsoft\Windows\SystemRestore\SR', '\Microsoft\Windows\CertificateServicesClient\UserTask', '\MicrosoftEdgeUpdateTaskMachineCore{0A1B2C3D-0000-0000-0000-000000000000}',
+'\MicrosoftEdgeUpdateTaskMachineUA{0A1B2C3D-0000-0000-0000-000000000000}', '\GoogleUpdateTaskMachineCore{0A1B2C3D-0000-0000-0000-000000000000}',
+'\GoogleSystem\GoogleUpdater\GoogleUpdaterTaskSystem140.0.7339.0{0A1B2C3D-0000-0000-0000-000000000000}', '\Mozilla\Firefox Background Update 308046B0AF4A39CB'
+$notKept = @($keptTasks | Where-Object { -not (Test-NameMatch $_ $TaskKeepBuiltIn) })
+Check 'Task keeps: Defender, System Restore, certificate services and the Edge, Google and Firefox updaters are never deleted' ($notKept.Count -eq 0) ($notKept -join ', ')
+$stillDeleted = '\Mozilla\Firefox Default Browser Agent 308046B0AF4A39CB', '\Microsoft\Windows\Application Experience\ProgramDataUpdater', '\Microsoft\Windows\Customer Experience Improvement Program\Consolidator', '\Microsoft\Windows\SystemRestore\Other'
+$wronglyKept = @($stillDeleted | Where-Object { Test-NameMatch $_ $TaskKeepBuiltIn })
+Check 'Task keeps: telemetry tasks next to them (Firefox Default Browser Agent, CEIP, compatibility) are still deleted' ($wronglyKept.Count -eq 0 -and $OptionInfo -and (Get-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\Explain-Processes.ps1') -Raw) -notmatch 'runs from its scheduled task anyway') ($wronglyKept -join ', ')
 # A-14: the -RestoreTask examples must name tasks a run can delete or disable, never a path on the keep list.
 $readmeText = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot -Parent) 'README.md'))
 $restoreExamples = @([regex]::Matches($text + $readmeText, "-RestoreTask '+(\\[^'\r\n]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)

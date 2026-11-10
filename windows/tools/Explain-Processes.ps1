@@ -71,8 +71,8 @@ $Advice = @{
     'MapsBroker' = @('Remove', 'Offline maps')
     'RemoteRegistry' = @('Remove', 'Remote registry access')
     # Updaters and app helpers
-    'edgeupdate' = @('Manual', 'Edge updater; runs from its scheduled task anyway')
-    'edgeupdatem' = @('Manual', 'Edge updater; runs from its scheduled task anyway')
+    'edgeupdate' = @('Manual', 'Edge updater service; Edge also updates through its scheduled tasks, which FocusedTweaks keeps')
+    'edgeupdatem' = @('Manual', 'Edge updater service; Edge also updates through its scheduled tasks, which FocusedTweaks keeps')
     'MozillaMaintenance' = @('Manual', 'Firefox silent updater')
     'Steam Client Service' = @('Manual', 'Steam starts it when needed')
     'CoworkVMService' = @('Manual', 'Claude desktop Cowork; Manual if you do not use Cowork')

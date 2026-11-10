@@ -301,7 +301,7 @@ for title, group in OPTION_GROUPS:
     md.append('')
 md += ['## Other settings', '',
        '| Parameter | Values | Default | What it does |', '|---|---|---|---|',
-       '| `-TaskMode` | Delete, Disable, None | Delete | Delete all scheduled tasks (backed up), disable 12 telemetry tasks, or leave them |',
+       '| `-TaskMode` | Delete, Disable, None | Delete | Delete scheduled tasks (backed up; time sync, retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks are kept), disable 12 telemetry tasks, or leave them |',
        '| `-Defender` | Keep, Disable, Enable | Keep | Defender real time protection |',
        '| `-PowerProfile` | Off, Medium, High | High | Custom power plan |',
        '| `-PowerMode` | Keep, Balanced, Best | Keep | Windows power mode overlay |',

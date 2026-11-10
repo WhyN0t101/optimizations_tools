@@ -1926,6 +1926,16 @@ $TaskKeepBuiltIn = @(
     # ("Element not found"), so deleting it could never be undone.
     '\Microsoft\Windows\Application Experience\SdbinstMergeDbTask'
     '\Microsoft\Windows\UpdateOrchestrator\StartOobeAppsScanAfterUpdate'   # same: "Element not found" on restore
+    # docs/AUDIT.md A-03: deleting these stops protection or updates without a word: Defender scans, cache upkeep and
+    # verification, the System Restore point schedule, certificate enrolment and renewal, and the browser updaters
+    # (Edge, Google, Firefox). Telemetry tasks next to them, such as the Firefox Default Browser Agent, still go.
+    '\Microsoft\Windows\Windows Defender\*'
+    '\Microsoft\Windows\SystemRestore\SR'
+    '\Microsoft\Windows\CertificateServicesClient\*'
+    '\MicrosoftEdgeUpdate*'
+    '\GoogleUpdateTask*'
+    '\GoogleSystem\GoogleUpdater\*'
+    '\Mozilla\Firefox Background Update*'
 )
 # Upstream sets NtfsDisableLastAccessUpdate to the legacy value 1, which current Windows replaces at boot with
 # 0x80000002 (system managed, last access ON). 0x80000001 is the user managed "off" that stays (fsutil writes it).
@@ -5781,7 +5791,7 @@ function Confirm-Run {
     Write-Host ''
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
-    if ($TaskMode -eq 'Delete') { $notes += 'All scheduled tasks will be deleted (backups are kept).' }
+    if ($TaskMode -eq 'Delete') { $notes += 'Scheduled tasks will be deleted (backups are kept), except time sync, SSD retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks.' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
     if ($Opt['SpectreMeltdownOff'] -or $Opt['DepOff']) { $notes += 'CPU and memory security mitigations will be turned off.' }
     if ($Opt['WriteCacheFlushOff']) { $notes += 'Disk write cache flushing will be turned off (a power cut can lose data).' }

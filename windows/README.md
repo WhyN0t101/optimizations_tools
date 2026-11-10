@@ -76,7 +76,8 @@ data comes from the copy in `upstream/zoicware/`, checked against pinned SHA256 
 The defaults aim for maximum performance: Spectre and Meltdown mitigations off, core isolation off, the
 timer resolution service on, non-essential services off, apps removed. Things are removed or left alone,
 never half done. A few things are always left alone because removing them gains no speed or costs it:
-SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. Use a profile to relax the defaults
+SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. `TaskMode Delete` also keeps the Defender,
+System Restore, certificate and browser update tasks, so protection and updates keep running. Use a profile to relax the defaults
 per machine; `profiles/laptop.json` keeps the mitigations, core isolation and UAC and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.
 

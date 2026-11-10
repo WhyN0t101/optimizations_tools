@@ -20,8 +20,9 @@ Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with th
   Values are restored to what they were before the first run (sleep study logs, password age), not to fixed defaults.
   Tasks that only SYSTEM may register or change are handled through the TrustedInstaller helper.
 - `-RestoreTask <wildcards>` brings back only the matching deleted or disabled tasks, leaving the rest of the run.
-- Never deleted by `TaskMode Delete`, whatever the profile says: time sync, Defrag, TPM, BitLocker and
-  `SdbinstMergeDbTask` (Windows refuses to register it again). SSD retrim, automatic maintenance and display scaling
+- Never deleted by `TaskMode Delete`, whatever the profile says: time sync, Defrag, TPM, BitLocker, Defender, the
+  System Restore schedule, certificate services, the Edge, Google and Firefox updaters, and `SdbinstMergeDbTask`
+  (Windows refuses to register it again). SSD retrim, automatic maintenance and display scaling
   are left alone unless `SvcDefrag`, `NoAutoMaintenance` or `ForceDpi100` is switched on.
 - Service stops time out after 30 seconds; the update cache cleanup stops UsoSvc first and skips when a service hangs.
 - The state folder (`C:\ProgramData\FocusedTweaks`) is locked to Administrators and SYSTEM, and refused if anyone else
@@ -182,6 +183,11 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   marked `ValidForPerformance: false`. Benchmark files from v7.4 are not compared (one sample, no context).
 - B-06: the VM benchmark figures of 8 Nov 2026 are now described as a functional check (the options took effect),
   not as performance evidence.
+- A-03 (revised): `TaskMode Delete` stays the default. The built-in keep list now also holds the Defender tasks,
+  `\Microsoft\Windows\SystemRestore\SR`, `\Microsoft\Windows\CertificateServicesClient\*` and the Edge
+  (`\MicrosoftEdgeUpdate*`), Google (`\GoogleUpdateTask*`, `\GoogleSystem\GoogleUpdater\*`) and Firefox
+  (`\Mozilla\Firefox Background Update*`) update tasks. The Firefox Default Browser Agent and other telemetry
+  tasks are still deleted. The `edgeupdate` advice in `Explain-Processes.ps1` now says the tasks are kept.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

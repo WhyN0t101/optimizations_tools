@@ -59,7 +59,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 |---|---|---|---|
 | A-01 | High | The journal reaches disk only at the end of a step, not before each change | Fixed in `3bc0a0e` |
 | A-02 | High | A second run deletes the Run keys again without a new backup | Fixed in `3bc0a0e` |
-| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Open |
+| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Fixed (revised) |
 | A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Fixed in `3bc0a0e` |
 | A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed in `a0599ff` |
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Fixed in `3bc0a0e` |
