@@ -13,7 +13,7 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
        Set-ExecutionPolicy -Scope Process Bypass
 
 3. Pick a profile, or none for the maximum performance defaults:
-   `profiles\desktop-max.json` (desktop, all out), `profiles\laptop.json` (keeps security and battery life),
+   `profiles\desktop-max.json` (desktop, all out), `profiles\laptop.json` (keeps security, battery life and Windows Update),
    `profiles\privacy.json` (privacy first: keeps UAC, mitigations, core isolation, Windows Update, driver updates
    and the Defender and update tasks; Defender stays on with cloud sample submission off).
 4. See what it would do, then do it, then restart:
@@ -78,7 +78,8 @@ timer resolution service on, non-essential services off, apps removed. Things ar
 never half done. A few things are always left alone because removing them gains no speed or costs it:
 SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. `TaskMode Delete` also keeps the Defender,
 System Restore, certificate and browser update tasks, so protection and updates keep running. Use a profile to relax the defaults
-per machine; `profiles/laptop.json` keeps the mitigations, core isolation and UAC and skips the timer service
+per machine; `profiles/laptop.json` keeps the mitigations, core isolation, UAC, the power mode and Windows Update
+(no pause, no update restriction) and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.
 
 Every option, with its default, whether `-Revert` undoes it and what evidence backs it (Documented with a link to

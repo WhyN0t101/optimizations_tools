@@ -37,7 +37,7 @@ Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with th
 `-TaskMode Delete|Disable|None`, `-Defender Keep|Disable|Enable`, `-PowerProfile Off|Medium|High`,
 `-PowerMode Keep|Balanced|Best`, `-PauseDays`, `-NvidiaDownload|-NvidiaInstaller`, `-HealthCheck`, `-HealthCheckLaunch`,
 `-ProfilePath file.json`, `-Revert`, `-RestoreTask`, `-Benchmark`, `-StartupReview`, `-SkipRestorePoint`.
-Profiles: `desktop-max.json`, `laptop.json` (keeps UAC, mitigations and core isolation, no timer service),
+Profiles: `desktop-max.json`, `laptop.json` (keeps UAC, mitigations, core isolation, the power mode and Windows Update, no timer service),
 `privacy.json` (keeps UAC, mitigations, core isolation, updates and the Defender and update tasks), `example.json`. A battery without a profile prints a hint.
 `tools/Explain-Processes.ps1` (read only) explains running processes, services and optional features, gives
 Keep/Manual/Remove advice for common Windows and vendor services, and compares two machines.
@@ -188,6 +188,9 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   (`\MicrosoftEdgeUpdate*`), Google (`\GoogleUpdateTask*`, `\GoogleSystem\GoogleUpdater\*`) and Firefox
   (`\Mozilla\Firefox Background Update*`) update tasks. The Firefox Default Browser Agent and other telemetry
   tasks are still deleted. The `edgeupdate` advice in `Explain-Processes.ps1` now says the tasks are kept.
+- A-12 (revised): `laptop.json` now leaves the power mode alone (`PowerMode Keep`, was `Best`, which costs battery)
+  and no longer pauses or restricts Windows Update (`PauseUpdates` and `SecurityUpdatesOnly` skipped). `TaskMode`
+  stays `Delete`, now that the A-03 keeps protect Defender and the updaters.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

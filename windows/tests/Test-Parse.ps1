@@ -142,6 +142,27 @@ foreach ($file in @(Get-ChildItem -Path (Join-Path (Split-Path $PSScriptRoot -Pa
     Check "Profile $($file.Name) loads and names real options" (-not $threw -and $badNames.Count -eq 0) "$threw $($badNames -join ', ')"
 }
 
+# What a run would really use: the option defaults, then the profile, then Resolve-Options, plus the other settings
+# with the defaults of the param block for anything the profile leaves out. No profile means the plain defaults.
+$paramDefaults = @{}
+foreach ($p in $ast.ParamBlock.Parameters) { if ($p.DefaultValue) { $paramDefaults[$p.Name.VariablePath.UserPath] = Invoke-Expression $p.DefaultValue.Extent.Text } }
+$settingNames = 'TaskMode', 'Defender', 'PowerProfile', 'PowerMode', 'PauseDays', 'SkipRegGroup', 'TaskKeep'
+function Get-EffectiveSettings([string]$Path) {
+    foreach ($n in @('Enable', 'Skip', 'Only') + $settingNames) { Set-Variable -Scope Script -Name $n -Value $paramDefaults[$n] }
+    $script:BoundNames = @(); $script:CommandLineNames = @(); $script:ProfileNames = @(); $script:ProfilePath = $Path
+    Import-RunProfile
+    $script:Opt = @{}; foreach ($k in $OptionInfo.Keys) { $script:Opt[$k] = [bool]$OptionInfo[$k][0] }
+    Resolve-Options
+    $e = [ordered]@{}
+    foreach ($k in $OptionInfo.Keys) { $e[$k] = [string]$script:Opt[$k] }
+    foreach ($n in $settingNames) { $e[$n] = @(Get-Variable -Scope Script -Name $n -ValueOnly) -join ',' }
+    return $e
+}
+$profilesDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'profiles'
+# A-12: the laptop profile keeps battery life and updates; tasks are deleted as on a desktop (the A-03 keeps make it safe).
+$laptop = Get-EffectiveSettings (Join-Path $profilesDir 'laptop.json')
+Check 'laptop.json: power mode left alone, updates neither paused nor restricted, tasks deleted, security kept' ($laptop['PowerMode'] -eq 'Keep' -and $laptop['PauseUpdates'] -eq 'False' -and $laptop['SecurityUpdatesOnly'] -eq 'False' -and $laptop['TaskMode'] -eq 'Delete' -and $laptop['Uac'] -eq 'False' -and $laptop['SpectreMeltdownOff'] -eq 'False' -and $laptop['CoreIsolation'] -eq 'False' -and $laptop['TimerResolution'] -eq 'False')
+
 # A-15: option lists work as an array (typed at the prompt) and as one comma separated string (powershell -File).
 function Get-ResolvedOptions([string[]]$EnableList, [string[]]$SkipList, [string[]]$OnlyList = @()) {
     $script:Opt = @{}; foreach ($k in $OptionInfo.Keys) { $script:Opt[$k] = [bool]$OptionInfo[$k][0] }

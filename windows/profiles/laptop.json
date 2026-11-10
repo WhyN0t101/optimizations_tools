@@ -11,12 +11,14 @@
     "SvcDiagnostics",
     "SvcBiometrics",
     "BiometricsPolicy",
-    "NetAdapterPower"
+    "NetAdapterPower",
+    "PauseUpdates",
+    "SecurityUpdatesOnly"
   ],
   "TaskMode": "Delete",
   "Defender": "Keep",
   "PowerProfile": "High",
-  "PowerMode": "Best",
+  "PowerMode": "Keep",
   "PauseDays": 60,
   "SkipRegGroup": [],
   "TaskKeep": []
