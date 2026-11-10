@@ -86,7 +86,7 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Fixed in `da3f58f` |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Fixed in `6b67d2b` |
 | A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed in `7321371` |
-| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
+| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Fixed |
 | A-11 | Medium | The run log has no option, before value or after value per change | Fixed in `3bc0a0e` |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Fixed (revised) |
 | A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Fixed in `b98a47d` |

@@ -518,6 +518,17 @@ Check 'HAGS: an unsupported driver skips the value in the import and the health 
 # B-05: memory compression is turned off only with 32 GB of RAM or more, in the run and in the health check alike.
 Check 'Memory compression: off from 32 GB of RAM, kept below; the run and the health check use the same rule' (-not (Test-MemoryCompressionTarget 8.5) -and -not (Test-MemoryCompressionTarget 16) -and -not (Test-MemoryCompressionTarget 31.9) -and (Test-MemoryCompressionTarget 32) -and (Test-MemoryCompressionTarget 64) -and @([regex]::Matches($text, 'Test-MemoryCompressionTarget -RamGB \$ram')).Count -eq 2 -and $text -notmatch '\$ram -(le|gt) 8\b')
 
+# A-10: every action is pinned to a commit with its tag in a comment; the release attests build provenance; the CI
+# check that fails on a stale generated script stays.
+$workflowDir = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.github\workflows'
+$uses = @(Get-ChildItem -LiteralPath $workflowDir -Filter '*.yml' | ForEach-Object { Select-String -LiteralPath $_.FullName -Pattern '^\s*-?\s*uses:\s*(\S+)(.*)$' } | ForEach-Object { [pscustomobject]@{ File = $_.Filename; Ref = $_.Matches[0].Groups[1].Value; Rest = $_.Matches[0].Groups[2].Value } } | Where-Object { $_.Ref -notlike './*' })
+$unpinned = @($uses | Where-Object { $_.Ref -notmatch '@[0-9a-f]{40}$' -or $_.Rest -notmatch '^\s+#\s+v\d+(\.\d+)*\s*$' })
+Check 'Workflows: every action is pinned to a commit SHA with its release tag in a comment' ($uses.Count -ge 7 -and $unpinned.Count -eq 0) (@($unpinned | ForEach-Object { "$($_.File): $($_.Ref)" }) -join ', ')
+$release = [IO.File]::ReadAllText((Join-Path $workflowDir 'windows-release.yml'))
+$build = [IO.File]::ReadAllText((Join-Path $workflowDir 'windows-build.yml'))
+Check 'Workflows: the release attests build provenance for the script and the zip, with the permissions it needs' ($release -match 'uses: actions/attest-build-provenance@[0-9a-f]{40}' -and $release -match 'dist/FocusedTweaks\.ps1' -and $release -match 'dist/FocusedTweaks\.zip' -and $release -match 'id-token: write' -and $release -match 'attestations: write' -and $readmeText -match 'gh attestation verify' -and $readmeText -match 'does not protect against a compromised release')
+Check 'Workflows: CI still fails when the committed script or docs/OPTIONS.md differ from a fresh build' ($build -match 'git diff --ignore-cr-at-eol --exit-code -- windows/FocusedTweaks\.ps1 windows/docs/OPTIONS\.md')
+
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))
 

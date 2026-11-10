@@ -10,6 +10,8 @@ on:
     paths: ['windows/**', '.github/workflows/windows-build.yml']
   workflow_call:
 
+# Actions are pinned to the commit their release tag pointed to (the tag is in the comment), so a moved or
+# hijacked tag cannot change what runs. Update both together.
 permissions:
   contents: read
 
@@ -17,7 +19,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The ZOICWARE files come from windows/upstream/zoicware (pinned by SHA256 in build.py): the original
       # repository is no longer on GitHub, so nothing is downloaded.
@@ -49,7 +51,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Test-Parse failed under PowerShell 7' }
 
       - name: Keep the built script
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: FocusedTweaks
           path: |

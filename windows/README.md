@@ -7,7 +7,13 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
 1. Download `FocusedTweaks.zip` from the repo's Releases page and unzip it. It holds the script, the profiles and
    the licence notices. Check the script against `FocusedTweaks.ps1.sha256` from the same release:
-   `(Get-FileHash .\FocusedTweaks.ps1).Hash` must match (case does not matter).
+   `(Get-FileHash .\FocusedTweaks.ps1).Hash` must match (case does not matter). That detects a damaged download,
+   but it does not protect against a compromised release: whoever can replace the script can replace the hash
+   file too. To check that the script was built by this repository's release workflow from its source, verify
+   its build provenance with the GitHub CLI (releases built after the provenance step was added):
+
+       gh attestation verify .\FocusedTweaks.ps1 --repo WhyN0t101/optimizations_tools
+
 2. Open Windows PowerShell (5.1) in that folder. The script asks for administrator rights itself.
 
        Set-ExecutionPolicy -Scope Process Bypass

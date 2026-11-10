@@ -212,6 +212,11 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   Startup now stay on with this profile) or lists `KeepDefinitionUpdates` (on by default now). It still sets
   `PowerMode Best`, the one setting the defaults leave alone because they also run on laptops. A test fails if the
   profile and the defaults diverge in any other way.
+- A-10: the release workflow adds a build provenance attestation (`actions/attest-build-provenance`) for the
+  script and the zip; the README and the release notes show `gh attestation verify` and say plainly that the
+  SHA256 file only detects a damaged download. Every action in the three workflows is pinned to the commit of its
+  release tag, with the tag in a comment. The CI check that fails on a stale generated script is unchanged.
+  No Authenticode signing (not approved).
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
