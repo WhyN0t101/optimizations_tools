@@ -59,7 +59,7 @@
     .\FocusedTweaks.ps1 -DryRun
 
 .EXAMPLE
-    .\FocusedTweaks.ps1 -Skip Uac,RunKeys -Enable KeepDefinitionUpdates -PauseDays 30
+    .\FocusedTweaks.ps1 -Skip Uac,RunKeys -Enable MpoOff -PauseDays 30
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -NvidiaDownload -NvidiaApp
@@ -186,7 +186,7 @@ $OptionInfo = [ordered]@{
     SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications', 'n/a', '')
     PauseUpdates          = @($true, 'Pause updates for -PauseDays and set update services to Manual', 'n/a', '')
     PauseStopsUpdateTasks = @($true, 'While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks', 'n/a', '')
-    KeepDefinitionUpdates = @($false, 'Leave Defender definition updates out of the excluded classifications', 'n/a', '')
+    KeepDefinitionUpdates = @($true, 'Leave Defender definition updates out of the excluded classifications, so Defender keeps current signatures', 'n/a', '')
     RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file', 'n/a', '')
     MouseAccel            = @($true, 'Turn off mouse acceleration using the profile for your display scaling', 'n/a', '')
     ClearDesktopIcons     = @($true, 'Hide Recycle Bin, This PC and other system icons and move shortcuts off the desktop (restorable)', 'n/a', '')

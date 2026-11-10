@@ -69,7 +69,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
 | A-11 | Medium | The run log has no option, before value or after value per change | Fixed in `3bc0a0e` |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Fixed (revised) |
-| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Open |
+| A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Fixed |
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |
 | A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed in `28ddcd6` |
 | A-16 | Low | No Windows 10 notice | Fixed in `057dd70` |

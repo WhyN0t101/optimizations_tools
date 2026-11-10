@@ -191,6 +191,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
 - A-12 (revised): `laptop.json` now leaves the power mode alone (`PowerMode Keep`, was `Best`, which costs battery)
   and no longer pauses or restricts Windows Update (`PauseUpdates` and `SecurityUpdatesOnly` skipped). `TaskMode`
   stays `Delete`, now that the A-03 keeps protect Defender and the updaters.
+- A-13: `KeepDefinitionUpdates` is on by default (was off). With the default update restriction and pause, Defender
+  stayed on with signatures that were never refreshed through Windows Update.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
