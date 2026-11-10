@@ -71,6 +71,17 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 `PowerMode Best`. Before, it also enabled `DisableHibernate` and listed `KeepDefinitionUpdates`; both lines are gone.
 `tests/Test-Parse.ps1` fails if the two diverge in any other way.
 
+### Status of the approved features
+
+| Feature | Status |
+|---|---|
+| C-1 | Done in `3bc0a0e` (with A-01) |
+| C-2 | Done in `6b67d2b` |
+| C-3 | Done in `f0acebd` |
+| C-5 | Done in `f7e163c` |
+
+C-1 has no commit subject of its own: it is the journal of `3bc0a0e` (A-01 A-02 A-04 A-06 A-11).
+
 ## Section A: correctness and recoverability
 
 ### Summary
@@ -79,16 +90,16 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 |---|---|---|---|
 | A-01 | High | The journal reaches disk only at the end of a step, not before each change | Fixed in `3bc0a0e` |
 | A-02 | High | A second run deletes the Run keys again without a new backup | Fixed in `3bc0a0e` |
-| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Fixed (revised) |
+| A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Fixed (revised) in `7747407` |
 | A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Fixed in `3bc0a0e` |
 | A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed in `a0599ff` |
 | A-06 | Medium | No read back after a normal registry write; success is not logged per value | Fixed in `3bc0a0e` |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Fixed in `da3f58f` |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Fixed in `6b67d2b` |
 | A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed in `7321371` |
-| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Fixed |
+| A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Fixed in `12957ed` |
 | A-11 | Medium | The run log has no option, before value or after value per change | Fixed in `3bc0a0e` |
-| A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Fixed (revised) |
+| A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Fixed (revised) in `321c695` |
 | A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Fixed in `b98a47d` |
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |
 | A-15 | Low | `-Enable`, `-Skip` and `-Only` do not accept a comma list through `powershell -File` | Fixed in `28ddcd6` |
@@ -344,10 +355,10 @@ a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a rest
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | B-01 | High | The benchmark cannot support the performance claims | Fixed in `c17e102` |
-| B-02 | High | Security controls are off by default with no per machine evidence of a gain | Rejected: kept by design; trade-off log line added |
-| B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Fixed (revised) |
-| B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Fixed (revised) |
-| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Fixed (MemoryCompression threshold; other two rows kept by design) |
+| B-02 | High | Security controls are off by default with no per machine evidence of a gain | Rejected: kept by design; trade-off log line added in `d2fe899` |
+| B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Fixed (revised) in `6c528f1` |
+| B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Fixed (revised) in `af175dc` |
+| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Fixed (MemoryCompression threshold; other two rows kept by design) in `f907b78` |
 | B-06 | Medium | The only before and after numbers in the repository come from a VM | Fixed in `196b937` |
 
 **B-01 (High) Benchmark methodology.** `Invoke-Benchmark` (2722-2768).
