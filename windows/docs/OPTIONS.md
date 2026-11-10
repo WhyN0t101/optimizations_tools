@@ -115,7 +115,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 |---|---|---|---|---|
 | `DisableHibernate` | off | yes | n/a | powercfg /hibernate off (also removes Fast Startup). Upstream does this with its power plan |
 | `MsiMode` | on | yes | Folklore | Enable MSI interrupts for display adapters |
-| `MemoryCompression` | on | yes | Folklore | Disable memory compression when RAM is above 8 GB |
+| `MemoryCompression` | on | yes | Folklore | Disable memory compression when RAM is 32 GB or more |
 | `SleepStudy` | on | yes | Folklore | Turn off Sleep Study and power diagnostic event logs |
 | `NetAdapterPower` | on | yes | [Documented](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management) | Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power) |
 | `NetAdapterEee` | on | yes | [Documented](https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management) | Turn off Energy Efficient Ethernet on physical network adapters that expose it |

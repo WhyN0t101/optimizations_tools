@@ -327,7 +327,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 | B-02 | High | Security controls are off by default with no per machine evidence of a gain | Rejected: kept by design; trade-off log line added |
 | B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Fixed (revised) |
 | B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Fixed (revised) |
-| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Open |
+| B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Fixed (MemoryCompression threshold; other two rows kept by design) |
 | B-06 | Medium | The only before and after numbers in the repository come from a VM | Fixed |
 
 **B-01 (High) Benchmark methodology.** `Invoke-Benchmark` (2722-2768).

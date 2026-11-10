@@ -162,7 +162,7 @@ $OptionInfo = [ordered]@{
     TaskbarEndTask        = @($true, 'Add End task to the right click menu of taskbar apps (Windows 11, upstream registry group)', 'n/a', '')
     DisableHibernate      = @($false, 'powercfg /hibernate off (also removes Fast Startup). Upstream does this with its power plan', 'n/a', '')
     MsiMode               = @($true, 'Enable MSI interrupts for display adapters', 'Folklore', '')
-    MemoryCompression     = @($true, 'Disable memory compression when RAM is above 8 GB', 'Folklore', '')
+    MemoryCompression     = @($true, 'Disable memory compression when RAM is 32 GB or more', 'Folklore', '')
     SleepStudy            = @($true, 'Turn off Sleep Study and power diagnostic event logs', 'Folklore', '')
     PasswordExpiry        = @($true, 'Local passwords never expire (Windows 11 only)', 'n/a', '')
     FaultTolerantHeap     = @($true, 'Reset the fault tolerant heap (not reversible)', 'Folklore', '')
@@ -3972,9 +3972,17 @@ function Set-MsiMode {
     }
 }
 
+# docs/AUDIT.md B-05: below this much RAM, compression avoids page file reads under load, so it stays on.
+$MemoryCompressionMinGB = 32
+
+function Test-MemoryCompressionTarget {
+    param([double]$RamGB)
+    return $RamGB -ge $MemoryCompressionMinGB
+}
+
 function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
-    if ($ram -le 8) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs more than 8 GB)."; return }
+    if (-not (Test-MemoryCompressionTarget -RamGB $ram)) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs $MemoryCompressionMinGB GB or more)."; return }
     if (Test-DryRun 'disable memory compression') { return }
     if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
@@ -5311,7 +5319,7 @@ function Test-HealthSystem {
     }
     if ($Opt['MemoryCompression']) {
         $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
-        if ($ram -gt 8) {
+        if (Test-MemoryCompressionTarget -RamGB $ram) {
             if (-not (Get-MMAgent).MemoryCompression) { Write-Health 'PASS' 'System' 'Memory compression is off.' }
             else { Write-Health 'INFO' 'System' 'Memory compression is still on. It changes after a restart.' }
         }

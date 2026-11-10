@@ -202,6 +202,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   on by default as before (it was part of `Registry`). It is skipped, with the reason, when no display driver is
   WDDM 2.7 or later (the first field of the driver version), and the health check then notes it. Skipping it with
   `-Skip HardwareGpuScheduling` now keeps the Windows setting.
+- B-05: `MemoryCompression` turns compression off only with 32 GB of RAM or more (was: above 8 GB). With 9 to
+  31 GB, compression under load replaces page file reads, so it stays on.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
