@@ -230,8 +230,15 @@ $common = $common -join ' '
 
 Write-Step "Reverting $(Split-Path $Vmx -Leaf) to snapshot '$Snapshot'"
 [void](Invoke-Vmrun -Arguments @('revertToSnapshot', $Vmx, $Snapshot))
-$start = Invoke-Vmrun -Arguments @('start', $Vmx, 'gui') -AllowFail
-if ($start.Code -ne 0 -and $start.Output -notmatch 'already|running') { throw "vmrun start failed: $($start.Output)" }
+# Not through Invoke-Vmrun: when Workstation is not open yet, 'start ... gui' launches vmware.exe, which inherits the
+# output pipe, and reading that pipe would then wait until the Workstation window is closed. Without redirection
+# vmrun shares this console instead; reading Handle right away keeps the exit code available.
+$startProc = Start-Process -FilePath $vmrun -ArgumentList @('-T', 'ws', 'start', "`"$Vmx`"", 'gui') -NoNewWindow -PassThru
+$null = $startProc.Handle
+$startProc.WaitForExit()
+if ($startProc.ExitCode -ne 0 -and (Invoke-Vmrun -Arguments @('checkToolsState', $Vmx) -AllowFail).Output -notmatch 'running|installed') {
+    throw "vmrun start failed with exit code $($startProc.ExitCode)."
+}
 Wait-GuestDesktop
 
 Write-Step "Copying the script into $guestDir"
