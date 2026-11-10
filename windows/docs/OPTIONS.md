@@ -123,7 +123,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | `DeviceWakeOff` | off | yes | n/a | Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep) |
 | `MpoOff` | off | yes | Folklore | Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups |
 | `WriteCacheFlushOff` | off | yes | Folklore | Turn off write cache buffer flushing on SATA and NVMe disks. Faster, but a power cut can lose data |
-| `TimerResolution` | on | yes | [Documented](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod) | Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Costs battery on laptops |
+| `TimerResolution` | on | yes | [Documented](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod) | Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Windows 11 only; skipped on machines with a battery |
 | `NvmeNativeDriver` | off | yes | [Documented](https://techcommunity.microsoft.com/blog/windowsservernewsandbestpractices/announcing-native-nvme-in-windows-server-2025-ushering-in-a-new-era-of-storage-p/4477353) | Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave |
 | `IPv4Only` | off | yes | Folklore | Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs |
 

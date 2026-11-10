@@ -206,7 +206,7 @@ $OptionInfo = [ordered]@{
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible', 'Folklore', '')
     SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart', 'Documented', 'https://support.microsoft.com/en-us/topic/kb4073119-windows-client-guidance-for-it-pros-to-protect-against-silicon-based-microarchitectural-and-speculative-execution-side-channel-vulnerabilities-35820a8a-ae13-1299-88cc-357f104f5b11')
     DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart', 'Folklore', '')
-    TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Costs battery on laptops', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod')
+    TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Windows 11 only; skipped on machines with a battery', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod')
     DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-selective-suspend')
     DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)', 'n/a', '')
     MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups', 'Folklore', '')
@@ -4447,10 +4447,26 @@ function Restore-Dep {
     Write-Log "Data Execution Prevention restored ($(if ($previous) { $previous } else { 'value removed' })). Restart Windows to apply." 'OK'
 }
 
+function Get-TimerSkipReason {
+    # docs/AUDIT.md B-03: the timer service stays on by default, but only where it pays. Windows 10 ignores the global
+    # flag, so the service would raise the resolution for itself only; on a battery machine the 0.5 ms tick keeps the
+    # CPU out of deep idle states all the time. -ForcePowerPlanOnLaptop overrides the battery rule, as for the power plan.
+    param([int]$Build, [bool]$HasBattery, [bool]$Force)
+    if ($Build -lt 22000) { return "Windows 10 (build $Build) honours timer requests per process only, so a service cannot set the timer for other programs" }
+    if ($HasBattery -and -not $Force) { return 'a battery was found, and a 0.5 ms timer held all the time drains it (use -ForcePowerPlanOnLaptop to install it anyway)' }
+    return $null
+}
+
+function Get-TimerSkipReasonHere {
+    return Get-TimerSkipReason -Build ([Environment]::OSVersion.Version.Build) -HasBattery ([bool](Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) -Force ([bool]$ForcePowerPlanOnLaptop)
+}
+
 function Install-TimerResolutionService {
     $dir = Join-Path $env:ProgramFiles 'FocusedTweaks'
     $exe = Join-Path $dir 'TimerResolution.exe'
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    $skip = Get-TimerSkipReasonHere
+    if ($skip) { Write-Log "Timer resolution service skipped: $skip." 'WARN'; return }
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
     Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })
@@ -5091,7 +5107,7 @@ function Test-HealthRegistry {
     }
     if ($Opt['DefenderQuiet']) { Test-HealthTweakTable -Label 'Quiet Defender policy' -Tweaks $DefenderQuietRegs }
     if ($Opt['SpectreMeltdownOff']) { Test-HealthTweakTable -Label 'Spectre and Meltdown mitigations off' -Tweaks $MitigationRegs }
-    if ($Opt['TimerResolution']) { Test-HealthTweakTable -Label 'Global timer resolution requests' -Tweaks $TimerGlobalRegs }
+    if ($Opt['TimerResolution'] -and -not (Get-TimerSkipReasonHere)) { Test-HealthTweakTable -Label 'Global timer resolution requests' -Tweaks $TimerGlobalRegs }
     if ($Opt['NetAdapterPower'] -or $Opt['NetAdapterEee']) {
         $keywords = @(); if ($Opt['NetAdapterPower']) { $keywords += $NetPowerKeywords }; if ($Opt['NetAdapterEee']) { $keywords += $NetEeeKeywords }
         $net = @(Get-NetAdapterTweaks -Keywords $keywords -AllowOff:([bool]$Opt['NetAdapterPower']))
@@ -5374,7 +5390,10 @@ function Test-HealthSystem {
         if ((Get-ServiceStartNow 'WSearch') -eq 4) { Write-Health 'PASS' 'System' 'Windows Search indexing is disabled.' }
         else { Write-Health 'WARN' 'System' 'Windows Search indexing was meant to be disabled, but the WSearch service is not.' }
     }
-    if ($Opt['TimerResolution']) {
+    $timerSkip = $null
+    if ($Opt['TimerResolution']) { $timerSkip = Get-TimerSkipReasonHere }
+    if ($timerSkip) { Write-Health 'INFO' 'System' "Timer resolution service not installed on this PC: $timerSkip." }
+    elseif ($Opt['TimerResolution']) {
         $svc = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
         if ($svc -and $svc.Status -eq 'Running') { Write-Health 'PASS' 'System' "Timer resolution service '$TimerServiceName' is running." }
         elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }

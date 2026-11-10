@@ -195,6 +195,9 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   stayed on with signatures that were never refreshed through Windows Update.
 - B-02 (defaults rejected, kept by design): `SpectreMeltdownOff`, `CoreIsolation` and `Uac` stay on by default. The
   plan now logs, as a warning, what each one that is on weakens.
+- B-03 (revised): the timer service stays on by default. It is skipped, with the reason in the log, on Windows 10
+  (builds below 22000 honour timer requests per process, so the service would only affect itself) and on machines
+  with a battery (`-ForcePowerPlanOnLaptop` overrides that). The health check notes the skip instead of warning.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
