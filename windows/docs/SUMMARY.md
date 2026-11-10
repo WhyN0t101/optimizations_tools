@@ -9,7 +9,11 @@ Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with th
 
 ## Safety model
 - `-DryRun` lists every action and changes nothing. A `YES` prompt guards a real run (`-Force` skips it).
-- State is saved after every step. `-Revert` restores registry values and deleted keys, the hosts file, scheduled tasks
+- Every change is first written, flushed, to `journal.jsonl` in the state folder (time, step, option, value before,
+  value after, then OK, MISMATCH or FAILED), and the state is saved after every step; a run that stops mid step is
+  recovered from the journal at the next start. A step that fails is rolled back from its journal lines, or the run
+  stops when the step changed something the journal cannot put back.
+  `-Revert` restores registry values and deleted keys, the hosts file, scheduled tasks
   (exported to XML first), the power plan, hibernation, memory compression, sleep study logs, password age, the consent
   database, the Start layout and desktop shortcuts, Defender real time protection, DEP, the timer service, the power
   mode, the time server and optional features. Registry keys the run created are removed again when they are empty.
@@ -132,6 +136,20 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   snapshot and after a save and load, state survives a round trip (date-like strings, binary data), `Remove-RegKey`
   on repeat, comma lists (A-15) and the atomic state write (A-05). It uses a scratch key under
   `HKCU\Software\FocusedTweaksTest-<id>` and a temp folder, and removes both.
+- A-01, A-11: change journal. Every change is announced in `journal.jsonl` (state folder) with one flushed write
+  before it is made: time, step number and name, option, target, value before and value after; a second line gives
+  the result. All state records go through it, and the state file stores the last journal line it holds
+  (`JournalSeq`, state version 2). At start the lines the state file lacks are replayed, so a run killed mid step
+  keeps its originals. `-Revert` archives the journal with the state. Version 1 state files load unchanged.
+  The device power and wake steps write one journal flush per registry key instead of two per value.
+- A-06: every registry write is read back; the journal records OK or MISMATCH and a mismatch is logged as a warning.
+- A-04: a step that fails (an error, or a change in it that failed) is rolled back from its journal lines, newest
+  first: registry values, deleted keys, created keys and scheduled tasks. When the step also changed something the
+  journal cannot put back (hosts file, power plan, features, files and other state), the run stops there and says so;
+  `-Revert` still undoes everything recorded.
+- A-02: every deletion of a registry key (the Run keys and four other upstream keys) is exported to its own
+  timestamped file, also on a later run. `-Revert` imports all exports newest first, so the original wins where they
+  overlap and entries added between runs come back too.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

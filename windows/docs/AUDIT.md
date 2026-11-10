@@ -57,17 +57,17 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 
 | ID | Severity | Title | Status |
 |---|---|---|---|
-| A-01 | High | The journal reaches disk only at the end of a step, not before each change | Open |
-| A-02 | High | A second run deletes the Run keys again without a new backup | Open |
+| A-01 | High | The journal reaches disk only at the end of a step, not before each change | Fixed |
+| A-02 | High | A second run deletes the Run keys again without a new backup | Fixed |
 | A-03 | High | `TaskMode Delete` removes every task outside six patterns, including updaters and Defender tasks | Open |
-| A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Open |
+| A-04 | Medium | A failed step is logged and skipped; nothing is rolled back | Fixed |
 | A-05 | Medium | `state.json` is rewritten in place, so a crash during the write can block `-Revert` | Fixed in `a0599ff` |
-| A-06 | Medium | No read back after a normal registry write; success is not logged per value | Open |
+| A-06 | Medium | No read back after a normal registry write; success is not logged per value | Fixed |
 | A-07 | Medium | Restore point failure only warns, and the 24 hour refusal may be logged as success | Open |
 | A-08 | Medium | Domain joined, MDM enrolled and policy managed machines are not detected | Open |
 | A-09 | Medium | Edition check covers one edition ID and is not per setting | Fixed in `7321371` |
 | A-10 | Medium | Integrity: the SHA256 file shares the release with the script; no signing or provenance | Open |
-| A-11 | Medium | The run log has no option, before value or after value per change | Open |
+| A-11 | Medium | The run log has no option, before value or after value per change | Fixed |
 | A-12 | Medium | `laptop.json` does not match its description (power mode Best, updates paused, tasks deleted) | Open |
 | A-13 | Medium | Defaults keep Defender on but exclude its definition updates and delete its tasks | Open |
 | A-14 | Low | The `-RestoreTask` examples name paths that are never deleted | Fixed in `04ca2e3` |

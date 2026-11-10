@@ -32,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Save-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -178,12 +178,17 @@ function Reset-TestState {
     Invoke-Expression $stateInit
     $script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $script:LogLines = [System.Collections.Generic.List[string]]::new()
+    $script:JournalSeq = 0; $script:StepId = 0; $script:StepName = ''; $script:JournalOption = ''; $script:StopRun = $false
+    $script:StepEvents = [System.Collections.Generic.List[object]]::new()
+    $script:Failures = 0
 }
+function Get-JournalLines { @(Get-Content -LiteralPath $JournalFile -ErrorAction SilentlyContinue | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json }) }
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') $script:LogLines.Add("[$Level] $Message") }
 $script:DryRun = $false
 $StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-state-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 $StateFile = Join-Path $StateDir 'state.json'
+$JournalFile = Join-Path $StateDir 'journal.jsonl'
 $record = { param($n) [pscustomobject]@{ Path = 'HKEY_CURRENT_USER\Software\X'; Name = $n; Existed = $true; Kind = 'DWord'; Value = 1 } }
 Reset-TestState
 $script:State.Registry.Add((& $record 'One')); Save-State
@@ -203,52 +208,145 @@ Check 'State: an unreadable state stops every mode with exit code 4 before anyth
 Check 'State: -Revert removes the backup of the cycle it reverted' ($text -match 'Remove-Item -LiteralPath "\$StateFile\.bak" -Force')
 Remove-Item -LiteralPath $StateDir -Recurse -Force
 
-# A-19: the journal rules, against a scratch key under HKCU that is removed again at the end.
+# A-19 and the journal (A-01, A-02, A-04, A-06, A-11, A-17), against a scratch key under HKCU that is removed at the end.
 $scratch = 'HKEY_CURRENT_USER\Software\FocusedTweaksTest-' + [guid]::NewGuid().ToString('N')
 $StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-state-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 $StateFile = Join-Path $StateDir 'state.json'
-$script:Failures = 0
+$JournalFile = Join-Path $StateDir 'journal.jsonl'
+$realWriteRegRaw = ($fns | Where-Object { $_.Name -eq 'Write-RegRaw' } | Select-Object -First 1).Extent.Text
 Reset-TestState
 try {
+    # First original kept: the value was 1 before the run, two writes later the record still says 1.
     Write-RegRaw -Full $scratch -Name 'V' -Value 1 -Kind 'DWord'
-    Save-RegSnapshot -Full $scratch -Name 'V'
-    Write-RegRaw -Full $scratch -Name 'V' -Value 2 -Kind 'DWord'
-    Save-RegSnapshot -Full $scratch -Name 'V'
-    Check 'Journal: a second snapshot of a value keeps the first original' ($script:State.Registry.Count -eq 1 -and $script:State.Registry[0].Existed -and [int]$script:State.Registry[0].Value -eq 1)
-    Save-RegSnapshot -Full $scratch -Name 'Missing'
-    # Values that JSON could change on the way: a string that looks like a date, an expandable string and binary data.
-    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'When'; Existed = $true; Kind = 'String'; Value = '2026-11-08T10:00:00Z' })
-    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'Dir'; Existed = $true; Kind = 'ExpandString'; Value = '%SystemRoot%\x' })
-    $script:State.Registry.Add([pscustomobject]@{ Path = $scratch; Name = 'Bin'; Existed = $true; Kind = 'Binary'; Value = (ConvertTo-StoredValue -Value ([byte[]](0, 171, 255)) -Kind Binary) })
-    $script:State.Hibernate = $true; $script:State.PwAge = '42'; $script:State.Hosts.Add('telemetry')
-    Save-State
-    Reset-TestState; Import-State
-    $byName = @{}; foreach ($e in $script:State.Registry) { $byName[$e.Name] = $e }
-    Check 'State save and load: registry records come back unchanged' ($script:State.Registry.Count -eq 5 -and [int]$byName['V'].Value -eq 1 -and -not $byName['Missing'].Existed -and $byName['When'].Value -is [string] -and $byName['When'].Value -ceq '2026-11-08T10:00:00Z' -and $byName['Dir'].Value -ceq '%SystemRoot%\x' -and ((ConvertFrom-StoredValue -Value $byName['Bin'].Value -Kind Binary) -join ',') -eq '0,171,255')
-    Check 'State save and load: lists and single values come back' ($script:State.Hibernate -eq $true -and [string]$script:State.PwAge -eq '42' -and @($script:State.Hosts) -contains 'telemetry')
-    Save-RegSnapshot -Full $scratch -Name 'V'
-    Check 'Journal: a later run that loaded the state still keeps the first original' (@($script:State.Registry | Where-Object { $_.Name -eq 'V' }).Count -eq 1 -and [int]$byName['V'].Value -eq 1)
+    Set-RegValue -Path $scratch -Name 'V' -Value 2
+    Set-RegValue -Path $scratch -Name 'V' -Value 3
+    Check 'Journal: a second write of a value keeps the first original' (@($script:State.Registry | Where-Object { $_.Name -eq 'V' }).Count -eq 1 -and [int]@($script:State.Registry | Where-Object { $_.Name -eq 'V' })[0].Value -eq 1 -and $script:Failures -eq 0)
+    $lines = Get-JournalLines
+    $changes = @($lines | Where-Object { $_.Op -eq 'Change' -and $_.Target -eq "$scratch\V" })
+    $results = @($lines | Where-Object { $_.Op -eq 'Result' -and $_.Target -eq "$scratch\V" })
+    Check 'Journal: each write has a change line (before, after) and a result line, in that order' ($changes.Count -eq 2 -and $results.Count -eq 2 -and [int]$changes[0].Before.Value -eq 1 -and $changes[0].After -eq '2 (DWord)' -and [int]$changes[1].Before.Value -eq 2 -and $results[0].Ref -eq $changes[0].Seq -and $results[0].Seq -gt $changes[0].Seq -and $results[0].Result -eq 'OK')
+    Check 'Journal: lines carry time, step and option' (@($lines | Where-Object { -not $_.T -or $null -eq $_.Step -or $null -eq $_.PSObject.Properties['Option'] }).Count -eq 0)
 
-    # Remove-RegKey twice, as on a second run. The first export is the original and must survive. Entries added to the
-    # key between the runs are in no backup yet: that is docs/AUDIT.md A-02, fixed with the journal work.
+    # A-06 and "before the change": a write that fails still leaves its original and its announcement in the journal.
+    . ([scriptblock]::Create('function Write-RegRaw { param($Full, $Name, $Value, $Kind) throw "disk on fire" }'))
+    Set-RegValue -Path $scratch -Name 'W' -Value 5
+    $wLines = @(Get-JournalLines | Where-Object { $_.Target -eq "$scratch\W" })
+    Check 'Journal: the change line is written before the write, and a failed write is recorded as FAILED' ($script:Failures -eq 1 -and $wLines.Count -eq 2 -and $wLines[0].Op -eq 'Change' -and $wLines[1].Result -eq 'FAILED' -and $script:RecordedReg.Contains("$scratch|W"))
+    . ([scriptblock]::Create('function Write-RegRaw { param($Full, $Name, $Value, $Kind) }'))
+    Set-RegValue -Path $scratch -Name 'X' -Value 9
+    $xResult = @(Get-JournalLines | Where-Object { $_.Op -eq 'Result' -and $_.Target -eq "$scratch\X" })
+    Check 'Read back: a write that does not take is a MISMATCH in the journal and a warning in the log' ($xResult.Count -eq 1 -and $xResult[0].Result -eq 'MISMATCH' -and $xResult[0].Now -eq '<missing>' -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] MISMATCH: $scratch\X*" }).Count -eq 1)
+    . ([scriptblock]::Create($realWriteRegRaw))
+    $script:Failures = 0
+
+    # A-01: a run that stops before the state file is saved loses nothing: the journal is replayed at the next start.
+    Reset-TestState
+    Remove-Item -LiteralPath $StateFile, "$StateFile.bak", $JournalFile -Force -ErrorAction SilentlyContinue
+    Set-RegValue -Path "$scratch\Crash" -Name 'A' -Value 1
+    Set-RegValue -Path "$scratch\Crash" -Name 'B' -Value 'x' -Type String
+    $seqBefore = $script:JournalSeq
+    Reset-TestState; Import-State
+    Check 'Journal: originals and created keys are recovered when the run stopped before saving the state' ($script:RecordedReg.Contains("$scratch\Crash|A") -and $script:RecordedReg.Contains("$scratch\Crash|B") -and @($script:State.CreatedKeys) -contains "$scratch\Crash" -and $script:JournalSeq -eq $seqBefore -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] Recovered *' }).Count -eq 1)
+    Save-State
+    Set-RegValue -Path "$scratch\Crash" -Name 'C' -Value 3
+    Reset-TestState; Import-State
+    Check 'Journal: only lines newer than the state file are replayed, with no duplicates' ($script:State.Registry.Count -eq 3 -and $script:RecordedReg.Contains("$scratch\Crash|C") -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] Recovered 1 record*' }).Count -eq 1)
+    [IO.File]::AppendAllText($JournalFile, '{"Seq":99,"Op":"Add","Sec')
+    Reset-TestState; Import-State
+    Check 'Journal: a line cut off by a crash is skipped with a warning' ($script:State.Registry.Count -eq 3 -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] 1 journal line(s) could not be read*' }).Count -eq 1)
+    Remove-Item -LiteralPath $StateFile, "$StateFile.bak", $JournalFile -Force -ErrorAction SilentlyContinue
+
+    # State save and load: values that JSON could change on the way survive (date-like string, expandable string, binary).
+    Reset-TestState
+    Write-RegRaw -Full $scratch -Name 'When' -Value '2026-11-08T10:00:00Z' -Kind 'String'
+    Write-RegRaw -Full $scratch -Name 'Dir' -Value '%SystemRoot%\x' -Kind 'ExpandString'
+    Write-RegRaw -Full $scratch -Name 'Bin' -Value ([byte[]](0, 171, 255)) -Kind 'Binary'
+    Set-RegValue -Path $scratch -Name 'V' -Value 4
+    Set-RegValue -Path $scratch -Name 'When' -Value 'later' -Type String
+    Set-RegValue -Path $scratch -Name 'Dir' -Value 'y' -Type String
+    Set-RegValue -Path $scratch -Name 'Bin' -Value ([byte[]](1)) -Type Binary
+    Remove-RegValue -Path $scratch -Name 'Missing'
+    Set-StateValue -Name 'Hibernate' -Value $true; Set-StateValue -Name 'PwAge' -Value '42'; Add-StateRecord -Section 'Hosts' -Item 'telemetry'
+    Save-State
+    foreach ($round in 'state file', 'journal') {
+        if ($round -eq 'journal') { Remove-Item -LiteralPath $StateFile, "$StateFile.bak" -Force -ErrorAction SilentlyContinue }   # the journal alone holds it all
+        Reset-TestState; Import-State
+        $byName = @{}; foreach ($e in $script:State.Registry) { $byName[$e.Name] = $e }
+        Check "State save and load ($round): registry records come back unchanged" ($script:State.Registry.Count -eq 5 -and [int]$byName['V'].Value -eq 3 -and -not $byName['Missing'].Existed -and $byName['When'].Value -is [string] -and $byName['When'].Value -ceq '2026-11-08T10:00:00Z' -and $byName['Dir'].Value -ceq '%SystemRoot%\x' -and $byName['Dir'].Kind -eq 'ExpandString' -and ((ConvertFrom-StoredValue -Value $byName['Bin'].Value -Kind Binary) -join ',') -eq '0,171,255')
+        Check "State save and load ($round): lists and single values come back" ($script:State.Hibernate -eq $true -and [string]$script:State.PwAge -eq '42' -and @($script:State.Hosts) -contains 'telemetry')
+    }
+    Remove-Item -LiteralPath $JournalFile -Force
+
+    # A-04: a failed step is rolled back from its journal lines; a step it cannot roll back stops the run.
+    Reset-TestState
+    Write-RegRaw -Full $scratch -Name 'V' -Value 10 -Kind 'DWord'
+    Invoke-Step 'Rollback test' -Option 'MpoOff' { Set-RegValue -Path "$scratch\New\Deep" -Name 'A' -Value 1; Set-RegValue -Path $scratch -Name 'V' -Value 11; throw 'boom' }
+    $now = Get-RegSnapshot -Full $scratch -Name 'V'
+    $stepLines = @(Get-JournalLines | Where-Object { $_.StepName -eq 'Rollback test' })
+    Check 'Rollback: a failed step puts back its values and removes the keys it created' ([int]$now.Value -eq 10 -and $null -eq (Open-RegKey -Full "$scratch\New") -and -not $script:StopRun -and $script:Failures -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Rolled back 'Rollback test': 2 change(s)*" }).Count -eq 1)
+    Check 'Journal: lines name the step and its option, and the rollback is recorded' ($stepLines.Count -gt 0 -and @($stepLines | Where-Object { $_.Option -ne 'MpoOff' -or $_.Step -ne 1 }).Count -eq 0 -and @($stepLines | Where-Object { $_.Op -eq 'Rollback' -and $_.Result -eq 'OK' }).Count -eq 1)
+    Invoke-Step 'Clean step' { Set-RegValue -Path $scratch -Name 'V' -Value 12 }
+    Check 'Rollback: a step without failures is left as it is' ([int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 12 -and $script:Failures -eq 1)
+    Invoke-Step 'Unsafe step' { Set-RegValue -Path $scratch -Name 'V' -Value 13; Set-StateValue -Name 'Hibernate' -Value $true; throw 'boom' }
+    $script:ranAfter = $false
+    Invoke-Step 'After the stop' { $script:ranAfter = $true }
+    Check 'Rollback: a step that changed something the journal cannot put back stops the run' ($script:StopRun -and -not $script:ranAfter -and [int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 13 -and @($script:LogLines | Where-Object { $_ -like "``[ERROR``] Rollback of 'Unsafe step' is not safe: the step also changed Hibernate*" }).Count -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Skipped: After the stop*" }).Count -eq 1)
+    Reset-TestState
+
+    # A-02: every run exports the key again; revert imports all exports, newest first, so the original wins.
     $runKey = "$scratch\Run"
     Write-RegRaw -Full $runKey -Name 'First' -Value 'first.exe' -Kind 'String'
+    Write-RegRaw -Full $runKey -Name 'Shared' -Value 'original' -Kind 'String'
     Remove-RegKey -Path $runKey
-    $export = [string]$script:State.KeyBackups[0].File
-    $firstExport = [IO.File]::ReadAllText($export)
-    Check 'Remove-RegKey: the key is exported, recorded and deleted' ($null -eq (Open-RegKey -Full $runKey) -and $script:State.KeyBackups.Count -eq 1 -and $firstExport -match '"First"="first\.exe"')
+    Check 'Remove-RegKey: the key is exported, recorded and deleted' ($null -eq (Open-RegKey -Full $runKey) -and $script:State.KeyBackups.Count -eq 1 -and [IO.File]::ReadAllText($script:State.KeyBackups[0].File) -match '"First"="first\.exe"')
+    Start-Sleep -Milliseconds 20
     Write-RegRaw -Full $runKey -Name 'Second' -Value 'second.exe' -Kind 'String'
+    Write-RegRaw -Full $runKey -Name 'Shared' -Value 'changed' -Kind 'String'
     Remove-RegKey -Path $runKey
-    Check 'Remove-RegKey on repeat: the key is deleted again and the first export is left as it was' ($null -eq (Open-RegKey -Full $runKey) -and $script:State.KeyBackups.Count -eq 1 -and [IO.File]::ReadAllText($export) -ceq $firstExport -and $script:Failures -eq 0)
+    $files = @($script:State.KeyBackups | ForEach-Object { $_.File })
+    Check 'Remove-RegKey on repeat: a second export with its own name holds the entries added since' ($null -eq (Open-RegKey -Full $runKey) -and $files.Count -eq 2 -and $files[0] -ne $files[1] -and [IO.File]::ReadAllText($files[1]) -match '"Second"="second\.exe"' -and $script:Failures -eq 0)
     Remove-RegKey -Path $runKey
-    Check 'Remove-RegKey: a key that is already gone is not an error' ($script:Failures -eq 0 -and $script:State.KeyBackups.Count -eq 1)
+    Check 'Remove-RegKey: a key that is already gone is not an error and adds no export' ($script:Failures -eq 0 -and $script:State.KeyBackups.Count -eq 2)
+    Restore-KeyBackups
+    $back = { param($n) (Get-RegSnapshot -Full $runKey -Name $n).Value }
+    Check 'Revert: every export is imported and the oldest wins where they overlap' ((& $back 'First') -eq 'first.exe' -and (& $back 'Second') -eq 'second.exe' -and (& $back 'Shared') -eq 'original')
+    $deleteLines = @(Get-JournalLines | Where-Object { $_.Op -eq 'Change' -and $_.Kind -eq 'RegistryKey' })
+    Check 'Journal: each key deletion names its export as the value before' ($deleteLines.Count -eq 2 -and $deleteLines[0].Before -eq $files[0] -and $deleteLines[1].Before -eq $files[1])
+
+    # Migration: a version 1 state file (v7.4 and older, no journal) loads without loss and is saved as version 2.
+    Reset-TestState
+    Remove-Item -LiteralPath $StateFile, "$StateFile.bak", $JournalFile -Force -ErrorAction SilentlyContinue
+    $v1 = '{"Registry":[{"Path":"HKEY_CURRENT_USER\\Software\\X","Name":"S","Existed":true,"Kind":"String","Value":"s:2026-01-02T03:04:05Z"},{"Path":"HKEY_CURRENT_USER\\Software\\X","Name":"D","Existed":false,"Kind":null,"Value":null}],' +
+    '"KeyBackups":[{"Path":"HKEY_CURRENT_USER\\Software\\X\\Run","File":"C:\\ProgramData\\FocusedTweaks\\keys\\HKEY_CURRENT_USER_Software_X_Run.reg"}],' +
+    '"Tasks":[{"Path":"\\Microsoft\\Windows\\A\\","Name":"T","Action":"Deleted","WasEnabled":true,"XmlFile":"C:\\t.xml"}],"Removed":["Microsoft.BingNews"],"Hosts":["telemetry"],' +
+    '"DesktopMoved":[],"CreatedKeys":["HKEY_CURRENT_USER\\Software\\X\\New"],"NetBindings":[],"Features":["SMB1Protocol"],"Power":{"Previous":"381b4222-f694-41f0-9685-ff5bb260df2e","Custom":"11111111-2222-3333-4444-555555555555"},' +
+    '"Defender":true,"Hibernate":true,"MemCompress":null,"SleepStudy":["Microsoft-Windows-SleepStudy/Diagnostic"],"PwAge":"42","ConsentDb":null,"Run":null,"StartLayout":null,"Dep":null,"TimerService":null,"PowerOverlay":null,"PowerOverlaySet":null,"PowerOverlaySource":null,"NvidiaDrs":false}'
+    [IO.File]::WriteAllText($StateFile, $v1)
+    Import-State
+    $checkV1 = {
+        $s = @($script:State.Registry | Where-Object { $_.Name -eq 'S' })
+        $s.Count -eq 1 -and $s[0].Value -is [string] -and $s[0].Value -ceq '2026-01-02T03:04:05Z' -and $script:State.Registry.Count -eq 2 -and $script:State.KeyBackups.Count -eq 1 -and
+        $script:State.Tasks.Count -eq 1 -and $script:State.Tasks[0].XmlFile -eq 'C:\t.xml' -and @($script:State.Removed) -contains 'Microsoft.BingNews' -and @($script:State.Features) -contains 'SMB1Protocol' -and
+        @($script:State.CreatedKeys) -contains 'HKEY_CURRENT_USER\Software\X\New' -and $script:State.Power.Custom -eq '11111111-2222-3333-4444-555555555555' -and $script:State.Defender -eq $true -and
+        [string]$script:State.PwAge -eq '42' -and @($script:State.SleepStudy).Count -eq 1
+    }
+    Check 'Migration: a version 1 state file loads with every record' ((& $checkV1) -and $script:JournalSeq -eq 0 -and $script:LogLines.Count -eq 0)
+    Save-State
+    $saved = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
+    Reset-TestState; Import-State
+    Check 'Migration: saving writes version 2 with the journal position, and nothing is lost on the way' ($saved.StateVersion -eq 2 -and $null -ne $saved.PSObject.Properties['JournalSeq'] -and (& $checkV1))
+    Remove-Item -LiteralPath $StateFile, "$StateFile.bak" -Force -ErrorAction SilentlyContinue
+
 }
 finally {
+    . ([scriptblock]::Create($realWriteRegRaw))
     [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(($scratch -replace '^HKEY_CURRENT_USER\\', ''), $false)
     Remove-Item -LiteralPath $StateDir -Recurse -Force
 }
 Check 'The scratch registry key is gone after the tests' ($null -eq (Open-RegKey -Full $scratch))
+Check 'Revert archives the journal with the state, so the next run starts a new one' ($text -match 'Move-Item -LiteralPath \$JournalFile -Destination')
+Check 'Every state change in the script goes through the journal' (@([regex]::Matches($text, '\$script:State\.\w+(\.\w+)? = |\$script:State\.\w+\.(Add|Remove)\(')).Count -eq 3)
 
 $keep = 'C:\Users\x\AppData\Local\Temp\sub\FocusedTweaks.ps1', 'C:\ProgramData\FocusedTweaks'
 Check 'Cleanup protects the folder holding the script and the state folder' ((Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\sub' -Keep $keep) -and (Test-ProtectedPath 'C:\ProgramData\FocusedTweaks' -Keep $keep) -and -not (Test-ProtectedPath 'C:\Users\x\AppData\Local\Temp\other' -Keep $keep))

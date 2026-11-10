@@ -2160,6 +2160,10 @@ $EditionFullPolicy = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*')
 
 #region Infrastructure --------------------------------------------------------------------
 $StateFile = Join-Path $StateDir 'state.json'
+# One JSON line per recorded change, written and flushed before the change is made (docs/AUDIT.md A-01, A-11).
+$JournalFile = Join-Path $StateDir 'journal.jsonl'
+# 2: the state file records JournalSeq, the last journal line it holds. Files without it are version 1 (v7.4 and older).
+$StateVersion = 2
 $LogFile = Join-Path $StateDir ('run-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
@@ -2167,6 +2171,12 @@ $script:Failures = 0
 $script:Warnings = 0
 $script:TiCount = 0
 $script:ShellDirty = $false
+$script:JournalSeq = 0      # number of the last journal line written or read
+$script:StepId = 0
+$script:StepName = ''
+$script:JournalOption = ''  # option the current change belongs to, written into each journal line
+$script:StepEvents = [System.Collections.Generic.List[object]]::new()
+$script:StopRun = $false
 $script:State = @{
     Registry   = [System.Collections.Generic.List[object]]::new()
     KeyBackups = [System.Collections.Generic.List[object]]::new()
@@ -2213,18 +2223,34 @@ function Test-DryRun {
     return $false
 }
 
+function ConvertTo-StoredRecord {
+    # PowerShell 7 turns ISO date strings into dates when it reads JSON, which would corrupt restored registry
+    # strings. Registry records in the state file and the journal therefore carry an 's:' prefix on string values,
+    # which ConvertFrom-StoredRecord removes again. Anything that is not a registry record is returned unchanged.
+    param($Record)
+    if ($null -eq $Record -or -not $Record.PSObject.Properties['Kind']) { return $Record }
+    if (($Record.Kind -eq 'String' -or $Record.Kind -eq 'ExpandString') -and $Record.Value -is [string]) {
+        return [pscustomobject]@{ Path = $Record.Path; Name = $Record.Name; Existed = $Record.Existed; Kind = $Record.Kind; Value = ('s:' + $Record.Value) }
+    }
+    return $Record
+}
+
+function ConvertFrom-StoredRecord {
+    param($Record)
+    if ($null -eq $Record -or -not $Record.PSObject.Properties['Kind']) { return $Record }
+    if (($Record.Kind -eq 'String' -or $Record.Kind -eq 'ExpandString') -and $Record.Value -is [string] -and $Record.Value.StartsWith('s:')) {
+        $Record.Value = $Record.Value.Substring(2)
+    }
+    return $Record
+}
+
 function Save-State {
     if ($script:DryRun) { return }
-    # PowerShell 7 turns ISO date strings into dates when it reads JSON, which would corrupt restored registry
-    # strings. Stored strings therefore carry an 's:' prefix, which Import-State removes again.
     $copy = @{}
     foreach ($entry in $script:State.GetEnumerator()) { $copy[$entry.Key] = $entry.Value }
-    $copy.Registry = @($script:State.Registry | ForEach-Object {
-            if (($_.Kind -eq 'String' -or $_.Kind -eq 'ExpandString') -and $_.Value -is [string]) {
-                [pscustomobject]@{ Path = $_.Path; Name = $_.Name; Existed = $_.Existed; Kind = $_.Kind; Value = ('s:' + $_.Value) }
-            }
-            else { $_ }
-        })
+    $copy.Registry = @($script:State.Registry | ForEach-Object { ConvertTo-StoredRecord $_ })
+    $copy.StateVersion = $StateVersion
+    $copy.JournalSeq = $script:JournalSeq
     # Written to a temporary file and swapped in, so a crash during the write cannot leave a truncated state file.
     # The version before it stays as state.json.bak, which Read-StateFile falls back to.
     $temp = "$StateFile.tmp"
@@ -2241,7 +2267,7 @@ function Read-StateFile {
         try {
             $raw = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
             if ($null -eq $raw) { throw 'the file is empty.' }
-            if ($problems.Count -gt 0) { Write-Log "The state file could not be read ($($problems -join ' ')). Using the previous version, $file. Changes made by the last step of that run may be missing from it." 'WARN' }
+            if ($problems.Count -gt 0) { Write-Log "The state file could not be read ($($problems -join ' ')). Using the previous version, $file; the journal fills in what that version lacks." 'WARN' }
             return $raw
         }
         catch { $problems += "$(Split-Path $file -Leaf): $($_.Exception.Message)" }
@@ -2249,41 +2275,223 @@ function Read-StateFile {
     throw "The saved state in $StateDir cannot be read, so nothing was changed and -Revert cannot use it ($($problems -join ' ')). Keep the folder as it is: the task, registry key and hosts backups in it are intact."
 }
 
+function Add-StateItem {
+    # Adds one record to a list in the state. The same rules apply live and when the journal is replayed.
+    param([string]$Section, $Item)
+    if ($Section -eq 'Registry') {
+        if ($script:RecordedReg.Add("$($Item.Path)|$($Item.Name)")) { $script:State.Registry.Add($Item) }
+        return
+    }
+    if ($Section -in 'CreatedKeys', 'Hosts', 'Features') {
+        if (@($script:State[$Section]) -notcontains $Item) { $script:State[$Section].Add($Item) }
+        return
+    }
+    $script:State[$Section].Add($Item)
+}
+
+function Invoke-JournalEvent {
+    # Applies one journal event to the state. Change, Result and Rollback lines are the change log and alter nothing.
+    param($JournalEvent)
+    switch ($JournalEvent.Op) {
+        'Add' { Add-StateItem -Section $JournalEvent.Section -Item $JournalEvent.Item }
+        'Set' { $script:State[$JournalEvent.Name] = $JournalEvent.Value }
+        'Task' {
+            $r = $JournalEvent.Record
+            $e = Get-TaskRecord -Path $r.Path -Name $r.Name
+            if (-not $e) { $script:State.Tasks.Add($r) }
+            elseif ($JournalEvent.Mode -eq 'upgraded') { $e.Action = 'Deleted'; $e.XmlFile = $r.XmlFile }
+        }
+        'TaskUndo' {
+            # A delete that failed must not leave a record claiming the task was removed.
+            $e = Get-TaskRecord -Path $JournalEvent.Path -Name $JournalEvent.Name
+            if ($e -and $JournalEvent.Outcome -eq 'new') { [void]$script:State.Tasks.Remove($e) }
+            elseif ($e -and $JournalEvent.Outcome -eq 'upgraded') { $e.Action = 'Disabled'; $e.XmlFile = $null }
+        }
+    }
+}
+
+function Add-JournalEvents {
+    # Writes the events to the journal with one flushed write, and only then applies them to the state: a record of
+    # every change is on disk before the change is made. Each event is an ordered hashtable; it gets its Seq here.
+    # Dry runs and -Revert write no journal.
+    param([AllowEmptyCollection()][object[]]$Events = @())
+    if ($Events.Count -eq 0) { return }
+    if (-not ($script:DryRun -or $Revert)) {
+        $text = New-Object Text.StringBuilder
+        foreach ($e in $Events) {
+            $script:JournalSeq++
+            $e['Seq'] = $script:JournalSeq
+            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $script:StepId; StepName = $script:StepName; Option = $script:JournalOption }
+            foreach ($k in @($e.Keys)) {
+                if ($k -eq 'Seq') { continue }
+                if ($k -eq 'Item' -or $k -eq 'Before') { $line[$k] = ConvertTo-StoredRecord $e[$k] } else { $line[$k] = $e[$k] }
+            }
+            [void]$text.Append((ConvertTo-Json -InputObject $line -Depth 6 -Compress)).Append("`n")
+        }
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($text.ToString())
+        $stream = [IO.FileStream]::new($JournalFile, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read, 4096, [IO.FileOptions]::WriteThrough)
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+    }
+    foreach ($e in $Events) {
+        Invoke-JournalEvent -JournalEvent $e
+        $script:StepEvents.Add($e)
+    }
+}
+
+function Set-StateValue {
+    param([Parameter(Mandatory)][string]$Name, $Value)
+    Add-JournalEvents @([ordered]@{ Op = 'Set'; Name = $Name; Value = $Value })
+}
+
+function Add-StateRecord {
+    param([Parameter(Mandatory)][string]$Section, $Item)
+    Add-JournalEvents @([ordered]@{ Op = 'Add'; Section = $Section; Item = $Item })
+}
+
+function New-ChangeResult {
+    # The outcome of one change, as a journal line that refers to the line that announced it.
+    param([Parameter(Mandatory)]$Change, [Parameter(Mandatory)][string]$Result, [string]$Now = '')
+    $ref = 0
+    if ($Change.Contains('Seq')) { $ref = $Change['Seq'] }
+    return [ordered]@{ Op = 'Result'; Ref = $ref; Kind = $Change['Kind']; Target = $Change['Target']; Result = $Result; Now = $Now }
+}
+
+function Import-Journal {
+    # Replays the journal lines the state file does not hold yet (Seq above its JournalSeq). They exist when a run
+    # stopped during a step, after it recorded originals but before the state file was saved again.
+    param([long]$After = 0)
+    $script:JournalSeq = $After
+    if (-not (Test-Path -LiteralPath $JournalFile)) { return }
+    $replayed = 0; $bad = 0
+    foreach ($text in [IO.File]::ReadAllLines($JournalFile)) {
+        if (-not $text.Trim()) { continue }
+        try { $e = $text | ConvertFrom-Json }
+        catch { $bad++; continue }   # a line cut off when a run was killed while writing it
+        $seq = [long]$e.Seq
+        if ($seq -gt $script:JournalSeq) { $script:JournalSeq = $seq }
+        if ($seq -le $After) { continue }
+        foreach ($field in 'Item', 'Before') { if ($e.PSObject.Properties[$field]) { [void](ConvertFrom-StoredRecord $e.$field) } }
+        Invoke-JournalEvent -JournalEvent $e
+        if ($e.Op -in 'Add', 'Set', 'Task', 'TaskUndo') { $replayed++ }
+    }
+    if ($bad -gt 0) { Write-Log "$bad journal line(s) could not be read and were skipped (a run stopped while writing them)." 'WARN' }
+    if ($replayed -gt 0) { Write-Log "Recovered $replayed record(s) from the journal that the state file did not hold yet: the previous run stopped during a step. -Revert can undo those changes too." 'WARN' }
+}
+
+function Undo-CreatedKey {
+    # Removes one key the run created, only when it is empty again: anything added to it since is left alone.
+    param([string]$Full)
+    try { $key = Open-RegKey -Full $Full }
+    catch { Write-Log "Could not open the created key $Full. $($_.Exception.Message)" 'WARN'; return }
+    if (-not $key) { return }
+    $empty = ($key.ValueCount -eq 0) -and ($key.SubKeyCount -eq 0)
+    $key.Close()
+    if (-not $empty) { Write-Log "Key kept, it holds data added after the run: $Full"; return }
+    $parts = Split-RegPath $Full
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($script:Hives[$parts[0].ToUpperInvariant()], [Microsoft.Win32.RegistryView]::Default)
+    try { $base.DeleteSubKey($parts[1], $false) }
+    catch { Write-Log "Could not remove the created key $Full. $($_.Exception.Message)" 'WARN' }
+    finally { $base.Close() }
+}
+
+function Test-RollbackSafe {
+    # Registry values, registry keys, keys the run created and scheduled tasks can be put back exactly from the
+    # journal. Other records (hosts file, power plan, features, files, Defender and more) cannot.
+    param($JournalEvent)
+    switch ($JournalEvent.Op) {
+        'Change' { return ($JournalEvent.Kind -in 'Registry', 'RegistryKey', 'Task') }
+        'Add' { return ($JournalEvent.Section -in 'Registry', 'KeyBackups', 'CreatedKeys') }
+        'Set' { return $false }
+        default { return $true }   # Task, TaskUndo, Result and Rollback lines only describe
+    }
+}
+
+function Undo-FailedStep {
+    # docs/AUDIT.md A-04: a step that failed is put back from its own journal lines, newest first, so it is not left
+    # half done. When the step changed something the journal cannot put back, the run stops instead: nothing more is
+    # built on a half done step, and -Revert still undoes everything recorded.
+    param([string]$Name)
+    $changes = @($script:StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
+    if ($changes.Count -eq 0) { Write-Log "Rollback of '$Name': the step recorded no changes, nothing to undo."; return }
+    $unsafe = @($changes | Where-Object { -not (Test-RollbackSafe $_) })
+    if ($unsafe.Count -gt 0) {
+        $script:StopRun = $true
+        $what = @($unsafe | ForEach-Object { if ($_.Op -eq 'Set') { $_.Name } elseif ($_.Op -eq 'Add') { $_.Section } else { $_.Kind } } | Select-Object -Unique) -join ', '
+        Write-Log "Rollback of '$Name' is not safe: the step also changed $what, which the journal cannot put back. The run stops here. Everything recorded so far is saved, so -Revert undoes it." 'ERROR'
+        return
+    }
+    $failedTasks = @($script:StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
+    $tasks = [System.Collections.Generic.List[object]]::new()
+    $undone = 0; $problems = 0
+    [array]::Reverse($changes)
+    foreach ($e in $changes) {
+        try {
+            if ($e.Op -eq 'Change' -and $e.Kind -eq 'Registry') { Restore-RegValue -Entry $e.Before; $undone++ }
+            elseif ($e.Op -eq 'Change' -and $e.Kind -eq 'RegistryKey') {
+                $null = & cmd.exe /d /c "reg.exe import `"$($e.Before)`" >nul 2>&1"
+                if ($LASTEXITCODE -ne 0) { throw "reg.exe import failed ($LASTEXITCODE)." }
+                $undone++
+            }
+            elseif ($e.Op -eq 'Change' -and $e.Kind -eq 'Task' -and $failedTasks -notcontains $e.Seq) { $tasks.Add($e.Before) }
+            elseif ($e.Op -eq 'Add' -and $e.Section -eq 'CreatedKeys') { Undo-CreatedKey -Full $e.Item }
+        }
+        catch { $problems++; Write-Log "Rollback of '$Name': could not put back $($e.Target). $($_.Exception.Message)" 'WARN' }
+    }
+    if ($tasks.Count -gt 0) { Restore-Tasks -Tasks $tasks.ToArray(); $undone += $tasks.Count }
+    $outcome = 'OK'; if ($problems -gt 0) { $outcome = 'PARTIAL' }
+    Add-JournalEvents @([ordered]@{ Op = 'Rollback'; Kind = 'Step'; Target = $Name; Result = $outcome; Now = "$undone change(s) put back" })
+    if ($problems -eq 0) { Write-Log "Rolled back '$Name': $undone change(s) put back from the journal." 'WARN' }
+    else {
+        $script:StopRun = $true
+        Write-Log "Rollback of '$Name' put back $undone change(s) but $problems could not be put back (listed above). The run stops here; -Revert undoes what is recorded." 'ERROR'
+    }
+}
+
 function Invoke-Step {
-    param([string]$Name, [scriptblock]$Action)
+    param([string]$Name, [scriptblock]$Action, [string]$Option = '')
+    if ($script:StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
+    $script:StepId++
+    $script:StepName = $Name
+    $script:JournalOption = $Option
+    $script:StepEvents.Clear()
+    $failuresBefore = $script:Failures
     Write-Log "Starting: $Name"
     try {
         & $Action
-        Write-Log "Completed: $Name" 'OK'
+        if ($script:Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
+        else { Write-Log "Failed: $Name. $($script:Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
     }
     catch {
         $script:Failures++
         Write-Log "Failed: $Name. $($_.Exception.Message)" 'ERROR'
     }
     finally {
+        if ($script:Failures -gt $failuresBefore -and -not $Revert -and -not $script:DryRun) { Undo-FailedStep -Name $Name }
         if (-not $Revert) { Save-State }
+        $script:JournalOption = ''
     }
 }
 
 function Import-State {
-    if (-not (Test-Path -LiteralPath $StateFile)) { return }
-    $raw = Read-StateFile
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
-        if ($raw.PSObject.Properties[$section] -and $raw.$section) {
-            foreach ($item in @($raw.$section)) {
-                if ($section -eq 'Registry') {
-                    if (($item.Kind -eq 'String' -or $item.Kind -eq 'ExpandString') -and $item.Value -is [string] -and $item.Value.StartsWith('s:')) {
-                        $item.Value = $item.Value.Substring(2)
-                    }
-                    [void]$script:RecordedReg.Add("$($item.Path)|$($item.Name)")
+    $after = 0
+    if ((Test-Path -LiteralPath $StateFile) -or (Test-Path -LiteralPath "$StateFile.bak")) {
+        $raw = Read-StateFile
+        foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
+            if ($raw.PSObject.Properties[$section] -and $raw.$section) {
+                foreach ($item in @($raw.$section)) {
+                    if ($section -eq 'Registry') { $item = ConvertFrom-StoredRecord $item }
+                    Add-StateItem -Section $section -Item $item
                 }
-                $script:State[$section].Add($item)
             }
         }
+        foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
+            if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
+        }
+        # Version 1 files (v7.4 and older) have no JournalSeq; there was no journal then, so every line is newer.
+        if ($raw.PSObject.Properties['JournalSeq']) { $after = [long]$raw.JournalSeq }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
-        if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
-    }
+    Import-Journal -After $after
 }
 
 function Test-RecordedFirst {
@@ -2414,15 +2622,9 @@ function Get-RegSnapshot {
     [pscustomobject]@{ Path = $Full; Name = $Name; Existed = $existed; Kind = $kind; Value = $value }
 }
 
-function Save-RegSnapshot {
-    # A set gives a fast "already recorded" test; device options record thousands of values.
-    param([string]$Full, [string]$Name)
-    if ($script:RecordedReg.Add("$Full|$Name")) { $script:State.Registry.Add((Get-RegSnapshot -Full $Full -Name $Name)) }
-}
-
-function Save-CreatedKeys {
-    # Records the keys a write is about to create, so -Revert can remove them again. Restoring the values alone would
-    # leave empty keys behind, and an empty right click menu key still shows up as a menu entry.
+function Get-MissingKeyEvents {
+    # Journal events for the keys a write is about to create, so -Revert can remove them again. Restoring the values
+    # alone would leave empty keys behind, and an empty right click menu key still shows up as a menu entry.
     param([string]$Full)
     $missing = @()
     $path = $Full
@@ -2433,24 +2635,42 @@ function Save-CreatedKeys {
         $missing += $path
         $path = $path.Substring(0, $path.LastIndexOf('\'))
     }
-    foreach ($m in $missing) { if (@($script:State.CreatedKeys) -notcontains $m) { $script:State.CreatedKeys.Add($m) } }
+    # Shallowest first, so a rollback, which goes newest first, removes the deepest key before its parent.
+    [array]::Reverse($missing)
+    foreach ($m in $missing) { if (@($script:State.CreatedKeys) -notcontains $m) { [ordered]@{ Op = 'Add'; Section = 'CreatedKeys'; Item = $m } } }
+}
+
+function New-RegChangeEvents {
+    # The journal lines that announce one registry write or removal, in the order they apply: the keys it creates, the
+    # original value the first time this value is seen (a set gives a fast test; device options record thousands),
+    # and last the change itself, which keeps the value as it is right now for a rollback of the step.
+    param([string]$Full, [string]$Name, [string]$After, [switch]$SkipKeys)
+    $before = Get-RegSnapshot -Full $Full -Name $Name
+    if (-not $SkipKeys) { Get-MissingKeyEvents -Full $Full }
+    if (-not $script:RecordedReg.Contains("$Full|$Name")) { [ordered]@{ Op = 'Add'; Section = 'Registry'; Item = $before } }
+    [ordered]@{ Op = 'Change'; Kind = 'Registry'; Target = "$Full\$(Show-RegName $Name)"; Before = $before; After = $After }
+}
+
+function Format-RegIntent {
+    param($Value, [string]$Kind)
+    if ($Kind -eq 'Binary') { return '<binary> (Binary)' }
+    return '{0} ({1})' -f (@($Value) -join ','), $Kind
+}
+
+function Complete-RegChange {
+    # docs/AUDIT.md A-06: every write is read back. Returns the journal line with OK or MISMATCH; a mismatch is also
+    # logged, unless -Quiet (the batched device writes report one summary instead).
+    param([Parameter(Mandatory)]$Change, [string]$Full, [string]$Name, $Value, [string]$Kind, [switch]$Quiet)
+    $expected = Format-RegIntent -Value $Value -Kind $Kind
+    if (Test-RegValueNow -Full $Full -Name $Name -Value $Value -Kind $Kind) { return New-ChangeResult -Change $Change -Result 'OK' -Now $expected }
+    $now = Format-RegValueShort (Get-RegSnapshot -Full $Full -Name $Name)
+    if (-not $Quiet) { Write-Log "MISMATCH: $Full\$(Show-RegName $Name) reads back as $now, expected $expected. Windows or security software may protect it." 'WARN' }
+    return New-ChangeResult -Change $Change -Result 'MISMATCH' -Now $now
 }
 
 function Remove-CreatedKeys {
     # Deepest first, and only keys that are empty again: anything added to them since is left alone.
-    foreach ($full in @($script:State.CreatedKeys | Sort-Object { $_.Length } -Descending)) {
-        try { $key = Open-RegKey -Full $full }
-        catch { Write-Log "Could not open the created key $full. $($_.Exception.Message)" 'WARN'; continue }
-        if (-not $key) { continue }
-        $empty = ($key.ValueCount -eq 0) -and ($key.SubKeyCount -eq 0)
-        $key.Close()
-        if (-not $empty) { Write-Log "Key kept, it holds data added after the run: $full"; continue }
-        $parts = Split-RegPath $full
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($script:Hives[$parts[0].ToUpperInvariant()], [Microsoft.Win32.RegistryView]::Default)
-        try { $base.DeleteSubKey($parts[1], $false) }
-        catch { Write-Log "Could not remove the created key $full. $($_.Exception.Message)" 'WARN' }
-        finally { $base.Close() }
-    }
+    foreach ($full in @($script:State.CreatedKeys | Sort-Object { $_.Length } -Descending)) { Undo-CreatedKey -Full $full }
 }
 
 function Show-RegName { param([string]$Name) if ($Name -eq '') { '(default)' } else { $Name } }
@@ -2574,21 +2794,22 @@ function Set-RegValue {
     )
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
+    $change = $null
     try {
-        Save-CreatedKeys -Full $full
-        Save-RegSnapshot -Full $full -Name $Name
+        $events = @(New-RegChangeEvents -Full $full -Name $Name -After (Format-RegIntent -Value $Value -Kind $Type))
+        $change = $events[-1]
+        Add-JournalEvents $events
         try { Write-RegRaw -Full $full -Name $Name -Value $Value -Kind $Type }
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
             [void](Invoke-AsTI -PsCommand (Format-TiRegAdd -Full $full -Name $Name -Value $Value -Kind $Type))
-            if (-not (Test-RegValueNow -Full $full -Name $Name -Value $Value -Kind $Type)) {
-                Write-Log "Could not set $full\$(Show-RegName $Name), even as TrustedInstaller." 'WARN'
-            }
         }
+        Add-JournalEvents @(Complete-RegChange -Change $change -Full $full -Name $Name -Value $Value -Kind $Type)
     }
     catch {
         $script:Failures++
         Write-Log "Registry write failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
 }
 
@@ -2615,13 +2836,18 @@ function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
+    $change = $null
     try {
-        Save-RegSnapshot -Full $full -Name $Name
+        $events = @(New-RegChangeEvents -Full $full -Name $Name -After '<missing>' -SkipKeys)
+        $change = $events[-1]
+        Add-JournalEvents $events
         Remove-RegValueRaw -Full $full -Name $Name
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>')
     }
     catch {
         $script:Failures++
         Write-Log "Registry value removal failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
 }
 
@@ -2629,19 +2855,20 @@ function Remove-RegKey {
     param([Parameter(Mandatory)][string]$Path)
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "delete key $full (a backup is exported first)") { return }
+    $change = $null
     try {
         $probe = Open-RegKey -Full $full
         if (-not $probe) { return }
         $probe.Close()
         $dir = Join-Path $StateDir 'keys'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        $file = Join-Path $dir (($full -replace '[\\/:*?"<>| {}]', '_') + '.reg')
-        $recorded = Test-RecordedFirst $script:State.KeyBackups { param($e) $e.Path -eq $full }
-        if (-not $recorded) {
-            & reg.exe export $full $file /y | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Could not back up $full, so it was not deleted." }
-            $script:State.KeyBackups.Add([pscustomobject]@{ Path = $full; File = $file })
-        }
+        # docs/AUDIT.md A-02: every deletion gets its own export, also on a later run, because the key may hold entries
+        # added since the last one. -Revert imports them all, newest first, so the oldest (the original) wins.
+        $file = Join-Path $dir ('{0}-{1:yyyyMMdd-HHmmss-fff}.reg' -f ($full -replace '[\\/:*?"<>| {}]', '_'), (Get-Date))
+        & reg.exe export $full $file /y | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not back up $full, so it was not deleted." }
+        $change = [ordered]@{ Op = 'Change'; Kind = 'RegistryKey'; Target = $full; Before = $file; After = '<deleted>' }
+        Add-JournalEvents @([ordered]@{ Op = 'Add'; Section = 'KeyBackups'; Item = [pscustomobject]@{ Path = $full; File = $file } }, $change)
         $parts = Split-RegPath $full
         $hive = $script:Hives[$parts[0].ToUpperInvariant()]
         $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Default)
@@ -2651,10 +2878,28 @@ function Remove-RegKey {
             [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $full) /f | Out-Null")
         }
         finally { $base.Close() }
+        $gone = $null -eq (Open-RegKey -Full $full)
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result $(if ($gone) { 'OK' } else { 'MISMATCH' }) -Now $(if ($gone) { '<deleted>' } else { 'still present' }))
+        if (-not $gone) { Write-Log "MISMATCH: the key $full is still present after deleting it." 'WARN' }
     }
     catch {
         $script:Failures++
         Write-Log "Registry key removal failed: $full. $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
+    }
+}
+
+function Restore-KeyBackups {
+    # Newest export first: where exports of the same key overlap, the oldest one, the original, is imported last and
+    # wins, while entries that only a later export holds come back too. reg.exe reports success on stderr, which
+    # Windows PowerShell 5.1 turns into an error record that stops the step even when redirected, so cmd.exe
+    # swallows the output and only the exit code counts.
+    $backups = @($script:State.KeyBackups)
+    [array]::Reverse($backups)
+    foreach ($k in $backups) {
+        if (-not (Test-Path -LiteralPath $k.File)) { Write-Log "Registry key backup $($k.File) is missing, so $($k.Path) cannot be restored from it." 'WARN'; continue }
+        $null = & cmd.exe /d /c "reg.exe import `"$($k.File)`" >nul 2>&1"
+        if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File) (reg.exe exit $LASTEXITCODE)" 'WARN' }
     }
 }
 
@@ -2796,7 +3041,8 @@ function Import-UpstreamRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $applied = 0; $byOption = 0; $byGroup = 0
     foreach ($op in $ops) {
-        if (-not $Opt[(Get-RegOpOption $op)]) { $byOption++; continue }
+        $script:JournalOption = Get-RegOpOption $op
+        if (-not $Opt[$script:JournalOption]) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
@@ -2836,8 +3082,8 @@ function Set-HostsBlock {
     $text = Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $Name
     if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
     $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
+    if (-not (Test-RecordedFirst $script:State.Hosts { param($e) $e -eq $Name })) { Add-StateRecord -Section 'Hosts' -Item $Name }
     Write-HostsFile -Text ($text + $block)
-    if (-not (Test-RecordedFirst $script:State.Hosts { param($e) $e -eq $Name })) { $script:State.Hosts.Add($Name) }
     Write-Log "Hosts file: blocked $($Domains.Count) domain(s) ($Name)." 'OK'
 }
 #endregion
@@ -2892,7 +3138,7 @@ function Remove-BloatApps {
         if (Test-DryRun "remove app $($pkg.Name)") { continue }
         try {
             Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
-            $script:State.Removed.Add($pkg.Name); $removed++
+            Add-StateRecord -Section 'Removed' -Item $pkg.Name; $removed++
             Write-Log "Removed app: $($pkg.Name)" 'OK'
         }
         catch { Write-Log "Could not remove $($pkg.Name). $($_.Exception.Message)" 'WARN' }
@@ -3003,7 +3249,7 @@ function Save-NvidiaDrs {
     $files = @(Get-ChildItem -LiteralPath $NvidiaDrsDir -Filter 'nvdrsdb*.bin' -File -ErrorAction SilentlyContinue)
     if ($files.Count -eq 0) { throw "No NVIDIA settings database found in $NvidiaDrsDir. Is the NVIDIA driver installed?" }
     foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $backup -Force }
-    $script:State.NvidiaDrs = $true
+    Set-StateValue -Name 'NvidiaDrs' -Value $true
 }
 
 function Import-NvidiaSettings {
@@ -3097,12 +3343,15 @@ function Set-ServiceStart {
 }
 
 function Disable-ServiceGroups {
-    $enabled = @()
     foreach ($g in $ServiceGroups.Keys) {
-        if ($Opt[$g]) { $enabled += $ServiceGroups[$g] }
-        else { Write-Log "Services kept (option $g is off): $($ServiceGroups[$g] -join ', ')" }
+        if (-not $Opt[$g]) { Write-Log "Services kept (option $g is off): $($ServiceGroups[$g] -join ', ')" }
     }
-    foreach ($name in ($enabled | Select-Object -Unique)) { Set-ServiceStart -Name $name -Mode Disabled }
+    $done = @()
+    foreach ($g in $ServiceGroups.Keys) {
+        if (-not $Opt[$g]) { continue }
+        $script:JournalOption = $g
+        foreach ($name in $ServiceGroups[$g]) { if ($done -notcontains $name) { Set-ServiceStart -Name $name -Mode Disabled; $done += $name } }
+    }
 }
 
 function Get-TaskRecord {
@@ -3115,25 +3364,30 @@ function Save-TaskState {
     # original WasEnabled; a task disabled by one run and deleted by a later one must still be restorable from XML.
     param($Task, [string]$Action, [string]$XmlFile = $null)
     $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
-    if (-not $e) {
-        $script:State.Tasks.Add([pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = ($Task.State -ne 'Disabled'); XmlFile = $XmlFile })
-        return 'new'
-    }
-    if ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') {
-        $e.Action = 'Deleted'
-        $e.XmlFile = $XmlFile
-        return 'upgraded'
-    }
-    return 'kept'
+    $mode = 'kept'
+    if (-not $e) { $mode = 'new' }
+    elseif ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') { $mode = 'upgraded' }
+    if ($mode -eq 'kept') { return 'kept' }
+    $wasEnabled = ($Task.State -ne 'Disabled')
+    if ($e) { $wasEnabled = [bool]$e.WasEnabled }
+    $record = [pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = $wasEnabled; XmlFile = $XmlFile }
+    Add-JournalEvents @([ordered]@{ Op = 'Task'; Mode = $mode; Record = $record })
+    return $mode
 }
 
 function Undo-TaskRecord {
     # A delete that failed must not leave a record claiming the task was removed.
     param($Task, [string]$Outcome)
-    $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
-    if (-not $e) { return }
-    if ($Outcome -eq 'new') { [void]$script:State.Tasks.Remove($e) }
-    elseif ($Outcome -eq 'upgraded') { $e.Action = 'Disabled'; $e.XmlFile = $null }
+    if ($Outcome -notin 'new', 'upgraded') { return }
+    Add-JournalEvents @([ordered]@{ Op = 'TaskUndo'; Path = $Task.TaskPath; Name = $Task.TaskName; Outcome = $Outcome })
+}
+
+function New-TaskChange {
+    # The journal line announcing one task change. Before is what a rollback of the step registers or enables again:
+    # the task as it is right now, from the export that holds it.
+    param($Task, [string]$Action, [string]$XmlFile = $null)
+    $before = [pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = ($Task.State -ne 'Disabled'); XmlFile = $XmlFile }
+    return [ordered]@{ Op = 'Change'; Kind = 'Task'; Target = "$($Task.TaskPath)$($Task.TaskName)"; Before = $before; After = $Action }
 }
 
 function Disable-TaskRecorded {
@@ -3142,16 +3396,23 @@ function Disable-TaskRecorded {
     if ($Task.State -eq 'Disabled') { return }
     if (Test-DryRun "disable task $full") { return }
     [void](Save-TaskState -Task $Task -Action 'Disabled')
+    $change = New-TaskChange -Task $Task -Action 'Disabled'
+    Add-JournalEvents @($change)
     try { Disable-ScheduledTask -InputObject $Task -ErrorAction Stop | Out-Null }
     catch {
         # Through cmd.exe: schtasks reports failure on stderr, which stops the step under 'Stop' in PowerShell 5.1.
         $null = & cmd.exe /d /c "schtasks.exe /Change /TN `"$full`" /Disable >nul 2>&1"
-        if ($LASTEXITCODE -eq 0) { return }
-        # Tasks that belong to SYSTEM, such as the Update Orchestrator tasks UsoSvc registers again, need SYSTEM.
-        [void](Invoke-AsTI -PsCommand "Disable-ScheduledTask -TaskPath $(ConvertTo-PsLiteral $Task.TaskPath) -TaskName $(ConvertTo-PsLiteral $Task.TaskName) | Out-Null")
-        $now = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
-        if ($now -and $now.State -ne 'Disabled') { Write-Log "Could not disable task $full, not even as TrustedInstaller." 'WARN' }
+        if ($LASTEXITCODE -ne 0) {
+            # Tasks that belong to SYSTEM, such as the Update Orchestrator tasks UsoSvc registers again, need SYSTEM.
+            [void](Invoke-AsTI -PsCommand "Disable-ScheduledTask -TaskPath $(ConvertTo-PsLiteral $Task.TaskPath) -TaskName $(ConvertTo-PsLiteral $Task.TaskName) | Out-Null")
+        }
     }
+    $now = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
+    if ($now -and $now.State -ne 'Disabled') {
+        Write-Log "Could not disable task $full, not even as TrustedInstaller." 'WARN'
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result 'MISMATCH' -Now ([string]$now.State))
+    }
+    else { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now 'Disabled') }
 }
 
 function Disable-TelemetryTasks {
@@ -3181,6 +3442,7 @@ function Remove-AllScheduledTasks {
         if ($seen % 40 -eq 0) { Write-Log "Scheduled tasks: $seen of $($tasks.Count) processed, still working." }
         $file = Join-Path $dir (($full -replace '[\\/:*?"<>| ]', '_') + '.xml')
         $outcome = $null
+        $change = $null
         try {
             # The first export is the original. A later run may meet a copy that Windows registered again (UsoSvc
             # after the cache cleanup) and the script then disabled; exporting that would overwrite the original.
@@ -3190,12 +3452,17 @@ function Remove-AllScheduledTasks {
                 Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
                 $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
             }
+            else { $file = [string]$prior.XmlFile }
+            $change = New-TaskChange -Task $t -Action 'Deleted' -XmlFile $file
+            Add-JournalEvents @($change)
             Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop
+            Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now 'Deleted')
             $deleted++
         }
         catch {
             $failed++
             if ($outcome) { Undo-TaskRecord -Task $t -Outcome $outcome }
+            if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
             Write-Log "Task $full not deleted: $($_.Exception.Message)"
         }
     }
@@ -3296,6 +3563,7 @@ function Restore-ProtectedTasks {
 #region Telemetry, updates, vendor blocks -------------------------------------------------
 function Invoke-TelemetryTweaks {
     if ($Opt['TelemetryPolicy']) {
+        $script:JournalOption = 'TelemetryPolicy'
         Set-TweakList $TelemetryRegs
         foreach ($s in $TelemetryServices) { Set-ServiceStart -Name $s -Mode Disabled }
         # Stop every logger under the DiagTrack autologger.
@@ -3306,15 +3574,16 @@ function Invoke-TelemetryTweaks {
             finally { $k.Close() }
         }
     }
-    if ($Opt['BiometricsPolicy']) { Set-TweakList $BiometricsRegs }
+    if ($Opt['BiometricsPolicy']) { $script:JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
     if ($Opt['Cdp']) {
+        $script:JournalOption = 'Cdp'
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
         $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
         if ((Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
             Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($Opt['TelemetryHosts']) { Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
+    if ($Opt['TelemetryHosts']) { $script:JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
 }
 
 function Set-UpdatePolicies {
@@ -3324,13 +3593,15 @@ function Set-UpdatePolicies {
     $wu = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
     $ux = 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
 
-    if ($Opt['DriverExclusion']) { Set-TweakList $DriverExclusionRegs }
+    if ($Opt['DriverExclusion']) { $script:JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) {
+        $script:JournalOption = 'SecurityUpdatesOnly'
         Set-TweakList $SecurityUpdatesRegs
         Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
         Write-Log 'Update policy: long deferrals set and update classifications excluded (upstream behaviour).' 'WARN'
     }
     if ($Opt['PauseUpdates']) {
+        $script:JournalOption = 'PauseUpdates'
         $fmt = 'yyyy-MM-ddTHH:mm:ssZ'
         $inv = [System.Globalization.CultureInfo]::InvariantCulture
         $now = [DateTime]::UtcNow
@@ -3346,7 +3617,7 @@ function Set-UpdatePolicies {
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
-        if ($Opt['PauseStopsUpdateTasks']) { Disable-UpdateTasks }
+        if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
         if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays). Security patches are delayed for that period." 'WARN' }
     }
 }
@@ -3414,9 +3685,9 @@ function Set-PerformancePowerPlan {
     }
     if (-not $script:State.Power) {
         $previous = if ($active -and $active -ne $guid -and -not (@(Get-TweakedPlanGuids) -contains $active)) { $active } else { $BalancedGuid }
-        $script:State.Power = [pscustomobject]@{ Previous = $previous; Custom = $guid }
+        Set-StateValue -Name 'Power' -Value ([pscustomobject]@{ Previous = $previous; Custom = $guid })
     }
-    else { $script:State.Power.Custom = $guid }
+    else { Set-StateValue -Name 'Power' -Value ([pscustomobject]@{ Previous = $script:State.Power.Previous; Custom = $guid }) }
     foreach ($s in $spec.Settings) { Set-PlanValue -Guid $guid -Sub $s[0] -Setting $s[1] -Value $s[2] }
     powercfg /setactive $guid | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'powercfg /setactive failed.' }
@@ -3442,12 +3713,12 @@ function Set-PowerModeOverlay {
         # A missing value means Windows' default.
         $source = Get-PowerSource
         $prev = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$($source)PowerScheme"
-        $script:State.PowerOverlay = $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
-        $script:State.PowerOverlaySource = $source
+        Set-StateValue -Name 'PowerOverlay' -Value $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
+        Set-StateValue -Name 'PowerOverlaySource' -Value $source
     }
     powercfg /OverlaySetActive $overlay | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN'; return }
-    $script:State.PowerOverlaySet = $overlay   # what the health check compares against
+    Set-StateValue -Name 'PowerOverlaySet' -Value $overlay   # what the health check compares against
     Write-Log "Power mode set ($PowerMode)." 'OK'
 }
 
@@ -3487,7 +3758,7 @@ function Disable-Hibernation {
     if (Test-DryRun 'turn hibernation off (this also removes Fast Startup)') { return }
     if ($null -eq $script:State.Hibernate) {
         $p = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
-        $script:State.Hibernate = [bool]($p -and $p.PSObject.Properties['HibernateEnabled'] -and $p.HibernateEnabled -eq 1)
+        Set-StateValue -Name 'Hibernate' -Value ([bool]($p -and $p.PSObject.Properties['HibernateEnabled'] -and $p.HibernateEnabled -eq 1))
     }
     powercfg /hibernate off | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'powercfg /hibernate off failed.' }
@@ -3553,7 +3824,7 @@ function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
     if ($ram -le 8) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs more than 8 GB)."; return }
     if (Test-DryRun 'disable memory compression') { return }
-    if ($null -eq $script:State.MemCompress) { $script:State.MemCompress = [bool](Get-MMAgent).MemoryCompression }
+    if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
     Write-Log 'Memory compression disabled (takes effect after a restart).' 'OK'
 }
@@ -3564,7 +3835,7 @@ function Disable-SleepStudy {
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
     # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
     if ($script:State.SleepStudy -eq $false) {
-        $script:State.SleepStudy = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
+        Set-StateValue -Name 'SleepStudy' -Value @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
     }
     foreach ($log in $SleepStudyLogs) {
         & wevtutil.exe sl $log /e:false | Out-Null
@@ -3585,7 +3856,7 @@ function Get-MaxPasswordAge {
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
-    if ($script:State.PwAge -eq $false) { $script:State.PwAge = Get-MaxPasswordAge }
+    if ($script:State.PwAge -eq $false) { Set-StateValue -Name 'PwAge' -Value (Get-MaxPasswordAge) }
     & net.exe accounts /maxpwage:unlimited | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:unlimited failed ($LASTEXITCODE)." }
 }
@@ -3627,7 +3898,7 @@ function Reset-ConsentDatabase {
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     if (-not $script:State.ConsentDb) {
         foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $backup -Force }
-        $script:State.ConsentDb = $backup
+        Set-StateValue -Name 'ConsentDb' -Value $backup
     }
     Stop-Service -Name camsvc -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
@@ -3672,8 +3943,9 @@ function Clear-DesktopIcons {
             $target = Join-Path $StateDir ('desktop-backup\' + (($dir -replace '[\\/:*?"<>| ]', '_')))
             New-Item -ItemType Directory -Path $target -Force | Out-Null
             $to = Join-Path $target $item.Name
+            # Recorded first: Restore-DesktopIcons only moves back what really arrived in the backup folder.
+            Add-StateRecord -Section 'DesktopMoved' -Item ([pscustomobject]@{ From = $item.FullName; To = $to })
             Move-Item -LiteralPath $item.FullName -Destination $to -Force
-            $script:State.DesktopMoved.Add([pscustomobject]@{ From = $item.FullName; To = $to })
             $moved++
         }
     }
@@ -3703,7 +3975,7 @@ function Clear-StartPins {
     # Backed up once per run cycle, keyed on the state: a backup left by an earlier, reverted cycle is outdated.
     if (-not $script:State.StartLayout -and (Test-Path -LiteralPath $file)) {
         Copy-Item -LiteralPath $file -Destination $backup -Force
-        $script:State.StartLayout = $backup
+        Set-StateValue -Name 'StartLayout' -Value $backup
     }
     $bytes = [Convert]::FromBase64String(($EmptyStartLayout -join ''))
     # Same approach as upstream: stop the shell host, replace the layout file, let the Start menu reload.
@@ -3744,7 +4016,7 @@ function Disable-FeatureGroup {
     if ($on.Count -eq 0) { Write-Log "$Group`: none of $($FeatureGroups[$Group] -join ', ') is turned on."; return }
     foreach ($name in $on) {
         if (Test-DryRun "turn off the optional feature $name") { continue }
-        if (@($script:State.Features) -notcontains $name) { $script:State.Features.Add($name) }
+        if (@($script:State.Features) -notcontains $name) { Add-StateRecord -Section 'Features' -Item $name }
         try {
             Disable-WindowsOptionalFeature -Online -FeatureName $name -NoRestart -ErrorAction Stop | Out-Null
             Write-Log "Optional feature turned off: $name (finishes at the next restart)." 'OK'
@@ -3798,6 +4070,7 @@ function Set-DefenderState {
             throw 'Tamper Protection is on. Turn it off yourself in Windows Security (Virus and threat protection settings), then run again. This script does not try to bypass it.'
         }
         if (Test-DryRun 'disable Defender real time protection through policy and Set-MpPreference') { return }
+        Set-StateValue -Name 'Defender' -Value $true
         Set-RegValue -Path $root -Name 'DisableAntiSpyware' -Value 1
         foreach ($v in $rtpValues) { Set-RegValue -Path $rtp -Name $v -Value 1 }
         Set-MpPreference -DisableRealtimeMonitoring $true -DisableBehaviorMonitoring $true -DisableIOAVProtection $true -ErrorAction Stop
@@ -3805,13 +4078,14 @@ function Set-DefenderState {
     }
     else {
         if (Test-DryRun 'remove Defender policy blocks and enable real time protection') { return }
+        Set-StateValue -Name 'Defender' -Value $true
         Remove-RegValue -Path $root -Name 'DisableAntiSpyware'
         foreach ($v in $rtpValues) { Remove-RegValue -Path $rtp -Name $v }
         Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
         Write-Log 'Defender policy blocks removed and real time protection enabled.' 'OK'
     }
-    $script:State.Defender = $true
 }
+
 #endregion
 
 #region Quiet Defender, network, cleanup, mitigations, timer ------------------------------
@@ -4012,7 +4286,7 @@ function Get-BcdValue {
 
 function Disable-Dep {
     if (Test-DryRun 'set the boot option nx to AlwaysOff (Data Execution Prevention off, Secure Boot must be off)') { return }
-    if (-not $script:State.Dep) { $script:State.Dep = [pscustomobject]@{ Previous = (Get-BcdValue 'nx') } }
+    if (-not $script:State.Dep) { Set-StateValue -Name 'Dep' -Value ([pscustomobject]@{ Previous = (Get-BcdValue 'nx') }) }
     $out = Invoke-Native bcdedit.exe @('/set', 'nx', 'AlwaysOff')
     if ($LASTEXITCODE -ne 0) { throw "bcdedit could not set nx (Secure Boot must be off for this): $($out.Trim())" }
     Write-Log 'Data Execution Prevention is switched off. Restart Windows to apply.' 'WARN'
@@ -4034,7 +4308,7 @@ function Install-TimerResolutionService {
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
-    $script:State.TimerService = [pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe }
+    Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $existing = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Status -ne 'Stopped') { Stop-Service -Name $TimerServiceName -Force }
@@ -4073,30 +4347,53 @@ function Remove-TimerResolutionService {
 function Set-TweakListBatched {
     # For long lists (one entry per device). Values that need TrustedInstaller are written together in a few calls,
     # because each call restarts a service and takes seconds. A dry run prints one summary line, not every value.
+    # The journal gets one flushed write per registry key before its values change and one for their results, instead
+    # of two per value: device options touch thousands of values.
     param([string]$Label, [object[]]$Tweaks)
     if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
     $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
     $denied = [System.Collections.Generic.List[object]]::new()
-    foreach ($t in $Tweaks) {
-        $full = ConvertTo-FullRegPath $t.Path
-        try {
-            Save-CreatedKeys -Full $full
-            Save-RegSnapshot -Full $full -Name $t.Name
-            Write-RegRaw -Full $full -Name $t.Name -Value $t.Value -Kind $t.Type
+    $failed = 0
+    foreach ($group in @($Tweaks | Group-Object { ConvertTo-FullRegPath $_.Path })) {
+        $full = $group.Name
+        $events = [System.Collections.Generic.List[object]]::new()
+        $pending = [System.Collections.Generic.List[object]]::new()
+        foreach ($e in @(Get-MissingKeyEvents -Full $full)) { $events.Add($e) }
+        foreach ($t in $group.Group) {
+            $change = $null
+            foreach ($e in @(New-RegChangeEvents -Full $full -Name $t.Name -After (Format-RegIntent -Value $t.Value -Kind $t.Type) -SkipKeys)) { $events.Add($e); $change = $e }
+            $pending.Add([pscustomobject]@{ Full = $full; Tweak = $t; Change = $change })
         }
-        catch {
-            if (Test-AccessDenied $_) { $denied.Add([pscustomobject]@{ Full = $full; Tweak = $t }) }
-            else { $script:Failures++; Write-Log "Registry write failed: $full\$(Show-RegName $t.Name). $($_.Exception.Message)" 'ERROR' }
+        Add-JournalEvents $events.ToArray()
+        $results = [System.Collections.Generic.List[object]]::new()
+        foreach ($p in $pending) {
+            try {
+                Write-RegRaw -Full $full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type
+                $r = Complete-RegChange -Change $p.Change -Full $full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type -Quiet
+                if ($r.Result -ne 'OK') { $failed++ }
+                $results.Add($r)
+            }
+            catch {
+                if (Test-AccessDenied $_) { $denied.Add($p); continue }
+                $script:Failures++
+                Write-Log "Registry write failed: $full\$(Show-RegName $p.Tweak.Name). $($_.Exception.Message)" 'ERROR'
+                $results.Add((New-ChangeResult -Change $p.Change -Result 'FAILED' -Now $_.Exception.Message))
+            }
         }
+        if ($results.Count -gt 0) { Add-JournalEvents $results.ToArray() }
     }
     # About 30 commands keep the encoded command well below the service command line limit.
     for ($i = 0; $i -lt $denied.Count; $i += 30) {
         $chunk = @($denied[$i..([Math]::Min($i + 29, $denied.Count - 1))])
         [void](Invoke-AsTI -PsCommand (($chunk | ForEach-Object { Format-TiRegAdd -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type }) -join '; '))
     }
-    $failed = @($denied | Where-Object { -not (Test-RegValueNow -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type) }).Count
-    if ($failed -gt 0) { Write-Log "$Label`: $failed of $($Tweaks.Count) value(s) could not be set, even as TrustedInstaller." 'WARN' }
+    if ($denied.Count -gt 0) {
+        $results = @(foreach ($p in $denied) { Complete-RegChange -Change $p.Change -Full $p.Full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type -Quiet })
+        $failed += @($results | Where-Object { $_.Result -ne 'OK' }).Count
+        Add-JournalEvents $results
+    }
+    if ($failed -gt 0) { Write-Log "$Label`: $failed of $($Tweaks.Count) value(s) did not read back as set (MISMATCH in the journal), even as TrustedInstaller." 'WARN' }
     Write-Log "$Label`: $($Tweaks.Count - $failed) value(s) set under $keys registry key(s). They apply after a restart." 'OK'
 }
 
@@ -4203,7 +4500,7 @@ function Set-IPv4Only {
     foreach ($b in $bindings) {
         if (Test-DryRun "turn off IPv6 on adapter '$($b.Name)' (the connection drops for a moment)") { continue }
         if (-not (Test-RecordedFirst $script:State.NetBindings { param($e) $e.Name -eq $b.Name })) {
-            $script:State.NetBindings.Add([pscustomobject]@{ Name = $b.Name; ComponentId = 'ms_tcpip6' })
+            Add-StateRecord -Section 'NetBindings' -Item ([pscustomobject]@{ Name = $b.Name; ComponentId = 'ms_tcpip6' })
         }
         Disable-NetAdapterBinding -Name $b.Name -ComponentID 'ms_tcpip6' -ErrorAction Stop
         Write-Log "IPv6 turned off on '$($b.Name)'." 'OK'
@@ -5110,10 +5407,10 @@ function Invoke-Apply {
     $mPower = if ($PowerProfile -ne 'Off') { $PowerProfile } elseif ($prev -and $prev.PowerProfile) { $prev.PowerProfile } else { 'Off' }
     $mDays = if ($Opt['PauseUpdates'] -or -not ($prev -and $prev.PauseDays)) { $PauseDays } else { [int]$prev.PauseDays }
     $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
-    $script:State.Run = [pscustomobject]@{
+    Set-StateValue -Name 'Run' -Value ([pscustomobject]@{
         When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
-    }
+    })
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
@@ -5126,67 +5423,67 @@ function Invoke-Apply {
     if (-not $SkipRestorePoint -and -not $script:DryRun) { Invoke-Step 'Restore point' { New-SafetyRestorePoint } }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
 
-    if ($Opt['Packages']) { Invoke-Step 'Packages' { Install-RuntimePackages } }
+    if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
-    if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
-    if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
-    if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
-    if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
-    if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
-    foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" { Disable-FeatureGroup -Group $g } } }
+    if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
+    if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
+    if ($Opt['Debloat']) { Invoke-Step 'App debloat' -Option 'Debloat' { Remove-BloatApps } }
+    if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
+    if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
+    foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.
     $regOps = ConvertFrom-RegText -Text $UpstreamRegText   # returned as one list object, so unroll it from a variable
     $regOwners = @($regOps | ForEach-Object { Get-RegOpOption $_ } | Select-Object -Unique)
     if (@($regOwners | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
-    if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' { Set-TweakList $LastAccessRegs } }
-    if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
+    if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' -Option 'Registry' { Set-TweakList $LastAccessRegs } }
+    if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' -Option 'Uac' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
     if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
-    if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" { Invoke-TaskMode } }
-    if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' { Set-RazerAsusBlock } }
+    if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" -Option 'TaskMode' { Invoke-TaskMode } }
+    if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' -Option 'RazerAsusHosts' { Set-RazerAsusBlock } }
     if ($Opt['DriverExclusion'] -or $Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) { Invoke-Step 'Windows Update policy' { Set-UpdatePolicies } }
-    if ($PowerProfile -ne 'Off') { Invoke-Step "Power plan ($PowerProfile)" { Set-PerformancePowerPlan } }
-    if ($PowerMode -ne 'Keep') { Invoke-Step "Power mode ($PowerMode)" { Set-PowerModeOverlay } }
-    if ($Opt['DisableHibernate']) { Invoke-Step 'Disable hibernation' { Disable-Hibernation } }
-    if ($Opt['MouseAccel']) { Invoke-Step 'Mouse acceleration' { Disable-MouseAcceleration } }
-    if ($Opt['MsiMode']) { Invoke-Step 'MSI mode' { Set-MsiMode } }
-    if ($Opt['MemoryCompression']) { Invoke-Step 'Memory compression' { Disable-MemoryCompression } }
-    if ($Opt['SleepStudy']) { Invoke-Step 'Sleep Study logs' { Disable-SleepStudy } }
-    if ($Opt['PasswordExpiry']) { Invoke-Step 'Password expiry' { Set-PasswordExpiry } }
-    if ($Opt['FaultTolerantHeap']) { Invoke-Step 'Fault tolerant heap' { Reset-FaultTolerantHeap } }
-    if ($Opt['NotificationSettings']) { Invoke-Step 'App notification settings' { Disable-NotificationSettings } }
-    if ($Defender -eq 'Keep') { Write-Log 'Microsoft Defender left untouched.' } else { Invoke-Step "Defender ($Defender)" { Set-DefenderState -Mode $Defender } }
-    if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' { Set-DefenderQuiet } }
-    if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
-    if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
-    if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' { Disable-SpectreMeltdownMitigations } }
-    if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' { Disable-Dep } }
-    if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' { Install-TimerResolutionService } }
-    if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' { Set-DevicePowerSaving } }
-    if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }
-    if ($Opt['WriteCacheFlushOff']) { Invoke-Step 'Write cache buffer flushing' { Set-TweakListBatched -Label 'Write cache buffer flushing off' -Tweaks @(Get-WriteCacheTweaks) } }
-    if ($Opt['MpoOff']) { Invoke-Step 'Multiplane overlay' { Set-TweakList $MpoRegs } }
-    if ($Opt['FastShutdown']) { Invoke-Step 'Faster shutdown' { Set-TweakList $FastShutdownRegs } }
-    if ($Opt['BlockFeatureUpgrades']) { Invoke-Step 'Feature upgrade block' { Set-FeatureUpgradeBlock } }
-    if ($Opt['SearchIndexingOff']) { Invoke-Step 'Search indexing' { Set-ServiceStart -Name 'WSearch' -Mode Disabled } }
-    if ($Opt['TimeServerPool']) { Invoke-Step 'Time server' { Set-TimeServer } }
-    if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' { Set-TweakList $MenuKillRegs } }
-    if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' { Set-TweakList $MenuRestartExplorerRegs } }
-    if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' { Set-TweakList $MenuTakeOwnershipRegs } }
-    if ($Opt['MenuRunAsAdmin']) { Invoke-Step 'Run as administrator menu' { Set-TweakList $MenuRunAsAdminRegs } }
+    if ($PowerProfile -ne 'Off') { Invoke-Step "Power plan ($PowerProfile)" -Option 'PowerProfile' { Set-PerformancePowerPlan } }
+    if ($PowerMode -ne 'Keep') { Invoke-Step "Power mode ($PowerMode)" -Option 'PowerMode' { Set-PowerModeOverlay } }
+    if ($Opt['DisableHibernate']) { Invoke-Step 'Disable hibernation' -Option 'DisableHibernate' { Disable-Hibernation } }
+    if ($Opt['MouseAccel']) { Invoke-Step 'Mouse acceleration' -Option 'MouseAccel' { Disable-MouseAcceleration } }
+    if ($Opt['MsiMode']) { Invoke-Step 'MSI mode' -Option 'MsiMode' { Set-MsiMode } }
+    if ($Opt['MemoryCompression']) { Invoke-Step 'Memory compression' -Option 'MemoryCompression' { Disable-MemoryCompression } }
+    if ($Opt['SleepStudy']) { Invoke-Step 'Sleep Study logs' -Option 'SleepStudy' { Disable-SleepStudy } }
+    if ($Opt['PasswordExpiry']) { Invoke-Step 'Password expiry' -Option 'PasswordExpiry' { Set-PasswordExpiry } }
+    if ($Opt['FaultTolerantHeap']) { Invoke-Step 'Fault tolerant heap' -Option 'FaultTolerantHeap' { Reset-FaultTolerantHeap } }
+    if ($Opt['NotificationSettings']) { Invoke-Step 'App notification settings' -Option 'NotificationSettings' { Disable-NotificationSettings } }
+    if ($Defender -eq 'Keep') { Write-Log 'Microsoft Defender left untouched.' } else { Invoke-Step "Defender ($Defender)" -Option 'Defender' { Set-DefenderState -Mode $Defender } }
+    if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' -Option 'DefenderQuiet' { Set-DefenderQuiet } }
+    if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' -Option 'NetAdapterPower' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
+    if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' -Option 'NetAdapterEee' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
+    if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' -Option 'SpectreMeltdownOff' { Disable-SpectreMeltdownMitigations } }
+    if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' -Option 'DepOff' { Disable-Dep } }
+    if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' -Option 'TimerResolution' { Install-TimerResolutionService } }
+    if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' -Option 'DevicePowerSaving' { Set-DevicePowerSaving } }
+    if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' -Option 'DeviceWakeOff' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }
+    if ($Opt['WriteCacheFlushOff']) { Invoke-Step 'Write cache buffer flushing' -Option 'WriteCacheFlushOff' { Set-TweakListBatched -Label 'Write cache buffer flushing off' -Tweaks @(Get-WriteCacheTweaks) } }
+    if ($Opt['MpoOff']) { Invoke-Step 'Multiplane overlay' -Option 'MpoOff' { Set-TweakList $MpoRegs } }
+    if ($Opt['FastShutdown']) { Invoke-Step 'Faster shutdown' -Option 'FastShutdown' { Set-TweakList $FastShutdownRegs } }
+    if ($Opt['BlockFeatureUpgrades']) { Invoke-Step 'Feature upgrade block' -Option 'BlockFeatureUpgrades' { Set-FeatureUpgradeBlock } }
+    if ($Opt['SearchIndexingOff']) { Invoke-Step 'Search indexing' -Option 'SearchIndexingOff' { Set-ServiceStart -Name 'WSearch' -Mode Disabled } }
+    if ($Opt['TimeServerPool']) { Invoke-Step 'Time server' -Option 'TimeServerPool' { Set-TimeServer } }
+    if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' -Option 'MenuKillNotResponding' { Set-TweakList $MenuKillRegs } }
+    if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' -Option 'MenuRestartExplorer' { Set-TweakList $MenuRestartExplorerRegs } }
+    if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' -Option 'MenuTakeOwnership' { Set-TweakList $MenuTakeOwnershipRegs } }
+    if ($Opt['MenuRunAsAdmin']) { Invoke-Step 'Run as administrator menu' -Option 'MenuRunAsAdmin' { Set-TweakList $MenuRunAsAdminRegs } }
     $menus = @($MenuBlocks.Keys | Where-Object { $Opt[$_] })
     if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
-    if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' { Set-TweakList $LockScreenRegs } }
-    if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' { Set-NvmeNativeDriver } }
-    if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' { Set-IPv4Only } }
-    if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
-    if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
-    if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
+    if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' -Option 'LockScreenOff' { Set-TweakList $LockScreenRegs } }
+    if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' -Option 'NvmeNativeDriver' { Set-NvmeNativeDriver } }
+    if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' -Option 'IPv4Only' { Set-IPv4Only } }
+    if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' -Option 'ClearDesktopIcons' { Clear-DesktopIcons } }
+    if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' -Option 'ClearStartPins' { Clear-StartPins } }
+    if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' -Option 'TempCleanup' { Clear-TempFiles } }
     if ($Opt['UpdateCacheCleanup']) {
-        Invoke-Step 'Update cache cleanup' { Clear-UpdateDownloadCache }
+        Invoke-Step 'Update cache cleanup' -Option 'UpdateCacheCleanup' { Clear-UpdateDownloadCache }
         # Starting UsoSvc again registers its Schedule Scan tasks anew, so the pause would show active tasks.
-        if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' { Disable-UpdateTasks } }
+        if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' -Option 'PauseStopsUpdateTasks' { Disable-UpdateTasks } }
     }
     if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
     if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) {
@@ -5212,16 +5509,7 @@ function Invoke-Revert {
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
-    Invoke-Step 'Restore deleted registry keys' {
-        foreach ($k in $script:State.KeyBackups) {
-            # reg.exe reports success on stderr. Windows PowerShell 5.1 turns that into an error record, which stops
-            # the step under 'Stop' even when redirected, so cmd.exe swallows the output and only the exit code counts.
-            if (Test-Path -LiteralPath $k.File) {
-                $null = & cmd.exe /d /c "reg.exe import `"$($k.File)`" >nul 2>&1"
-                if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File) (reg.exe exit $LASTEXITCODE)" 'WARN' }
-            }
-        }
-    }
+    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {
         foreach ($name in $script:State.Hosts) {
             Write-HostsFile -Text (Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $name)
@@ -5283,6 +5571,8 @@ function Invoke-Revert {
     Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
+    # The journal belongs to the cycle just reverted; the next run starts a new one.
+    if (Test-Path -LiteralPath $JournalFile) { Move-Item -LiteralPath $JournalFile -Destination ($archive -replace 'state\.reverted-', 'journal.reverted-' -replace '\.json$', '.jsonl') -Force }
     # The .bak belongs to the cycle just reverted; a later run must never fall back to it.
     Remove-Item -LiteralPath "$StateFile.bak" -Force -ErrorAction SilentlyContinue
     Write-Log "State archived to $archive"
@@ -5324,6 +5614,7 @@ else {
 if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; exit 0 }
 if ($script:Failures -gt 0) { Write-Log "Finished with $($script:Failures) failure(s) and $($script:Warnings) warning(s). Review the log: $LogFile" 'WARN' }
 else { Write-Log "Finished without errors ($($script:Warnings) warning(s)). Log: $LogFile" 'OK' }
+if (-not $Revert -and (Test-Path -LiteralPath $JournalFile)) { Write-Log "Every change with its option, value before, value after and result (OK, MISMATCH, FAILED): $JournalFile" }
 Write-Log 'Restart Windows so service, policy and power changes take full effect.'
 exit ([int]($script:Failures -gt 0))
 #endregion

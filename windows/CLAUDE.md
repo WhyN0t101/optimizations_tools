@@ -29,7 +29,9 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 2. A new option also needs a place in `OPTION_GROUPS` in `tools/build.py` (the build fails otherwise), and an entry in
    `NOT_REVERTED` if `-Revert` cannot undo it. The build writes `docs/OPTIONS.md` from it; never edit that file by hand.
 3. Every change that alters the system must (a) go through `Test-DryRun`, (b) record the original state so `-Revert` works,
-   (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`.
+   (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`. Record state only through the
+   journal helpers (`Set-RegValue`, `Remove-RegValue`, `Remove-RegKey`, `Set-StateValue`, `Add-StateRecord`, the task
+   helpers), before the change; never assign `$script:State` directly. `Test-Parse` checks this.
 4. Stay compatible with Windows PowerShell 5.1: no ternary operator, no `??`, no `&&`. The script uses `Set-StrictMode -Version Latest`.
 5. A hashtable entry name can shadow a property: never name a `$script:State` entry `Keys`, `Values` or `Count`.
 6. Output encoding is UTF-8 with BOM, CRLF line endings, ASCII only. `build.py` writes this. `.gitattributes` keeps it.
