@@ -25,6 +25,32 @@ How to read this file:
 
 ---
 
+## Approvals (10 November 2026)
+
+Recorded from the owner's amended approvals. They override the "Recommended placement" column of Section B.
+
+**Guiding principle.** Options are judged on four goals together: best performance, less bloat, less telemetry
+and overall smoothness. "Folklore" or "no measured gain" is not a reason to remove an option or make it opt in.
+Defaults stay maximum performance. Options are removed or kept, never half done. Evidence tiers (C-3) are
+informational only. Rows marked "Rejected: kept by design" stay exactly as they were for this reason.
+
+| Item | Decision |
+|---|---|
+| A-01, A-04, A-05, A-06, A-07, A-08, A-09, A-10 (provenance and SHA pinning only, no Authenticode), A-11, A-14, A-15, A-16, A-17, A-19, B-01, B-06, C-1, C-2, C-3, C-5 | Approved as written |
+| A-02 | Approved: a new timestamped export on every run; `-Revert` imports all exports, newest first, so the oldest (the original) wins |
+| A-03 | Revised: `TaskMode` stays `Delete` by default. Built-in keeps added for the Defender tasks, `\Microsoft\Windows\SystemRestore\SR`, `\Microsoft\Windows\CertificateServicesClient\*` and the Edge, Google and Firefox background update tasks. Telemetry tasks such as the Firefox Default Browser Agent are still deleted. The `edgeupdate` advice in `Explain-Processes.ps1` is corrected |
+| A-12 | Revised: `laptop.json` gets `PowerMode Keep`, `PauseUpdates` off and `SecurityUpdatesOnly` off. `TaskMode` stays `Delete` |
+| A-13 | Approved: `KeepDefinitionUpdates` on by default |
+| B-02 | Rejected: `SpectreMeltdownOff`, `CoreIsolation` and `Uac` keep their defaults. Only a log line stating what each weakens is added |
+| B-03 | Revised: the timer service stays on by default; it is skipped below build 22000 and on machines with a battery, with a log line saying why |
+| B-04 | Revised: `HwSchMode` becomes its own option `HardwareGpuScheduling`, default on (behaviour unchanged), skipped when the display driver is below WDDM 2.7 |
+| B-05 | Approved: the `MemoryCompression` threshold rises from 8 GB to 32 GB |
+| `DepOff` | Removed: no gain, and it needs Secure Boot off |
+| `NvidiaTelemetryStrip`, `FaultTolerantHeap`, `IPv4Only`, `Win32PrioritySeparation`, `NetworkThrottlingIndex`, `SystemResponsiveness`, the service groups, `SearchIndexingOff`, `RunKeys`, the Game Bar settings | Rejected: kept by design |
+| `desktop-max.json` | Must equal the no-profile defaults in effective options, enforced by a test |
+| C-4, C-6, C-8, C-9, C-10, C-11, C-12 | Deferred |
+| A-18 | Not in the approvals: left open |
+
 ## Section A: correctness and recoverability
 
 ### Summary
@@ -298,7 +324,7 @@ How to read this file:
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | B-01 | High | The benchmark cannot support the performance claims | Open |
-| B-02 | High | Security controls are off by default with no per machine evidence of a gain | Open |
+| B-02 | High | Security controls are off by default with no per machine evidence of a gain | Rejected: kept by design |
 | B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Open |
 | B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Open |
 | B-05 | Medium | Three default tweaks are no-ops or harmful on common hardware | Open |
@@ -393,18 +419,18 @@ profile, "Opt in" means off by default and on in a named profile.
 | `HypervisorFeatures` | Removes the Windows hypervisor | Documented mechanism | Removes virtualization overhead; only matters if it was on | Partly | No WSL 2, Hyper-V, Sandbox | Yes | Opt in (as now) |
 | `NvidiaProfile` | 14 global driver settings (low latency Ultra, max performance power mode, texture filtering) | Documented mechanism | GPU bound games: lower input latency; frame rate about equal. Higher idle GPU power | No | Global override for every app; image quality slightly lower; untested on NVIDIA hardware per SUMMARY | Yes | Opt in |
 | `NvidiaReBar` | Forces Resizable BAR for all games | Documented mechanism | Game dependent, plus or minus | No | Regressions in some games | Yes | Opt in (as now) |
-| `NvidiaTelemetryStrip` | Deletes driver DLLs and plugins | Folklore | None measurable | No | Modifies the driver store; not reversible | No | Remove |
+| `NvidiaTelemetryStrip` | Deletes driver DLLs and plugins | Folklore | None measurable | No | Modifies the driver store; not reversible | No | Rejected: kept by design |
 
 #### Registry and account
 
 | Option | Mechanism | Tier | Expected effect | Bench | Cost | Revert | Placement |
 |---|---|---|---|---|---|---|---|
 | `Registry` | About 200 upstream groups, mostly UI and privacy; a few performance values (rows in "Registry sub groups") | Folklore as a bundle | Mostly cosmetic | No | Many UI changes at once; hard to attribute | Yes | Default, after splitting out HAGS (B-04) |
-| `Uac` | `EnableLUA 0` | Folklore | None | No | Every process of an admin runs elevated; large security loss | Yes | Opt in or Remove |
-| `RunKeys` | Deletes the Run keys | Documented mechanism | Fewer startup processes; faster sign in | Partly (boot time) | Removes wanted entries too, including the Windows Security tray icon; see A-02 | Yes (first run only) | Opt in; point users to `-StartupReview` |
+| `Uac` | `EnableLUA 0` | Folklore | None | No | Every process of an admin runs elevated; large security loss | Yes | Rejected: kept by design |
+| `RunKeys` | Deletes the Run keys | Documented mechanism | Fewer startup processes; faster sign in | Partly (boot time) | Removes wanted entries too, including the Windows Security tray icon; see A-02 | Yes (first run only) | Rejected: kept by design |
 | `PrivacyDenials` | Denies app capabilities, background apps off, resets consent database | n/a | Small: fewer background UWP wakeups | No | Camera, microphone and location denied until re-allowed | Yes | Default |
 | `TaskbarEndTask` | Adds a menu item | n/a | None | No | None | Yes | Default |
-| `CoreIsolation` | VBS, HVCI, Credential Guard, shadow stacks off | Documented mechanism | 0 to 10% in games, hardware dependent (see areas table) | No (no game metric) | Kernel and credential protection lost | Yes | Opt in, benchmark gated |
+| `CoreIsolation` | VBS, HVCI, Credential Guard, shadow stacks off | Documented mechanism | 0 to 10% in games, hardware dependent (see areas table) | No (no game metric) | Kernel and credential protection lost | Yes | Rejected: kept by design |
 | `HideLockOption` | UI | n/a | None | No | Feature hidden | Yes | Opt in (as now) |
 | `HideSleepOption` | UI | n/a | None | No | Feature hidden | Yes | Opt in (as now) |
 | `RegHibernateOff` | `HibernateEnabled 0` | n/a | None | No | No hibernate | Yes | Opt in (as now) |
@@ -461,17 +487,17 @@ are (two additions on by default, thirteen off).
 
 | Option | Mechanism | Tier | Expected effect | Bench | Cost | Revert | Placement |
 |---|---|---|---|---|---|---|---|
-| `SvcOther` | 15 services disabled | Folklore | Near zero: most are manual or trigger start | No | `Netlogon` breaks domain sign in (A-08); location off | Yes | Default without `Netlogon` |
-| `SvcExtra` | 7 services disabled | Folklore | Near zero | No | Built in VPN, UPnP discovery, Storage Spaces | Yes | Opt in |
-| `SvcDefrag` | Optimize Drives off | Folklore | Negative over time | No | No retrim | Yes | Remove |
-| `SvcBiometrics` | Service off | Folklore | None | No | Windows Hello | Yes | Opt in |
-| `SvcSmartCard` | Services off | Folklore | None | No | Smart cards, some security keys | Yes | Opt in |
-| `SvcDiagnostics` | DPS and WDI off | Folklore | None | No | Troubleshooters, network diagnostics; may stop the boot time event the benchmark reads (U-05) | Yes | Opt in |
-| `SvcBluetooth` | Services off | Folklore | None | No | Bluetooth | Yes | Opt in (as now) |
-| `SvcPrinting` | Spooler off | Folklore | None (security hardening on machines that never print) | No | Printing, some PDF export | Yes | Opt in (as now) |
-| `SvcDeliveryOpt` | DoSvc off | Documented mechanism | Removes background upload and disk use during updates | No | Slower Store and update downloads | Yes | Default |
-| `SvcRadio` | Service off | Folklore | None | No | Airplane mode toggle | Yes | Opt in (as now) |
-| `SearchIndexingOff` | WSearch off | Documented mechanism (HDD only) | HDD: less disk load. SSD: negligible | No | Search quality | Yes | Opt in |
+| `SvcOther` | 15 services disabled | Folklore | Near zero: most are manual or trigger start | No | `Netlogon` breaks domain sign in (A-08); location off | Yes | Rejected: kept by design |
+| `SvcExtra` | 7 services disabled | Folklore | Near zero | No | Built in VPN, UPnP discovery, Storage Spaces | Yes | Rejected: kept by design |
+| `SvcDefrag` | Optimize Drives off | Folklore | Negative over time | No | No retrim | Yes | Rejected: kept by design |
+| `SvcBiometrics` | Service off | Folklore | None | No | Windows Hello | Yes | Rejected: kept by design |
+| `SvcSmartCard` | Services off | Folklore | None | No | Smart cards, some security keys | Yes | Rejected: kept by design |
+| `SvcDiagnostics` | DPS and WDI off | Folklore | None | No | Troubleshooters, network diagnostics; may stop the boot time event the benchmark reads (U-05) | Yes | Rejected: kept by design |
+| `SvcBluetooth` | Services off | Folklore | None | No | Bluetooth | Yes | Rejected: kept by design |
+| `SvcPrinting` | Spooler off | Folklore | None (security hardening on machines that never print) | No | Printing, some PDF export | Yes | Rejected: kept by design |
+| `SvcDeliveryOpt` | DoSvc off | Documented mechanism | Removes background upload and disk use during updates | No | Slower Store and update downloads | Yes | Rejected: kept by design |
+| `SvcRadio` | Service off | Folklore | None | No | Airplane mode toggle | Yes | Rejected: kept by design |
+| `SearchIndexingOff` | WSearch off | Documented mechanism (HDD only) | HDD: less disk load. SSD: negligible | No | Search quality | Yes | Rejected: kept by design |
 
 #### Windows Update
 
@@ -492,7 +518,7 @@ None of these change steady state speed; they trade security for fewer backgroun
 |---|---|---|---|---|---|---|---|
 | `DisableHibernate` | `powercfg /hibernate off` | n/a | Frees disk space; cold boot gets slower because Fast Startup goes | Partly (boot time) | No hibernate | Yes | Opt in (as now) |
 | `MsiMode` | `MSISupported 1` on display adapters | Folklore | None on current GPU drivers, which already use MSI | Partly (interrupts) | A device that does not support MSI may fail to start | Yes | Opt in |
-| `MemoryCompression` | `Disable-MMAgent` above 8 GB | Folklore | 32 GB and more: none. 9 to 16 GB under load: can be slower | No | More paging | Yes | Opt in, threshold 32 GB |
+| `MemoryCompression` | `Disable-MMAgent` above 8 GB | Folklore | 32 GB and more: none. 9 to 16 GB under load: can be slower | No | More paging | Yes | Default, threshold 32 GB (B-05 approved) |
 | `SleepStudy` | Three diagnostic logs off | Folklore | None measurable | No | No sleep diagnostics | Yes | Opt in |
 | `NetAdapterPower` | Adapter power keywords off, `PnPCapabilities 24` | Documented mechanism | D: avoids link drops after idle. L: more drain | No | Wake on LAN off | Yes | Default on desktop |
 | `NetAdapterEee` | EEE off | Documented mechanism | Removes link wake latency (microseconds); fixes flaky links on some NICs | No | About 1 W more per port | Yes | Default on desktop |
@@ -500,16 +526,16 @@ None of these change steady state speed; they trade security for fewer backgroun
 | `DeviceWakeOff` | `WaitWakeEnabled 0` | n/a | None | No | Keyboard cannot wake the PC | Yes | Opt in (as now) |
 | `MpoOff` | `OverlayTestMode 5` | Folklore (undocumented workaround) | Fixes flicker on some setups | No | Can break HDR, raises compositor load | Yes | Opt in (as now) |
 | `WriteCacheFlushOff` | `CacheIsPowerProtected 1` | Documented mechanism | Faster small synchronous writes | No (no disk metric) | Data loss on power cut | Yes | Opt in (as now) |
-| `TimerResolution` | Service holds 0.5 ms, global flag | Measured (the setting only, in a VM); benefit Folklore | Windows 11: Sleep(1) finer for apps that never ask. Windows 10: none (U-02) | Yes, but circular | Constant power cost | Yes | Opt in, Windows 11 only (B-03) |
+| `TimerResolution` | Service holds 0.5 ms, global flag | Measured (the setting only, in a VM); benefit Folklore | Windows 11: Sleep(1) finer for apps that never ask. Windows 10: none (U-02) | Yes, but circular | Constant power cost | Yes | Default, skipped below build 22000 and on battery (B-03 revised) |
 | `NvmeNativeDriver` | Feature overrides for the new NVMe stack | Documented mechanism (server; unsupported on client, U-10) | Higher IOPS on fast NVMe | No | Experimental; BitLocker and disk tools | Yes | Opt in (as now) |
-| `IPv4Only` | Unbinds IPv6 | Folklore | None | No | Breaks IPv6 only networks; Microsoft advises against disabling IPv6 | Yes | Remove |
+| `IPv4Only` | Unbinds IPv6 | Folklore | None | No | Breaks IPv6 only networks; Microsoft advises against disabling IPv6 | Yes | Rejected: kept by design |
 
 #### Security trade-offs
 
 | Option | Mechanism | Tier | Expected effect | Bench | Cost | Revert | Placement |
 |---|---|---|---|---|---|---|---|
-| `SpectreMeltdownOff` | Mitigations for two CVEs off | Documented mechanism | Old Intel: several percent in syscall heavy work. Intel 9th gen and later, AMD Zen 2 and later: 0 to 2% (U-04) | Partly (kernel call cost) | Cross process and kernel memory disclosure | Yes | Opt in, benchmark gated |
-| `DepOff` | `nx AlwaysOff` | Folklore | None; NX has no measurable cost | No | Removes a core exploit mitigation; needs Secure Boot off | Yes | Remove |
+| `SpectreMeltdownOff` | Mitigations for two CVEs off | Documented mechanism | Old Intel: several percent in syscall heavy work. Intel 9th gen and later, AMD Zen 2 and later: 0 to 2% (U-04) | Partly (kernel call cost) | Cross process and kernel memory disclosure | Yes | Rejected: kept by design |
+| `DepOff` | `nx AlwaysOff` | Folklore | None; NX has no measurable cost | No | Removes a core exploit mitigation; needs Secure Boot off | Yes | Removed (approved) |
 
 #### System and cleanup
 
@@ -517,7 +543,7 @@ None of these change steady state speed; they trade security for fewer backgroun
 |---|---|---|---|---|---|---|---|
 | `NoAutoMaintenance` | Maintenance off | Folklore | Negative over time | No | No retrim, no scheduled scans | Yes | Remove |
 | `PasswordExpiry` | `maxpwage unlimited` | n/a | None | No | None for home use | Yes | Default |
-| `FaultTolerantHeap` | FTH off and reset | Folklore | None; FTH only acts on apps that crashed | No | Crashing apps lose a mitigation | No | Remove |
+| `FaultTolerantHeap` | FTH off and reset | Folklore | None; FTH only acts on apps that crashed | No | Crashing apps lose a mitigation | No | Rejected: kept by design |
 | `FastShutdown` | Short kill timeouts | n/a | Faster shutdown | No | Unsaved work lost | Yes | Opt in |
 | `TimeServerPool` | NTP pool | n/a | None | No | None | Yes | Opt in |
 | `EnableSystemRestore` | Turns System Protection on for the retry | n/a | None | No | Disk space | No | Default on (safety) |
@@ -529,19 +555,19 @@ None of these change steady state speed; they trade security for fewer backgroun
 
 | Item | Mechanism | Tier | Expected effect | Bench | Cost | Revert | Placement |
 |---|---|---|---|---|---|---|---|
-| `-TaskMode Delete` | Deletes all tasks | Folklore | None at idle | No | A-03 | Yes | Opt in |
+| `-TaskMode Delete` | Deletes all tasks | Folklore | None at idle | No | A-03 | Yes | Rejected: kept by design (A-03 revised: Delete stays the default, with more built-in keeps) |
 | `-TaskMode Disable` | Disables 12 telemetry tasks | Documented mechanism | Removes periodic Compatibility Appraiser CPU and disk bursts | No | None notable | Yes | Default |
 | `-PowerProfile High` | Ultimate or High Performance clone | Documented mechanism | D: lower wake latency, higher idle power. L: skipped | Partly | Power, heat, fan | Yes | Default on desktop |
 | `-PowerProfile Medium` | Balanced clone, minimum 50% | Documented mechanism | Small | Partly | Some power | Yes | Opt in |
 | `-PowerMode Best` | Performance overlay | Documented mechanism | Faster frequency ramp on Balanced based plans | Partly | Battery life on laptops | Yes | Opt in; not in `laptop.json` |
 | `-Defender Disable` | Real time protection off | Documented mechanism | Faster file heavy work (builds, installs) | Partly (kernel call cost) | No antivirus | Yes | Opt in (as now) |
-| HAGS (`HwSchMode 2`) | GPU scheduler in the GPU | Documented mechanism | See areas table | No | Compatibility | Yes | Own option, opt in, hardware checked |
+| HAGS (`HwSchMode 2`) | GPU scheduler in the GPU | Documented mechanism | See areas table | No | Compatibility | Yes | Own option, default on, skipped below WDDM 2.7 (B-04 revised) |
 | Game DVR and capture off | No background encoder | Documented mechanism | Zero unless background recording was on | No | No capture | Yes | Default |
-| Game Bar hotkeys and `AllowGameDVR 0` | Policy and hotkeys | Folklore | None | No | Game Bar unusable | Yes | Opt in |
+| Game Bar hotkeys and `AllowGameDVR 0` | Policy and hotkeys | Folklore | None | No | Game Bar unusable | Yes | Rejected: kept by design |
 | Game Mode on | Already the Windows default | Documented mechanism | No change | No | None | Yes | Default |
-| `NetworkThrottlingIndex 0xffffffff` | Lifts the MMCSS packet limit during media playback | Folklore | None for games; relevant only with multimedia playback on fast links | No | None known | Yes | Remove unless measured |
-| `SystemResponsiveness 10` | Less CPU reserved for background work under MMCSS | Folklore | Negligible | No | None known | Yes | Remove unless measured |
-| `Win32PrioritySeparation 0x26` | Short variable quanta, foreground boost | Folklore (equals the client default) | None | No | None | Yes | Remove |
+| `NetworkThrottlingIndex 0xffffffff` | Lifts the MMCSS packet limit during media playback | Folklore | None for games; relevant only with multimedia playback on fast links | No | None known | Yes | Rejected: kept by design |
+| `SystemResponsiveness 10` | Less CPU reserved for background work under MMCSS | Folklore | Negligible | No | None known | Yes | Rejected: kept by design |
+| `Win32PrioritySeparation 0x26` | Short variable quanta, foreground boost | Folklore (equals the client default) | None | No | None | Yes | Rejected: kept by design |
 | Last access off | No atime writes | Documented mechanism | HDD: fewer writes. SSD: negligible; often already off | No | Tools that use last access dates | Yes | Default |
 | Visual effects and animations off | Less compositor work | Documented mechanism | Perceived snappiness; no throughput change | No | Looks | Yes | Default |
 | Storage Sense off | Policy | Folklore | None | No | No automatic cleanup | Yes | Opt in |
