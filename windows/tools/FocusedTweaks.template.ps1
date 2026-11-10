@@ -4258,6 +4258,16 @@ function Get-EditionReport {
     }
 }
 
+function Get-SecurityTradeoffs {
+    # docs/AUDIT.md B-02: these stay on by default for speed; the plan says plainly what each one weakens.
+    $weakens = [ordered]@{
+        SpectreMeltdownOff = 'SpectreMeltdownOff weakens the CPU side channel protection: programs and scripts in web pages can read kernel and other processes'' memory through Spectre variant 2 and Meltdown on CPUs without the hardware fix.'
+        CoreIsolation      = 'CoreIsolation weakens kernel protection: without memory integrity (HVCI) and Credential Guard, a malicious or vulnerable driver can change kernel code, and stolen administrator rights reach stored credentials more easily.'
+        Uac                = 'Uac weakens the boundary between you and administrator: every program you start runs with full administrator rights, with no prompt, so malware does too.'
+    }
+    foreach ($k in $weakens.Keys) { if ($Opt[$k]) { $weakens[$k] } }
+}
+
 function Show-Plan {
     Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
     $edition = Get-EditionId
@@ -4269,6 +4279,7 @@ function Show-Plan {
     $off = @($OptionInfo.Keys | Where-Object { -not $Opt[$_] })
     Write-Log "  Options on : $($on -join ', ')"
     Write-Log "  Options off: $($off -join ', ')"
+    foreach ($line in @(Get-SecurityTradeoffs)) { Write-Log "  Security trade-off: $line" 'WARN' }
     Write-Log "  Tasks: $TaskMode | Defender: $Defender | Power profile: $PowerProfile | Power mode: $PowerMode | Pause days: $PauseDays"
     if ($WantNvidia) { Write-Log "  NVIDIA: $(if ($NvidiaInstaller) { $NvidiaInstaller } else { 'download ' + $(if ($NvidiaVersion) { $NvidiaVersion } else { 'latest' }) })" }
     if ($ProfilePath) { Write-Log "  Profile: $ProfilePath (command line parameters win over it)" }

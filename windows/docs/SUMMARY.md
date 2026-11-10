@@ -193,6 +193,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   stays `Delete`, now that the A-03 keeps protect Defender and the updaters.
 - A-13: `KeepDefinitionUpdates` is on by default (was off). With the default update restriction and pause, Defender
   stayed on with signatures that were never refreshed through Windows Update.
+- B-02 (defaults rejected, kept by design): `SpectreMeltdownOff`, `CoreIsolation` and `Uac` stay on by default. The
+  plan now logs, as a warning, what each one that is on weakens.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
