@@ -161,7 +161,7 @@ catch {
     `$code = 99
 }
 Get-ChildItem -LiteralPath 'C:\ProgramData\FocusedTweaks' -File -ErrorAction SilentlyContinue |
-    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json', '.txt' } |
+    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json', '.jsonl', '.txt' } |
     Copy-Item -Destination `$out
 Set-Content -LiteralPath (Join-Path `$out 'exitcode.txt') -Value `$code
 Compress-Archive -Path (Join-Path `$out '*') -DestinationPath '$zipGuest' -Force
