@@ -170,6 +170,14 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   `-ListOptions` and in `docs/OPTIONS.md`. The build fails when an option lacks a tier or a Documented one lacks a
   link. Ten options are Documented, 31 Folklore, the rest n/a; none is Measured, since the only measurements so far
   come from a VM. Tiers are information only and decide no default.
+- B-01: `-Benchmark` rewritten. Each short measurement runs `-BenchmarkRuns` times (5) and is reported as median
+  with minimum and maximum; the idle footprint (CPU use, DPC and interrupt time share with maximum, DPCs and
+  interrupts per second, processes, running services, committed memory) is sampled once a second over
+  `-BenchmarkIdleSeconds` (60); boot time uses the last restarts, not one. Each result records the machine (CPU,
+  logical processors, RAM, power source, VM) and the settings (power plan, power mode, VBS, hypervisor,
+  mitigations, MPO, timer service). A comparison is refused when the machine differs, and a change whose ranges
+  overlap is marked as within noise. `-BenchmarkBaseline <name>` keeps a named baseline. Results from a VM are
+  marked `ValidForPerformance: false`. Benchmark files from v7.4 are not compared (one sample, no context).
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

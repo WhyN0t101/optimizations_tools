@@ -101,6 +101,9 @@ param(
     [ValidateRange(1, 730)][int]$PauseDays = 365,
     [string]$ProfilePath,
     [switch]$Benchmark,
+    [ValidateRange(1, 50)][int]$BenchmarkRuns = 5,
+    [ValidateRange(10, 600)][int]$BenchmarkIdleSeconds = 60,
+    [ValidatePattern('^[A-Za-z0-9_-]{1,40}$')][string]$BenchmarkBaseline,
     [switch]$StartupReview,
     [switch]$AllowManaged,
     [string[]]$SkipCheck = @(),
@@ -4696,53 +4699,174 @@ public static extern int NtQueryTimerResolution(out uint minimum, out uint maxim
     return [pscustomobject]@{ CurrentMs = [Math]::Round($now / 10000, 3); FinestMs = [Math]::Round($max / 10000, 3); CoarsestMs = [Math]::Round($min / 10000, 3) }
 }
 
-function Invoke-Benchmark {
-    # Measurements that the performance options are meant to change, saved as JSON and compared with the previous
-    # benchmark on this machine. Takes about 30 seconds. Changes nothing.
-    Write-Log 'Benchmark: measuring for about 30 seconds. Close other programs for steadier numbers.'
-    $m = [ordered]@{}
-    $boot = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents 1 -ErrorAction SilentlyContinue
-    $m['Boot time, last restart (s)'] = $(if ($boot) { [Math]::Round(([int](@(([xml]$boot.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text')) / 1000, 1) } else { $null })
-    $timer = Get-TimerResolution
-    $m['Timer resolution now (ms)'] = $timer.CurrentMs
-    $m['Timer resolution finest (ms)'] = $timer.FinestMs
-    $watch = [Diagnostics.Stopwatch]::new(); $sleeps = 200
-    $watch.Start(); for ($i = 0; $i -lt $sleeps; $i++) { [Threading.Thread]::Sleep(1) }; $watch.Stop()
-    $m['Sleep(1) actual (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds / $sleeps, 3)
-    $probe = Join-Path $env:SystemRoot 'System32\kernel32.dll'; $calls = 20000
-    $watch.Restart(); for ($i = 0; $i -lt $calls; $i++) { [void][IO.File]::Exists($probe) }; $watch.Stop()
-    $m['Kernel call cost, file check (us)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds * 1000 / $calls, 2)
-    $watch.Restart(); $x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x = ($x + $i) % 1000003 }; $watch.Stop()
-    $m['CPU loop, 3M steps (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds, 0)
-    # Processor counters through WMI: the class and property names are the same in every Windows language.
-    $samples = @(for ($i = 0; $i -lt 10; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
-    $m['DPC time (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentDPCTime -Average).Average), 2)
-    $m['Interrupt time, ISR (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentInterruptTime -Average).Average), 2)
-    $m['DPCs queued per s'] = [Math]::Round((($samples | Measure-Object -Property DPCsQueuedPersec -Average).Average), 0)
-    $m['Interrupts per s'] = [Math]::Round((($samples | Measure-Object -Property InterruptsPersec -Average).Average), 0)
+function Get-Stats {
+    # Median, minimum, maximum and mean of a set of samples, so one noisy sample cannot pass for a result.
+    param([double[]]$Values)
+    $v = @($Values | Sort-Object)
+    if ($v.Count -eq 0) { return $null }
+    $mid = [int][Math]::Floor($v.Count / 2)
+    $median = if ($v.Count % 2) { $v[$mid] } else { ($v[$mid - 1] + $v[$mid]) / 2 }
+    $sum = 0.0; foreach ($x in $v) { $sum += $x }
+    return [ordered]@{ Median = [Math]::Round($median, 3); Min = [Math]::Round($v[0], 3); Max = [Math]::Round($v[-1], 3); Mean = [Math]::Round($sum / $v.Count, 3); Samples = $v.Count }
+}
+
+function Test-VirtualMachine {
+    param([string]$Manufacturer, [string]$Model)
+    return ("$Manufacturer $Model" -match 'VMware|VirtualBox|innotek|Virtual Machine|QEMU|KVM|Xen|Parallels|Bochs|BHYVE')
+}
+
+function Get-BenchmarkMachine {
+    # What must be the same for two benchmarks to be comparable.
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $cpu = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue)[0]
+    return [ordered]@{
+        CPU               = $(if ($cpu) { ([string]$cpu.Name).Trim() } else { 'unknown' })
+        LogicalProcessors = $(if ($cs) { [int]$cs.NumberOfLogicalProcessors } else { 0 })
+        RamGB             = $(if ($cs) { [Math]::Round([double]$cs.TotalPhysicalMemory / 1GB) } else { 0 })
+        VirtualMachine    = $(if ($cs) { [bool](Test-VirtualMachine -Manufacturer $cs.Manufacturer -Model $cs.Model) } else { $false })
+        PowerSource       = (Get-PowerSource)
+    }
+}
+
+function Get-BenchmarkSettings {
+    # What the options change. Recorded with every benchmark and shown when it differs, but it does not block a
+    # comparison: comparing before and after a run is the point.
     $mm = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverride'
     $mpo = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Dwm' -Name 'OverlayTestMode'
-    $context = [ordered]@{
+    $overlay = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$(Get-PowerSource)PowerScheme"
+    $overlayGuid = '00000000-0000-0000-0000-000000000000'
+    if ($overlay.Existed -and $overlay.Value) { $overlayGuid = ([string]$overlay.Value).ToLowerInvariant() }
+    $vbs = @(Get-CimInstance -Namespace 'root/Microsoft/Windows/DeviceGuard' -ClassName 'Win32_DeviceGuard' -ErrorAction SilentlyContinue)[0]
+    $vbsText = 'unknown'
+    if ($vbs) { $vbsText = switch ([int]$vbs.VirtualizationBasedSecurityStatus) { 0 { 'off' } 1 { 'enabled, not running' } 2 { 'running' } default { 'unknown' } } }
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $mode = $PowerOverlayNames[$overlayGuid]
+    if (-not $mode) { $mode = $overlayGuid }
+    return [ordered]@{
+        'Power plan'                   = ((powercfg /getactivescheme) | Out-String).Trim() -replace '^.*\(([^)]*)\)\s*$', '$1'
+        'Power mode'                   = $mode
+        'VBS (core isolation)'         = $vbsText
+        'Hypervisor present'           = $(if ($cs) { [bool]$cs.HypervisorPresent } else { $false })
         'Spectre/Meltdown mitigations' = $(if ($mm.Existed -and [int]$mm.Value -eq 3) { 'off' } else { 'on' })
         'Multiplane overlay'           = $(if ($mpo.Existed -and [int]$mpo.Value -eq 5) { 'off' } else { 'on' })
         'Timer service'                = $(if (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }) { 'running' } else { 'not running' })
-        'Power plan'                   = ((powercfg /getactivescheme) | Out-String).Trim() -replace '^.*\(([^)]*)\)\s*$', '$1'
     }
-    $previous = Get-ChildItem -Path (Join-Path $StateDir 'benchmark-*.json') -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
-    $before = if ($previous) { Get-Content -LiteralPath $previous.FullName -Raw | ConvertFrom-Json } else { $null }
-    $rows = foreach ($k in $m.Keys) {
-        $old = $null
-        if ($before -and $before.Metrics.PSObject.Properties[$k]) { $old = $before.Metrics.$k }
-        [pscustomobject]@{ Measurement = $k; Now = $m[$k]; Before = $old; Change = $(if ($null -ne $old -and $null -ne $m[$k] -and [double]$old -ne 0) { '{0:+0.0;-0.0;0}%' -f ((([double]$m[$k] - [double]$old) / [double]$old) * 100) } else { '' }) }
+}
+
+function Measure-MicroOnce {
+    # One repetition of the short measurements. They time a PowerShell loop, so they show changes in timer,
+    # scheduling and kernel call overhead, not application speed.
+    $watch = [Diagnostics.Stopwatch]::new(); $sleeps = 100
+    $watch.Start(); for ($i = 0; $i -lt $sleeps; $i++) { [Threading.Thread]::Sleep(1) }; $watch.Stop()
+    $sleep = $watch.Elapsed.TotalMilliseconds / $sleeps
+    $probe = Join-Path $env:SystemRoot 'System32\kernel32.dll'; $calls = 20000
+    $watch.Restart(); for ($i = 0; $i -lt $calls; $i++) { [void][IO.File]::Exists($probe) }; $watch.Stop()
+    $kernel = $watch.Elapsed.TotalMilliseconds * 1000 / $calls
+    $watch.Restart(); $x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x = ($x + $i) % 1000003 }; $watch.Stop()
+    return @($sleep, $kernel, $watch.Elapsed.TotalMilliseconds)
+}
+
+function Get-BenchmarkComparison {
+    # Compares two benchmark results. Refuses when the machine context differs (another CPU, RAM size, power source,
+    # VM or not), because then the numbers say nothing about the options. Settings that differ are listed.
+    param([Parameter(Mandatory)]$Now, [Parameter(Mandatory)]$Before)
+    $result = [pscustomobject]@{ Refused = $false; Reason = ''; Rows = @(); SettingChanges = @() }
+    if (-not $Before.PSObject.Properties['Format'] -or [int]$Before.Format -lt 2) {
+        $result.Refused = $true; $result.Reason = 'it uses the old format (one sample per measurement, no machine context)'; return $result
     }
+    $diff = @(foreach ($p in $Now.Machine.PSObject.Properties) {
+            $old = $Before.Machine.PSObject.Properties[$p.Name]
+            if (-not $old -or [string]$old.Value -ne [string]$p.Value) { '{0}: {1} -> {2}' -f $p.Name, $(if ($old) { $old.Value } else { '?' }), $p.Value }
+        })
+    if ($diff.Count -gt 0) { $result.Refused = $true; $result.Reason = "the machine context differs ($($diff -join '; '))"; return $result }
+    $result.SettingChanges = @(foreach ($p in $Now.Settings.PSObject.Properties) {
+            $old = $Before.Settings.PSObject.Properties[$p.Name]
+            if ($old -and [string]$old.Value -ne [string]$p.Value) { '{0}: {1} -> {2}' -f $p.Name, $old.Value, $p.Value }
+        })
+    $result.Rows = @(foreach ($p in $Now.Metrics.PSObject.Properties) {
+            $n = $p.Value; $o = $null
+            if ($Before.Metrics.PSObject.Properties[$p.Name]) { $o = $Before.Metrics.($p.Name) }
+            if ($null -eq $n -or $null -eq $o) { continue }
+            # Invariant culture: the log reads the same on every system, whatever its decimal separator.
+            $inv = [Globalization.CultureInfo]::InvariantCulture
+            $change = ''
+            if ([double]$o.Median -ne 0) { $change = [string]::Format($inv, '{0:+0.0;-0.0;0}%', (([double]$n.Median - [double]$o.Median) / [double]$o.Median) * 100) }
+            $overlap = ([double]$n.Min -le [double]$o.Max) -and ([double]$o.Min -le [double]$n.Max)
+            [pscustomobject]@{ Measurement = $p.Name; Now = [string]::Format($inv, '{0} [{1}..{2}]', [double]$n.Median, [double]$n.Min, [double]$n.Max); Before = [string]::Format($inv, '{0} [{1}..{2}]', [double]$o.Median, [double]$o.Min, [double]$o.Max); Change = $change; Note = $(if ($overlap) { 'within noise (ranges overlap)' } else { '' }) }
+        })
+    return $result
+}
+
+function Invoke-Benchmark {
+    # docs/AUDIT.md B-01: repeated measurements with median and range, the idle footprint over a fixed window, and the
+    # context that decides whether two benchmarks can be compared. Changes nothing.
+    $machine = Get-BenchmarkMachine
+    Write-Log "Benchmark: $BenchmarkRuns repetition(s), then $BenchmarkIdleSeconds s of idle sampling. Close other programs and leave the PC alone."
+    if ($machine.VirtualMachine) { Write-Log 'This is a virtual machine: the hypervisor decides timers and interrupts here, so these numbers check that options took effect and are not performance evidence.' 'WARN' }
+    if ($machine.PowerSource -eq 'Dc') { Write-Log 'Running on battery: compare only with benchmarks also taken on battery.' 'WARN' }
+    $settings = Get-BenchmarkSettings
+    $timer = Get-TimerResolution
+    $micro = @(for ($r = 1; $r -le $BenchmarkRuns; $r++) { , (Measure-MicroOnce) })
+    $process = @(Get-Process -ErrorAction SilentlyContinue).Count
+    $services = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }).Count
+    $memory = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Memory -ErrorAction SilentlyContinue
+    # Processor counters through WMI: the class and property names are the same in every Windows language.
+    $idle = @(for ($i = 0; $i -lt $BenchmarkIdleSeconds; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
+    $boots = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents $BenchmarkRuns -ErrorAction SilentlyContinue | ForEach-Object {
+            [double](@(([xml]$_.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text') / 1000
+        })
+    $m = [ordered]@{}
+    $m['Timer resolution now (ms)'] = Get-Stats @($timer.CurrentMs)
+    $m['Sleep(1) actual (ms)'] = Get-Stats @($micro | ForEach-Object { $_[0] })
+    $m['Kernel call cost, file check (us)'] = Get-Stats @($micro | ForEach-Object { $_[1] })
+    $m['CPU loop, 3M steps (ms)'] = Get-Stats @($micro | ForEach-Object { $_[2] })
+    $m["Idle CPU over $BenchmarkIdleSeconds s (%)"] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentProcessorTime })
+    # Time share of the CPU spent in DPCs and interrupts, one sample per second. This is not their latency.
+    $m['DPC time share (%)'] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentDPCTime })
+    $m['Interrupt (ISR) time share (%)'] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentInterruptTime })
+    $m['DPCs queued per s'] = Get-Stats @($idle | ForEach-Object { [double]$_.DPCsQueuedPersec })
+    $m['Interrupts per s'] = Get-Stats @($idle | ForEach-Object { [double]$_.InterruptsPersec })
+    $m['Processes at idle'] = Get-Stats @($process)
+    $m['Running services'] = Get-Stats @($services)
+    $m['Committed memory (MB)'] = $(if ($memory) { Get-Stats @([double]$memory.CommittedBytes / 1MB) } else { $null })
+    $m["Boot time, last $($boots.Count) restart(s) (s)"] = $(if ($boots.Count -gt 0) { Get-Stats $boots } else { $null })
+    if ($boots.Count -eq 1) { Write-Log 'Only one boot time is recorded, so the boot time is a single sample.' 'WARN' }
+    $now = [pscustomobject]@{
+        Format = 2; When = (Get-Date).ToString('o'); Runs = $BenchmarkRuns; IdleSeconds = $BenchmarkIdleSeconds
+        ValidForPerformance = (-not $machine.VirtualMachine); Machine = [pscustomobject]$machine; Settings = [pscustomobject]$settings
+        Metrics = [pscustomobject]$m
+    }
+    # Through JSON once, so the run is compared in the same shape as a saved one.
+    $now = ConvertTo-Json -InputObject $now -Depth 5 | ConvertFrom-Json
+    $baselineFile = $null
+    if ($BenchmarkBaseline) { $baselineFile = Join-Path $StateDir "benchmark-baseline-$BenchmarkBaseline.json" }
+    $before = $null; $beforeName = ''
+    if ($baselineFile -and (Test-Path -LiteralPath $baselineFile)) { $before = Get-Content -LiteralPath $baselineFile -Raw | ConvertFrom-Json; $beforeName = "baseline '$BenchmarkBaseline'" }
+    elseif (-not $baselineFile) {
+        $previous = Get-ChildItem -Path (Join-Path $StateDir 'benchmark-2*.json') -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+        if ($previous) { $before = Get-Content -LiteralPath $previous.FullName -Raw | ConvertFrom-Json; $beforeName = "the benchmark of $($previous.Name -replace '^benchmark-|\.json$', '')" }
+    }
+    $table = @(foreach ($p in $now.Metrics.PSObject.Properties) { if ($p.Value) { [pscustomobject]@{ Measurement = $p.Name; Median = $p.Value.Median; Min = $p.Value.Min; Max = $p.Value.Max; Samples = $p.Value.Samples } } })
     if (-not $Json) {
-        Write-Host ($rows | Format-Table -AutoSize | Out-String)
-        Write-Host ($context.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
+        Write-Host ($table | Format-Table -AutoSize | Out-String)
+        Write-Host ($settings.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
     }
-    if ($before) { Write-Log "Compared with the benchmark of $($before.When). Lower is better for every measurement." }
+    if ($before) {
+        $cmp = Get-BenchmarkComparison -Now $now -Before $before
+        if ($cmp.Refused) { Write-Log "Not compared with $beforeName`: $($cmp.Reason). Compare only runs on the same machine and power source." 'WARN' }
+        else {
+            if (-not $Json) { Write-Host ($cmp.Rows | Format-Table -AutoSize | Out-String) }
+            Write-Log "Compared with $beforeName (median [min..max]; lower is better for every measurement; 'within noise' means the ranges overlap)."
+            foreach ($c in $cmp.SettingChanges) { Write-Log "  Setting changed since then: $c" }
+        }
+    }
+    elseif ($baselineFile) {
+        ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $baselineFile -Encoding UTF8
+        Write-Log "Saved as baseline '$BenchmarkBaseline'. Run -Benchmark -BenchmarkBaseline $BenchmarkBaseline again after a run and a restart to compare with it." 'OK'
+    }
     else { Write-Log 'First benchmark on this machine. Run it again after a run and a restart to compare.' }
     $file = Join-Path $StateDir ('benchmark-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
-    ConvertTo-Json -InputObject ([pscustomobject]@{ When = (Get-Date).ToString('o'); Metrics = [pscustomobject]$m; Context = [pscustomobject]$context }) -Depth 4 | Set-Content -LiteralPath $file -Encoding UTF8
+    ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
     Write-Log "Benchmark saved to $file" 'OK'
 }
 #endregion

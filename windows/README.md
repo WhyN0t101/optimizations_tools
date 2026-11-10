@@ -54,8 +54,14 @@ else; the log file still gets every line. Exit codes, with or without `-Json`:
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 
-Two modes change nothing: `-Benchmark` measures timer resolution, latency (DPC and ISR), kernel call cost and boot
-time and compares with the previous benchmark; `-StartupReview` lists everything that starts with Windows.
+Two modes change nothing: `-Benchmark` and `-StartupReview`, which lists everything that starts with Windows.
+`-Benchmark` repeats each short measurement (timer, `Sleep(1)`, kernel call cost, a CPU loop) `-BenchmarkRuns` times
+(5) and reports median, minimum and maximum; it then samples the idle PC for `-BenchmarkIdleSeconds` (60): CPU use,
+the share of CPU time spent in DPCs and interrupts (a time share, not their latency), processes, running services
+and committed memory, plus the last boot times. It compares with the previous benchmark, or with a named one kept with
+`-BenchmarkBaseline before`, and refuses when the machine context differs (CPU, RAM, power source, virtual machine);
+settings the options change, such as VBS or the power plan, are listed instead. Results from a virtual machine are
+marked as not valid for performance.
 
 `tools\Explain-Processes.ps1` explains what is running and why, and changes nothing: the services inside each
 svchost, which vendor each process belongs to, which app started each WebView, and Keep / Manual / Remove advice

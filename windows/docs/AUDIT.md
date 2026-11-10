@@ -323,7 +323,7 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 
 | ID | Severity | Finding | Status |
 |---|---|---|---|
-| B-01 | High | The benchmark cannot support the performance claims | Open |
+| B-01 | High | The benchmark cannot support the performance claims | Fixed |
 | B-02 | High | Security controls are off by default with no per machine evidence of a gain | Rejected: kept by design |
 | B-03 | High | The timer service is on by default; on Windows 10 it likely does nothing, on Windows 11 it costs power all the time | Open |
 | B-04 | Medium | Hardware accelerated GPU scheduling is forced on inside the `Registry` bundle | Open |
