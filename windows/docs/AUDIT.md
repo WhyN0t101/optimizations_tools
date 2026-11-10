@@ -716,6 +716,13 @@ surface to test under 5.1 and 7 plus an elevated window that parses user input. 
 | U-09 | Defender flags or reverts hosts entries for Microsoft telemetry domains (`TelemetryHosts`) | VM health check after a restart |
 | U-10 | Native NVMe feature overrides are supported on client Windows 11 24H2 | Microsoft storage documentation |
 | U-11 | All statements about live behaviour of options, since no dry run or apply was executed in this audit | `tools/Test-InVm.ps1` |
+| U-12 | The management signals of the pre flight check: `EnrollmentState 1` with a `ProviderID` under `HKLM\SOFTWARE\Microsoft\Enrollments` means MDM, `CloudDomainJoin\JoinInfo` subkeys mean Entra ID, and a domain GPO has an LDAP `DSPath` under `Group Policy\History` (C-2, A-08) | A domain joined or Intune enrolled VM; an unmanaged one must not be refused |
+| U-13 | The browser updater task paths kept by A-03: `\MicrosoftEdgeUpdate*`, `\GoogleUpdateTask*`, `\GoogleSystem\GoogleUpdater\*`, `\Mozilla\Firefox Background Update*` | `Get-ScheduledTask` on a VM with Edge, Chrome and Firefox installed |
+| U-14 | `Checkpoint-Computer -WarningVariable` captures the 24 hour refusal text, and `root/default:SystemRestore` lists the new point with its DMTF time (A-07; resolves U-01 either way, but not observed) | Two runs within a day in the VM |
+| U-15 | `Win32_VideoController.DriverVersion` starts with the WDDM version (27 = WDDM 2.7) on current NVIDIA, AMD and Intel drivers (B-04) | `dxdiag` Driver Model against the driver version on real GPUs |
+| U-16 | The cost of one write-through journal flush per registry key on the device power step (thousands of values) is acceptable (A-01) | Time the Device power saving step in the VM |
+| U-17 | The provenance attestation step works and `gh attestation verify` accepts the release files (A-10); the release workflow only runs on a tag push, which this work did not do | The next tagged release |
+| U-18 | `Win32_DeviceGuard.VirtualizationBasedSecurityStatus` and `Win32_ComputerSystem.HypervisorPresent` give the VBS and hypervisor state the benchmark records (B-01) | `-Benchmark` before and after `CoreIsolation` in the VM |
 
 ## Sources checked online
 
