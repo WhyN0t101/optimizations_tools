@@ -13,7 +13,7 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
        Set-ExecutionPolicy -Scope Process Bypass
 
 3. Pick a profile, or none for the maximum performance defaults:
-   `profiles\desktop-max.json` (desktop, all out), `profiles\laptop.json` (keeps security, battery life and Windows Update),
+   `profiles\desktop-max.json` (the defaults, plus the Best power mode for a desktop), `profiles\laptop.json` (keeps security, battery life and Windows Update),
    `profiles\privacy.json` (privacy first: keeps UAC, mitigations, core isolation, Windows Update, driver updates
    and the Defender and update tasks; Defender stays on with cloud sample submission off).
 4. See what it would do, then do it, then restart:

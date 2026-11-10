@@ -207,6 +207,11 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
 - `DepOff` removed (approved): turning Data Execution Prevention off gains no speed and needed Secure Boot off. A
   profile that names it is refused as an unknown option. `-Revert` still restores DEP from state files of runs that
   used it.
+- `desktop-max.json` now equals the no-profile defaults in every option, as the owner decided: the defaults are
+  the maximum performance set. It no longer enables `DisableHibernate` (off by default, so hibernation and Fast
+  Startup now stay on with this profile) or lists `KeepDefinitionUpdates` (on by default now). It still sets
+  `PowerMode Best`, the one setting the defaults leave alone because they also run on laptops. A test fails if the
+  profile and the defaults diverge in any other way.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and

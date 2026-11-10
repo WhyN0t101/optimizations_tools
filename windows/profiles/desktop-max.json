@@ -1,8 +1,5 @@
 {
-  "Enable": [
-    "DisableHibernate",
-    "KeepDefinitionUpdates"
-  ],
+  "Enable": [],
   "Skip": [],
   "TaskMode": "Delete",
   "Defender": "Keep",

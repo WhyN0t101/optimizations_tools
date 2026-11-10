@@ -51,6 +51,26 @@ informational only. Rows marked "Rejected: kept by design" stay exactly as they 
 | C-4, C-6, C-8, C-9, C-10, C-11, C-12 | Deferred |
 | A-18 | Not in the approvals: left open |
 
+### Defaults after Batch 5, compared with 48a6b3f
+
+Option defaults (no profile), from `$OptionInfo` at `48a6b3f` and now:
+
+| Option | 48a6b3f | Now | Item |
+|---|---|---|---|
+| `KeepDefinitionUpdates` | off | on | A-13 |
+| `HardwareGpuScheduling` | part of `Registry` (on) | own option, on; skipped below WDDM 2.7 | B-04 |
+| `DepOff` | off | removed | approved removal |
+
+Parameter defaults (`TaskMode Delete`, `Defender Keep`, `PowerProfile High`, `PowerMode Keep`, `PauseDays 365`) are
+unchanged. Behaviour changed without a default changing: the timer service is skipped below build 22000 and on
+battery machines (B-03); memory compression is turned off only from 32 GB of RAM (B-05); `TaskMode Delete` keeps the
+Defender, System Restore, certificate and browser update tasks (A-03, not in the owner's expected list, so named here);
+a managed PC is refused unless `-AllowManaged` (C-2, A-08); a run without a restore point asks first (A-07).
+
+`desktop-max.json` against the no-profile defaults: every option is equal; the only other difference is
+`PowerMode Best`. Before, it also enabled `DisableHibernate` and listed `KeepDefinitionUpdates`; both lines are gone.
+`tests/Test-Parse.ps1` fails if the two diverge in any other way.
+
 ## Section A: correctness and recoverability
 
 ### Summary

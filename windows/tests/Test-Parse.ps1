@@ -156,12 +156,18 @@ function Get-EffectiveSettings([string]$Path) {
     Resolve-Options
     $e = [ordered]@{}
     foreach ($k in $OptionInfo.Keys) { $e[$k] = [string]$script:Opt[$k] }
-    foreach ($n in $settingNames) { $e[$n] = @(Get-Variable -Scope Script -Name $n -ValueOnly) -join ',' }
+    foreach ($n in $settingNames) { $v = Get-Variable -Scope Script -Name $n -ValueOnly; $e[$n] = @($v) -join ',' }
     return $e
 }
 $profilesDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'profiles'
 # A-12: the laptop profile keeps battery life and updates; tasks are deleted as on a desktop (the A-03 keeps make it safe).
 $laptop = Get-EffectiveSettings (Join-Path $profilesDir 'laptop.json')
+# The defaults are the maximum performance set, so desktop-max.json must give the same options. The one setting it
+# may add is the power mode overlay (Best), which the defaults leave alone because they also run on laptops.
+$defaults = Get-EffectiveSettings ''
+$desktop = Get-EffectiveSettings (Join-Path $profilesDir 'desktop-max.json')
+$diverge = @($defaults.Keys | Where-Object { $defaults[$_] -ne $desktop[$_] })
+Check 'desktop-max.json equals the no-profile defaults in every option; only PowerMode (Best) may differ' (($diverge -join ',') -eq 'PowerMode' -and $desktop['PowerMode'] -eq 'Best') ("differ: $(@($diverge | ForEach-Object { '{0}: default {1}, desktop-max {2}' -f $_, $defaults[$_], $desktop[$_] }) -join '; ')")
 Check 'laptop.json: power mode left alone, updates neither paused nor restricted, tasks deleted, security kept' ($laptop['PowerMode'] -eq 'Keep' -and $laptop['PauseUpdates'] -eq 'False' -and $laptop['SecurityUpdatesOnly'] -eq 'False' -and $laptop['TaskMode'] -eq 'Delete' -and $laptop['Uac'] -eq 'False' -and $laptop['SpectreMeltdownOff'] -eq 'False' -and $laptop['CoreIsolation'] -eq 'False' -and $laptop['TimerResolution'] -eq 'False')
 
 # A-15: option lists work as an array (typed at the prompt) and as one comma separated string (powershell -File).
