@@ -617,7 +617,10 @@ elevated account is the desktop account (exists). Block on managed devices unles
 "it did not stick" outcomes come from these states. *Needs:* one function and a JSON result. *Risk:* false blocks;
 keep each check overridable by name.
 
-**C-3 Evidence tier per option.** *What:* a third field in `$OptionInfo` (tier) and a fourth (cost), shown by
+**C-3 Evidence tier per option.** *Status: done in Batch 4; the tiers in `$OptionInfo` are authoritative. Where no
+vendor page could be confirmed on 10 Nov 2026 the tier is Folklore, which differs from the Section B table for
+`Debloat`, `HypervisorFeatures`, `NvidiaProfile`, `NvidiaReBar` and `WriteCacheFlushOff`; `TimerResolution` is
+Documented, not Measured, because the only measurement is from a VM (B-06).* *What:* a third field in `$OptionInfo` (tier) and a fourth (cost), shown by
 `-ListOptions` and written to `docs/OPTIONS.md` by `build.py`, with a source link for Measured and Documented
 entries. *Why:* users can choose on evidence; removes the gap between "maximum performance" and what is known.
 *Needs:* template data, `build.py` regex and table, a `Test-Parse` check that every option has a tier. *Risk:*

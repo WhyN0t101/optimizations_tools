@@ -74,7 +74,9 @@ SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. Use a profi
 per machine; `profiles/laptop.json` keeps the mitigations, core isolation and UAC and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.
 
-Every option, with its default and whether `-Revert` undoes it, is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
+Every option, with its default, whether `-Revert` undoes it and what evidence backs it (Documented with a link to
+the vendor page, Folklore, or n/a for options that are not about speed), is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
+The evidence column is information only: options are chosen for speed, less bloat, less telemetry and smoothness.
 That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
 
 Third party licence notices are in `NOTICE.md`.

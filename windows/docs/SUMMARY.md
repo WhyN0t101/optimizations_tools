@@ -166,6 +166,10 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   with `-Json` needs `-Force`. Exit codes are documented in the README and the help: 0 ok, 1 failures, 2 cancelled,
   3 pre flight refused, 4 state unreadable. Every exit after start up goes through one function. The smoke test
   passes `-AllowManaged`, since the hosted runner image may be joined to a directory.
+- C-3: every option carries an evidence tier and, when Documented, a link to the vendor page, shown by
+  `-ListOptions` and in `docs/OPTIONS.md`. The build fails when an option lacks a tier or a Documented one lacks a
+  link. Ten options are Documented, 31 Folklore, the rest n/a; none is Measured, since the only measurements so far
+  come from a VM. Tiers are information only and decide no default.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
