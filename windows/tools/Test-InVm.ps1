@@ -6,7 +6,10 @@
     Reverts the VM to a snapshot, copies FocusedTweaks.ps1 (and a profile) into it, and runs these stages there:
     Dry (dry run), Apply (real run, then a restart), Health (health check), Revert (-Revert with its revert check,
     then a restart). After each stage the console output, logs and result files are copied to
-    test-results\<time>\<stage> and a summary is printed.
+    test-results\<time>\<stage> and a summary is printed. Each stage also records what else happened in the guest
+    (Windows Update, restarts, crashed services, VMware Tools state) in guest-diag.txt. Benchmark stages run with
+    the VM's network unplugged. A stage survives VMware Tools dropping out for up to -BootTimeoutSeconds; when a
+    stage fails, whatever the guest has is still copied back.
 
     The VM needs VMware Tools, an Administrator account with a password that signs in automatically, and a
     snapshot taken on its desktop. See docs\VM-TESTING.md.
@@ -29,7 +32,8 @@ param(
     [string]$ScriptArgs = '',
     [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Revert', 'StartupReview')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Benchmark', 'Revert'),
     [string]$OutDir,
-    [int]$BootTimeoutSeconds = 600
+    [int]$BootTimeoutSeconds = 600,
+    [int]$StageTimeoutMinutes = 120
 )
 
 Set-StrictMode -Version Latest
@@ -141,16 +145,149 @@ Set-ItemProperty -Path $run -Name 'VMware User Process' -Value ('"' + $exe + '" 
     else { Write-Step 'VMware Tools autostart entry put back (RunKeys removed it)' }
 }
 
+# Copied into the guest once and run at the end of every stage (and after a failed one). Read only: it records what
+# else happened in the guest while the stage ran, so an update, a restart or a dead VMware Tools leaves evidence.
+$guestDiagScript = @'
+param([Parameter(Mandatory = $true)][string]$Out)
+$since = (Get-Date).AddHours(-3)
+$startFile = Join-Path $Out 'start.txt'
+if (Test-Path -LiteralPath $startFile) {
+    $since = [datetime]::Parse((Get-Content -LiteralPath $startFile -Raw).Trim(), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+}
+function Get-StageEvents([hashtable]$Filter) {
+    $Filter['StartTime'] = $since
+    return @(Get-WinEvent -FilterHashtable $Filter -ErrorAction SilentlyContinue)
+}
+$groups = [ordered]@{
+    'Windows Update' = Get-StageEvents @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WindowsUpdateClient' }
+    'Restarts and shutdowns' = Get-StageEvents @{ LogName = 'System'; Id = 41, 1074, 6005, 6006, 6008 }
+    'Service crashes' = Get-StageEvents @{ LogName = 'System'; ProviderName = 'Service Control Manager'; Id = 7031, 7034 }
+}
+$pending = @()
+if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $pending += 'Windows Update' }
+if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') { $pending += 'servicing' }
+if ($pending.Count -eq 0) { $pending = @('no') }
+$restarted = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime -gt $since
+$lines = [System.Collections.Generic.List[string]]::new()
+$lines.Add("SUMMARY: update events=$(@($groups['Windows Update']).Count); restart pending=$($pending -join '+'); restarted during stage=$restarted; service crashes=$(@($groups['Service crashes']).Count)")
+$lines.Add("Stage start (guest clock): $($since.ToString('o'))")
+$lines.Add('')
+$lines.Add('VMware Tools:')
+foreach ($s in @(Get-Service VMTools, VGAuthService -ErrorAction SilentlyContinue)) { $lines.Add("  service $($s.Name): $($s.Status), $($s.StartType)") }
+foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='vmtoolsd.exe'" -ErrorAction SilentlyContinue)) {
+    $o = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue
+    $lines.Add("  vmtoolsd.exe pid $($p.ProcessId) as $($o.Domain)\$($o.User), started $($p.CreationDate): $($p.CommandLine)")
+}
+foreach ($name in $groups.Keys) {
+    $events = @($groups[$name] | Sort-Object TimeCreated)
+    $lines.Add('')
+    $lines.Add("$name ($($events.Count)):")
+    foreach ($e in $events) {
+        $first = @($e.Message -split "`r?`n" | Where-Object { $_ -match '\S' } | Select-Object -First 1)
+        $lines.Add("  $($e.TimeCreated.ToString('HH:mm:ss')) id $($e.Id): $($first -join '')")
+    }
+}
+$lines | Set-Content -LiteralPath (Join-Path $Out 'guest-diag.txt') -Encoding UTF8
+'@
+
+function Get-GuestPackText {
+    # Guest code shared by the runner and the salvage script. Needs $out and $start: copies this stage's logs next to
+    # the console output, adds the diagnostics and zips everything for the host.
+    param([string]$Name)
+    @"
+Get-ChildItem -LiteralPath 'C:\ProgramData\FocusedTweaks' -File -ErrorAction SilentlyContinue |
+    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json', '.jsonl', '.txt' } |
+    Copy-Item -Destination `$out
+& '$guestDir\collect-diag.ps1' -Out `$out
+Compress-Archive -Path (Join-Path `$out '*') -DestinationPath '$guestDir\out-$Name.zip' -Force
+"@
+}
+
+function Test-GuestFile {
+    # $true or $false, or $null when the guest cannot answer (VMware Tools down, guest busy or restarting).
+    param([string]$Path)
+    $r = Invoke-Vmrun -Arguments @('fileExistsInGuest', $Vmx, $Path) -Guest -AllowFail
+    if ($r.Output -match 'does not exist') { return $false }
+    if ($r.Code -eq 0 -and $r.Output -match 'exists') { return $true }
+    return $null
+}
+
+function Wait-GuestTools {
+    # A busy or restarting guest can stop answering for a while. Returns $false if it does not come back in time.
+    param([string]$Path)
+    Write-Step "VMware Tools stopped answering; waiting up to $BootTimeoutSeconds s for it to come back"
+    $deadline = (Get-Date).AddSeconds($BootTimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 10
+        if ($null -ne (Test-GuestFile -Path $Path)) { Write-Step 'VMware Tools answers again'; return $true }
+    }
+    return $false
+}
+
+function Test-GuestRunnerAlive {
+    # $false only when the process list shows command lines and none of them is this stage's runner. When vmrun
+    # cannot list processes or shows no arguments, it cannot tell, so the stage keeps waiting (up to its timeout).
+    param([string]$Name)
+    $r = Invoke-Vmrun -Arguments @('listProcessesInGuest', $Vmx) -Guest -AllowFail
+    if ($r.Code -ne 0 -or $r.Output -notmatch 'cmd=.*\s-') { return $true }
+    return $r.Output -match [regex]::Escape("run-$Name.ps1")
+}
+
+function Receive-GuestZip {
+    param([string]$Name, [string]$Dest)
+    $zip = Join-Path $Dest 'out.zip'
+    $source = "$guestDir\out-$Name.zip"
+    $copy = Invoke-Vmrun -Arguments @('CopyFileFromGuestToHost', $Vmx, $source, $zip) -Guest -AllowFail
+    if ($copy.Code -ne 0 -and (Wait-GuestTools -Path $source)) {
+        $copy = Invoke-Vmrun -Arguments @('CopyFileFromGuestToHost', $Vmx, $source, $zip) -Guest -AllowFail
+    }
+    if ($copy.Code -ne 0) { return $copy.Output }
+    Expand-Archive -LiteralPath $zip -DestinationPath $Dest -Force
+    Remove-Item -LiteralPath $zip -Force
+    return $null
+}
+
+function Save-GuestSalvage {
+    # After a failed stage: packs whatever the guest has (console output so far, logs, diagnostics) without the
+    # desktop session, which may be gone.
+    param([string]$Name, [string]$Dest)
+    $salvage = Join-Path $OutDir "salvage-$Name.ps1"
+    @"
+`$out = '$guestDir\out\$Name'
+New-Item -ItemType Directory -Path `$out -Force | Out-Null
+`$start = (Get-Date).AddHours(-3)
+`$startFile = Join-Path `$out 'start.txt'
+if (Test-Path -LiteralPath `$startFile) {
+    `$start = [datetime]::Parse((Get-Content -LiteralPath `$startFile -Raw).Trim(), [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+}
+if (-not (Test-Path -LiteralPath (Join-Path `$out 'exitcode.txt'))) { Set-Content -LiteralPath (Join-Path `$out 'exitcode.txt') -Value 'none' }
+$(Get-GuestPackText -Name $Name)
+"@ | Set-Content -LiteralPath $salvage -Encoding ASCII
+    $steps = @(
+        { Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $salvage, "$guestDir\salvage-$Name.ps1") -Guest -AllowFail },
+        { Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\salvage-$Name.ps1") -Guest -AllowFail }
+    )
+    foreach ($step in $steps) {
+        $r = & $step
+        if ($r.Code -ne 0) { Write-Step "Could not collect results from the guest: $($r.Output)"; return }
+    }
+    $err = Receive-GuestZip -Name $Name -Dest $Dest
+    if ($err) { Write-Step "Could not copy the collected results: $err" }
+    else { Write-Step "Collected what the guest had into $Dest" }
+}
+
 function Invoke-GuestStage {
     param([string]$Name, [string]$Arguments)
     $runner = Join-Path $OutDir "run-$Name.ps1"
-    $zipGuest = "$guestDir\out-$Name.zip"
-    # The runner keeps all quoting inside one PowerShell file, so lists such as -Only A,B work.
+    $done = "$guestDir\done-$Name.txt"
+    # The runner keeps all quoting inside one PowerShell file, so lists such as -Only A,B work. It is started without
+    # waiting and writes a marker when it is done, so a short VMware Tools outage does not lose the stage.
     @"
-`$start = Get-Date
 `$out = '$guestDir\out\$Name'
 Remove-Item -LiteralPath `$out -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path `$out -Force | Out-Null
+`$start = Get-Date
+Set-Content -LiteralPath (Join-Path `$out 'start.txt') -Value `$start.ToString('o')
 `$code = 0
 try {
     & '$guestDir\FocusedTweaks.ps1' $Arguments *> (Join-Path `$out 'console.txt')
@@ -160,25 +297,66 @@ catch {
     Add-Content -LiteralPath (Join-Path `$out 'console.txt') -Value ('SCRIPT STOPPED: ' + `$_.Exception.Message)
     `$code = 99
 }
-Get-ChildItem -LiteralPath 'C:\ProgramData\FocusedTweaks' -File -ErrorAction SilentlyContinue |
-    Where-Object { `$_.LastWriteTime -ge `$start -and `$_.Extension -in '.log', '.json', '.jsonl', '.txt' } |
-    Copy-Item -Destination `$out
 Set-Content -LiteralPath (Join-Path `$out 'exitcode.txt') -Value `$code
-Compress-Archive -Path (Join-Path `$out '*') -DestinationPath '$zipGuest' -Force
+$(Get-GuestPackText -Name $Name)
+Set-Content -LiteralPath '$done' -Value `$code
 exit `$code
 "@ | Set-Content -LiteralPath $runner -Encoding ASCII
     [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $runner, "$guestDir\run-$Name.ps1") -Guest)
     Write-Step "Stage $Name in the VM: FocusedTweaks.ps1 $Arguments"
-    $run = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, '-activeWindow', '-interactive', $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\run-$Name.ps1") -Guest -AllowFail
+    $launch = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, '-noWait', '-activeWindow', '-interactive', $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\run-$Name.ps1") -Guest -AllowFail
+    $problem = $null
+    if ($launch.Code -ne 0) { $problem = "it did not start ($($launch.Output))" }
+    $deadline = (Get-Date).AddMinutes($StageTimeoutMinutes)
+    $polls = 0
+    $checkRunner = $false
+    while (-not $problem) {
+        Start-Sleep -Seconds 15
+        $polls++
+        $state = Test-GuestFile -Path $done
+        if ($state -eq $true) { break }
+        if ($null -eq $state) {
+            if (-not (Wait-GuestTools -Path $done)) { $problem = "VMware Tools did not answer again within $BootTimeoutSeconds s" }
+            $checkRunner = $true   # the guest may have restarted, which ends the runner
+            continue
+        }
+        if ((Get-Date) -gt $deadline) { $problem = "it ran longer than $StageTimeoutMinutes minutes"; break }
+        if ($checkRunner -or $polls % 4 -eq 0) {
+            $checkRunner = $false
+            if (-not (Test-GuestRunnerAlive -Name $Name) -and (Test-GuestFile -Path $done) -ne $true) {
+                $problem = 'its runner is no longer running in the guest (restart or sign out?)'
+            }
+        }
+    }
     $dest = Join-Path $OutDir $Name
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
-    $zip = Join-Path $dest 'out.zip'
-    $copy = Invoke-Vmrun -Arguments @('CopyFileFromGuestToHost', $Vmx, $zipGuest, $zip) -Guest -AllowFail
-    if ($copy.Code -ne 0) { throw "Stage $Name produced no results ($($run.Output)). Look in the VM, folder $guestDir." }
-    Expand-Archive -LiteralPath $zip -DestinationPath $dest -Force
-    Remove-Item -LiteralPath $zip -Force
+    if (-not $problem) {
+        $err = Receive-GuestZip -Name $Name -Dest $dest
+        if ($err) { $problem = "its results could not be copied ($err)" }
+    }
+    if ($problem) {
+        Write-Step "Stage $Name failed: $problem. Collecting what the guest has"
+        Save-GuestSalvage -Name $Name -Dest $dest
+        $null = Write-Summary
+        throw "Stage $Name failed: $problem. Results so far are in $dest (see guest-diag.txt). Look in the VM before reverting it: $guestDir\out\$Name and the System event log."
+    }
     $code = (Get-Content -LiteralPath (Join-Path $dest 'exitcode.txt') -Raw).Trim()
     Write-Step "Stage $Name finished with exit code $code. Results: $dest"
+}
+
+$nics = @(Select-String -LiteralPath $Vmx -Pattern '^\s*(ethernet\d+)\.present\s*=\s*"TRUE"' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+
+function Set-GuestNetwork {
+    # Benchmarks run offline so Windows Update, Store and Defender cloud traffic add no noise. This unplugs the
+    # virtual cable only; nothing inside Windows changes, so the script still sees the real update settings.
+    param([bool]$Connected)
+    $verb = 'disconnectNamedDevice'
+    if ($Connected) { $verb = 'connectNamedDevice' }
+    foreach ($nic in $nics) {
+        $r = Invoke-Vmrun -Arguments @($verb, $Vmx, $nic) -AllowFail
+        if ($r.Code -ne 0) { Write-Step "vmrun $verb $nic failed: $($r.Output)" }
+    }
+    if ($nics.Count -gt 0) { Write-Step ("VM network " + $(if ($Connected) { 'connected' } else { 'disconnected for the benchmark' })) }
 }
 
 function Get-StageJson {
@@ -194,13 +372,21 @@ function Write-Summary {
     foreach ($stageDir in @(Get-ChildItem -LiteralPath $OutDir -Directory | Sort-Object Name)) {
         $name = $stageDir.Name
         $dir = $stageDir.FullName
-        $code = (Get-Content -LiteralPath (Join-Path $dir 'exitcode.txt') -Raw).Trim()
+        $codeFile = Join-Path $dir 'exitcode.txt'
+        $code = 'none'
+        if (Test-Path -LiteralPath $codeFile) { $code = (Get-Content -LiteralPath $codeFile -Raw).Trim() }
         $errors = @(Get-ChildItem -Path (Join-Path $dir 'run-*.log') -ErrorAction SilentlyContinue | Select-String -SimpleMatch '[ERROR]')
         $lines.Add("$name`: exit code $code, $($errors.Count) error line(s) in the log")
         foreach ($e in ($errors | Select-Object -First 5)) { $lines.Add("    $($e.Line.Trim())") }
         if ($code -ne '0' -or $errors.Count -gt 0) { $bad = $true }
+        # Only worth a line when something else happened in the guest during the stage.
+        $diagFile = Join-Path $dir 'guest-diag.txt'
+        if (Test-Path -LiteralPath $diagFile) {
+            $diag = (Get-Content -LiteralPath $diagFile -TotalCount 1) -replace '^SUMMARY: ', ''
+            if ($diag -notmatch 'update events=0; restart pending=no; restarted during stage=False; service crashes=0') { $lines.Add("    guest: $diag (see guest-diag.txt)") }
+        }
         if ($name -like '*-Benchmark') {
-            foreach ($l in @(Get-Content -LiteralPath (Join-Path $dir 'console.txt') | Where-Object { $_ -match '\S' -and $_ -notmatch '^\d\d:\d\d:\d\d ' })) { $lines.Add("    $l") }
+            foreach ($l in @(Get-Content -LiteralPath (Join-Path $dir 'console.txt') -ErrorAction SilentlyContinue | Where-Object { $_ -match '\S' -and $_ -notmatch '^\d\d:\d\d:\d\d ' })) { $lines.Add("    $l") }
         }
         $health = Get-StageJson -Name $name -Kind 'health'
         if ($health) {
@@ -245,6 +431,9 @@ Write-Step "Copying the script into $guestDir"
 [void](Invoke-Vmrun -Arguments @('createDirectoryInGuest', $Vmx, $guestDir) -Guest -AllowFail)
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $scriptFile, "$guestDir\FocusedTweaks.ps1") -Guest)
 if ($ProfilePath) { [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, (Resolve-Path -LiteralPath $ProfilePath).Path, "$guestDir\profile.json") -Guest) }
+$diagFile = Join-Path $OutDir 'collect-diag.ps1'
+$guestDiagScript | Set-Content -LiteralPath $diagFile -Encoding ASCII
+[void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $diagFile, "$guestDir\collect-diag.ps1") -Guest)
 
 # Folders are numbered, so a stage can run twice (a benchmark before and after the run).
 $index = 0
@@ -253,7 +442,11 @@ foreach ($stage in $Stages) {
     $label = '{0:00}-{1}' -f $index, $stage
     switch ($stage) {
         'Dry' { Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
-        'Benchmark' { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
+        'Benchmark' {
+            Set-GuestNetwork -Connected $false
+            try { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
+            finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
+        }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
         'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }

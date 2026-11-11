@@ -12,7 +12,10 @@ with `vmrun`; nothing runs on the host.
    `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System` is missing or 0.
 4. Make it sign in on its own after a restart with Sysinternals Autologon (it stores the password encrypted).
    Username `Administrator`, Domain = the VM's `hostname`, then Enable.
-5. Restart once, wait for the desktop, and take a snapshot of the running VM named `ft-base`.
+5. Install every pending Windows update and restart until Settings shows nothing pending, so Windows Update has
+   almost nothing to do after each revert. Then restart once more, wait for the desktop, and take a snapshot of the
+   running VM named `ft-base`. Repeat this every month or two; an old snapshot means downloads, installs and maybe
+   a restart request in the middle of a test.
 
 Use a password for this VM only: `vmrun` receives it on its command line.
 
@@ -38,4 +41,15 @@ with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<number>-<stag
 `run-*.log`, `health-*.json`, `revert-check-*.json` and `state.json`. `summary.txt` lists errors, health warnings and
 values the revert did not bring back. The exit code is 1 when a stage failed or the health check reported a failure.
 
-The VM is left running in the state of the last stage, so you can look around. The next test reverts it anyway.
+Each stage folder also holds `guest-diag.txt`: Windows Update events, restarts, crashed services and the VMware Tools
+state during that stage. `summary.txt` mentions it when anything happened. Benchmark stages run with the VM's
+virtual network cable unplugged (nothing changes inside Windows), so update and cloud traffic add no noise; the other
+stages keep the network, because `Packages` needs it.
+
+Stages are started without waiting and the host polls for a done marker. If VMware Tools stops answering (busy or
+restarting guest), the test waits up to `-BootTimeoutSeconds` for it to return; a stage that runs longer than
+`-StageTimeoutMinutes` (120) fails. When a stage fails, whatever the guest has (console output so far, logs,
+diagnostics) is still copied back before the error.
+
+The VM is left running in the state of the last stage, so you can look around. After a failure, look before you
+revert: `C:\FT\out\<stage>` and the System event log. The next test reverts it anyway.
