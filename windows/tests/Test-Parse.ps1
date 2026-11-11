@@ -376,7 +376,7 @@ try {
     $mine = @($od.Uninstallers | Where-Object { $_.Path -like "$odTemp*" })
     $machineArgs = @($mine | Where-Object { $_.Path -like "$pf*" } | ForEach-Object { $_.Arguments -join ' ' })
     $userArgs = @($mine | Where-Object { $_.Path -like "$lad*" } | ForEach-Object { $_.Arguments -join ' ' })
-    Check 'RemoveOneDrive: a per user install and both uninstallers are found, the per machine one with /allusers' (@($od.Installed).Count -eq 1 -and $mine.Count -eq 2 -and $machineArgs[0] -eq '/uninstall /allusers' -and $userArgs[0] -eq '/uninstall')
+    Check 'RemoveOneDrive: a per user install is found; the uninstaller runs elevated only from Program Files (with /allusers), never from the user writable %LOCALAPPDATA%' (@($od.Installed).Count -eq 1 -and $mine.Count -eq 1 -and $machineArgs[0] -eq '/uninstall /allusers' -and $userArgs.Count -eq 0 -and @($od.Uninstallers | Where-Object { $_.Path -like "$lad*" }).Count -eq 0)
     Remove-Item -LiteralPath $odTemp -Recurse -Force
     & {
         function Get-OneDriveState { [pscustomobject]@{ Installed = @('C:\x\OneDrive.exe'); Uninstallers = @(); SignedIn = @('Personal') } }

@@ -2779,12 +2779,13 @@ function Get-OneDriveState {
     param([string]$LocalAppData = $env:LOCALAPPDATA, [string[]]$ProgramDirs = @($env:ProgramFiles, ${env:ProgramFiles(x86)}))
     $machineDirs = @($ProgramDirs | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft OneDrive' })
     $installed = @(@((Join-Path $LocalAppData 'Microsoft\OneDrive')) + $machineDirs | ForEach-Object { Join-Path $_ 'OneDrive.exe' } | Where-Object { Test-Path -LiteralPath $_ })
+    # This runs elevated, so uninstallers come only from folders that need administrator rights to write to: never
+    # the per user copy under %LOCALAPPDATA%, which any program running as the user could replace. The Windows stub
+    # below uninstalls a per user install as well.
     $uninstallers = [System.Collections.Generic.List[object]]::new()
-    foreach ($f in @(Get-ChildItem -Path (Join-Path $LocalAppData 'Microsoft\OneDrive\*\OneDriveSetup.exe') -ErrorAction SilentlyContinue)) { $uninstallers.Add([pscustomobject]@{ Path = $f.FullName; Arguments = @('/uninstall') }) }
     foreach ($d in $machineDirs) {
         foreach ($f in @(Get-ChildItem -Path (Join-Path $d '*\OneDriveSetup.exe') -ErrorAction SilentlyContinue)) { $uninstallers.Add([pscustomobject]@{ Path = $f.FullName; Arguments = @('/uninstall', '/allusers') }) }
     }
-    # The setup stub Windows ships can uninstall a per user copy as well.
     foreach ($f in @('System32', 'SysWOW64' | ForEach-Object { Join-Path $env:windir "$_\OneDriveSetup.exe" } | Where-Object { Test-Path -LiteralPath $_ })) { $uninstallers.Add([pscustomobject]@{ Path = $f; Arguments = @('/uninstall') }) }
     $accounts = @()
     $key = Open-RegKey -Full 'HKEY_CURRENT_USER\Software\Microsoft\OneDrive\Accounts'
