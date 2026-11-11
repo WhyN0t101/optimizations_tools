@@ -107,7 +107,10 @@ groups['SvcOther'] = [n for n in ds_names if n not in assigned]
 # Only services nothing usable depends on: contact and user data sync for the removed Mail/People apps, SSDP
 # discovery, Storage Spaces, and the built-in VPN client.
 groups['SvcExtra'] = ['PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc']
-order = ['SvcOther', 'SvcExtra', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+# Still running in a clean Windows 11 VM after a full run (11 Nov 2026, Explain-Processes before and after), chosen
+# by the owner: background helpers a home PC does not need. cbdhsvc and OneSyncSvc are per user templates.
+groups['SvcBackground'] = ['OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc']
+order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -244,7 +247,7 @@ OPTION_GROUPS = [
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryHosts', 'BiometricsPolicy', 'Cdp', 'RazerAsusHosts',
                                          'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcExtra', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),

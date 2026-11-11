@@ -241,6 +241,15 @@ After v7.5 (not yet run in the VM):
   (and per user copies) instead of disabling them. Each key is exported first and `-Revert` imports it again; the
   services are gone after the next restart. A Windows update may register a deleted service again. Disable stays
   the default because of that, and because the profiles must equal the defaults.
+- `SvcBackground` (on): a new service group with what still ran in a clean Windows 11 VM after a full run and that
+  a home PC does not need, chosen by the owner: `OneSyncSvc` (Mail and Calendar sync), `PcaSvc` (Program
+  Compatibility Assistant), `TrkWks` (link tracking), `InventorySvc` (app inventory), `iphlpsvc` (IP Helper; WSL
+  localhost forwarding uses it), `LanmanServer` (file sharing from this PC) and `cbdhsvc` (clipboard history).
+- VM test of 11 Nov 2026 on a freshly installed VM (the old snapshot had been retaken after earlier runs): every
+  stage exit code 0, health 0 failed, revert 1,278 values with 0 differences. Processes 125 to 99, running services
+  87 to 73, committed memory 1,806 to 1,551 MB. With both benchmarks idle, kernel call cost and the CPU loop did not
+  change (VM), interrupts per second rose 68 % from the timer service. A clean Windows 11 has System Protection off,
+  so the restore point failed.
 - `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
   writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
 

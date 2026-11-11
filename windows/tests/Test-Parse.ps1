@@ -48,6 +48,7 @@ Check 'Excluded by default: core isolation, lock, sleep, hibernate groups map to
 
 $conflicts = @(); foreach ($g in $ServiceGroups.Keys) { if (-not $OptionInfo.Contains($g)) { $conflicts += $g } }
 Check 'Every service group has an option' ($conflicts.Count -eq 0) ($conflicts -join ', ')
+Check 'SvcBackground is on by default and holds the seven background helpers the owner chose' ($OptionInfo['SvcBackground'][0] -and ((@($ServiceGroups['SvcBackground']) | Sort-Object) -join ',') -eq 'cbdhsvc,InventorySvc,iphlpsvc,LanmanServer,OneSyncSvc,PcaSvc,TrkWks')
 Check 'Bluetooth, printing and radio services are kept by default' (-not $OptionInfo['SvcBluetooth'][0] -and -not $OptionInfo['SvcPrinting'][0] -and -not $OptionInfo['SvcRadio'][0])
 Check 'Delivery Optimization and core isolation are disabled by default (maximum performance)' ($OptionInfo['SvcDeliveryOpt'][0] -and $OptionInfo['CoreIsolation'][0])
 Check 'Hard floor: SSD retrim, automatic maintenance and display scaling are left alone by default' (-not $OptionInfo['SvcDefrag'][0] -and -not $OptionInfo['NoAutoMaintenance'][0] -and -not $OptionInfo['ForceDpi100'][0])
