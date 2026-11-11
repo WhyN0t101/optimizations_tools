@@ -230,7 +230,8 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   `GameDVR_Enabled` (Game Bar sets it), the USB 3 root hub idle value (its driver saves it; also seen on 8 Nov) and
   the Update Orchestrator tasks (UsoSvc disabled `Schedule Work` again four minutes after the revert enabled it).
 
-After v7.5 (not yet run in the VM):
+v7.6 (the VM run of 11 Nov 2026 covered OneDrive, Edge and the process snapshots; SvcBackground and NoAutoUpdate
+have not run in the VM yet):
 - `RemoveOneDrive` (on): uninstalls OneDrive (per user and per machine installs) and sets the `DisableFileSyncNGSC`
   policy so it does not set itself up again. When an account is signed in it changes nothing and says why: files
   that live only in the cloud would become unreachable. `-Revert` lifts the policy; OneDrive itself comes back with
@@ -250,6 +251,11 @@ After v7.5 (not yet run in the VM):
   87 to 73, committed memory 1,806 to 1,551 MB. With both benchmarks idle, kernel call cost and the CPU loop did not
   change (VM), interrupts per second rose 68 % from the timer service. A clean Windows 11 has System Protection off,
   so the restore point failed.
+- `PauseUpdates` also sets the documented policy `NoAutoUpdate 1`: no automatic update checks, downloads or installs
+  until `-Revert` (it does not expire like the pause). The Update Orchestrator turns its Schedule Scan and Schedule
+  Work tasks back on at every start (seen in the VM on 11 Nov 2026), so disabling them never held; with the policy
+  they do nothing, and the health check notes them instead of warning. Check for updates in Settings still works,
+  and Defender definitions still arrive.
 - `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
   writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
 

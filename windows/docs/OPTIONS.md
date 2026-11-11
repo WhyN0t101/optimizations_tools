@@ -107,7 +107,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 |---|---|---|---|---|
 | `DriverExclusion` | on | yes | n/a | Exclude drivers from Windows Update and stop device metadata downloads |
 | `SecurityUpdatesOnly` | on | yes | n/a | Upstream update block: long deferrals plus excluded update classifications |
-| `PauseUpdates` | on | yes | n/a | Pause updates for -PauseDays and set update services to Manual |
+| `PauseUpdates` | on | yes | [Documented](https://learn.microsoft.com/en-us/windows/deployment/update/waas-wu-settings) | Pause updates for -PauseDays, turn off automatic update checks until -Revert (NoAutoUpdate policy; Check for updates still works) and set update services to Manual |
 | `PauseStopsUpdateTasks` | on | yes | n/a | While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks |
 | `KeepDefinitionUpdates` | on | yes | n/a | Leave Defender definition updates out of the excluded classifications, so Defender keeps current signatures |
 | `BlockFeatureUpgrades` | off | yes | n/a | Stay on the current Windows version (TargetReleaseVersion). Security updates continue until it ends |

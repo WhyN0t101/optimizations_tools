@@ -187,7 +187,7 @@ $OptionInfo = [ordered]@{
     SvcRadio              = @($false, 'Disable Radio Management (airplane mode and radio toggles). Off, it supports Bluetooth', 'Folklore', '')
     DriverExclusion       = @($true, 'Exclude drivers from Windows Update and stop device metadata downloads', 'n/a', '')
     SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications', 'n/a', '')
-    PauseUpdates          = @($true, 'Pause updates for -PauseDays and set update services to Manual', 'n/a', '')
+    PauseUpdates          = @($true, 'Pause updates for -PauseDays, turn off automatic update checks until -Revert (NoAutoUpdate policy; Check for updates still works) and set update services to Manual', 'Documented', 'https://learn.microsoft.com/en-us/windows/deployment/update/waas-wu-settings')
     PauseStopsUpdateTasks = @($true, 'While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks', 'n/a', '')
     KeepDefinitionUpdates = @($true, 'Leave Defender definition updates out of the excluded classifications, so Defender keeps current signatures', 'n/a', '')
     RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file', 'n/a', '')
@@ -2130,6 +2130,14 @@ $EdgeBackgroundRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'BackgroundModeEnabled' 0 'DWord'
 )
 
+# While updates are paused: no automatic checks, downloads or installs. The Update Orchestrator registers and enables
+# its Schedule Scan and Schedule Work tasks again at every start, so disabling them does not hold; this documented
+# policy makes them do nothing instead. Unlike the pause it does not expire: it stays until -Revert. Checking for
+# updates by hand in Settings still works, and Defender definitions still arrive.
+$NoAutoUpdateRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 1 'DWord'
+)
+
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
 $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
@@ -3836,9 +3844,10 @@ function Set-UpdatePolicies {
             if ($t.Name -in 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdatesPeriodInDays') { $v = $deferDays }
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
+        Set-TweakList $NoAutoUpdateRegs
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
         if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
-        if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays). Security patches are delayed for that period." 'WARN' }
+        if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), and automatic update checks are off until -Revert (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
     }
 }
 
@@ -5237,7 +5246,7 @@ function Get-LaterOverrideKeys {
     if ($Opt['BiometricsPolicy']) { $tables += $BiometricsRegs }
     if ($Opt['DriverExclusion']) { $tables += $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) { $tables += $SecurityUpdatesRegs }
-    if ($Opt['PauseUpdates']) { $tables += $PauseRegs }
+    if ($Opt['PauseUpdates']) { $tables += $PauseRegs; $tables += $NoAutoUpdateRegs }
     foreach ($t in $tables) { [void]$set.Add((ConvertTo-FullRegPath $t.Path) + '|' + $t.Name) }
     if ($Opt['MouseAccel']) {
         foreach ($p in 'HKEY_CURRENT_USER\Control Panel\Mouse', 'HKEY_USERS\.DEFAULT\Control Panel\Mouse') {
@@ -5308,6 +5317,7 @@ function Test-HealthRegistry {
             New-Tweak $t.Path $t.Name $v $t.Type
         }
         Test-HealthTweakTable -Label 'Update pause policy' -Tweaks @($effective)
+        Test-HealthTweakTable -Label 'Automatic update checks off' -Tweaks $NoAutoUpdateRegs
     }
     if ($Opt['DefenderQuiet']) { Test-HealthTweakTable -Label 'Quiet Defender policy' -Tweaks $DefenderQuietRegs }
     if ($Opt['SpectreMeltdownOff']) { Test-HealthTweakTable -Label 'Spectre and Meltdown mitigations off' -Tweaks $MitigationRegs }
@@ -5404,8 +5414,11 @@ function Test-HealthTasks {
     if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) {
         $active = @()
         foreach ($p in $UpdateTaskPaths) { $active += @(Get-ScheduledTask -TaskPath $p -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object { $_.TaskName }) }
+        $noAuto = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoUpdate'
+        $list = (@($active) | Select-Object -First 4) -join ', '
         if ($active.Count -eq 0) { Write-Health 'PASS' 'Tasks' 'Update Orchestrator, WaaSMedic and Windows Update tasks are disabled or gone.' }
-        else { Write-Health 'WARN' 'Tasks' "$($active.Count) update task(s) are still active: $((@($active) | Select-Object -First 4) -join ', ')." }
+        elseif ($noAuto.Existed -and [int]$noAuto.Value -eq 1) { Write-Health 'INFO' 'Tasks' "$($active.Count) update task(s) are active again ($list): the Update Orchestrator turns them back on at every start. With automatic updates off (NoAutoUpdate) they no longer scan, download or install." }
+        else { Write-Health 'WARN' 'Tasks' "$($active.Count) update task(s) are still active: $list." }
     }
 }
 
@@ -5993,7 +6006,8 @@ function Get-PolicyTweaks {
     }
     $tables = [ordered]@{
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
-        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = $PauseRegs; DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+        EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs
     }
     foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
     if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
