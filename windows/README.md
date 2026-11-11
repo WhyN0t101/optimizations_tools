@@ -83,7 +83,10 @@ The defaults aim for maximum performance: Spectre and Meltdown mitigations off, 
 timer resolution service on, non-essential services off, apps removed. Things are removed or left alone,
 never half done. A few things are always left alone because removing them gains no speed or costs it:
 SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. `TaskMode Delete` also keeps the Defender,
-System Restore, certificate and browser update tasks, so protection and updates keep running. Use a profile to relax the defaults
+System Restore, certificate and browser update tasks, so protection and updates keep running. OneDrive is
+uninstalled unless an account is signed in to it, and Edge no longer starts at sign in or stays in the background
+once closed. Service groups are disabled by default; `-ServiceMode Delete` (or `"ServiceMode": "Delete"` in a
+profile) deletes those services instead, after exporting each one so `-Revert` brings it back. Use a profile to relax the defaults
 per machine; `profiles/laptop.json` keeps the mitigations, core isolation, UAC, the power mode and Windows Update
 (no pause, no update restriction) and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.

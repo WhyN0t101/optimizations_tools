@@ -32,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Get-Stats', 'Test-VirtualMachine', 'Get-BenchmarkComparison', 'Get-ActivePlanName', 'Test-BenchmarkBusy', 'Get-BootTimesSinceBoot', 'Test-WindowsRewritten', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Get-Stats', 'Test-VirtualMachine', 'Get-BenchmarkComparison', 'Get-ActivePlanName', 'Test-BenchmarkBusy', 'Get-BootTimesSinceBoot', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$BenchmarkBusyPercent', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$BenchmarkBusyPercent', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -147,7 +147,7 @@ foreach ($file in @(Get-ChildItem -Path (Join-Path (Split-Path $PSScriptRoot -Pa
 # with the defaults of the param block for anything the profile leaves out. No profile means the plain defaults.
 $paramDefaults = @{}
 foreach ($p in $ast.ParamBlock.Parameters) { if ($p.DefaultValue) { $paramDefaults[$p.Name.VariablePath.UserPath] = Invoke-Expression $p.DefaultValue.Extent.Text } }
-$settingNames = 'TaskMode', 'Defender', 'PowerProfile', 'PowerMode', 'PauseDays', 'SkipRegGroup', 'TaskKeep'
+$settingNames = 'TaskMode', 'ServiceMode', 'Defender', 'PowerProfile', 'PowerMode', 'PauseDays', 'SkipRegGroup', 'TaskKeep'
 function Get-EffectiveSettings([string]$Path) {
     foreach ($n in @('Enable', 'Skip', 'Only') + $settingNames) { Set-Variable -Scope Script -Name $n -Value $paramDefaults[$n] }
     $script:BoundNames = @(); $script:CommandLineNames = @(); $script:ProfileNames = @(); $script:ProfilePath = $Path
@@ -351,6 +351,40 @@ try {
     Check 'Revert: every export is imported and the oldest wins where they overlap' ((& $back 'First') -eq 'first.exe' -and (& $back 'Second') -eq 'second.exe' -and (& $back 'Shared') -eq 'original')
     $deleteLines = @(Get-JournalLines | Where-Object { $_.Op -eq 'Change' -and $_.Kind -eq 'RegistryKey' })
     Check 'Journal: each key deletion names its export as the value before' ($deleteLines.Count -eq 2 -and $deleteLines[0].Before -eq $files[0] -and $deleteLines[1].Before -eq $files[1])
+
+    # -ServiceMode Delete, against a scratch services root: the service and its per user copies go, a service whose
+    # name only starts the same stays, and only the deleted one counts as deleted by the run.
+    Reset-TestState
+    $realServicesRoot = $ServicesRoot
+    $ServicesRoot = "$scratch\Services"
+    foreach ($k in 'FakeSvc', 'FakeSvc_1a2b3c', 'FakeSvcOther') { Write-RegRaw -Full "$ServicesRoot\$k" -Name 'Start' -Value 3 -Kind 'DWord' }
+    Remove-ServiceKey -Name 'FakeSvc'
+    Remove-ServiceKey -Name 'NoSuchSvc'
+    Check 'ServiceMode Delete: the service and its per user copies are exported and deleted, a similar name stays' ($null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc") -and $null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c") -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvcOther") -and $script:State.KeyBackups.Count -eq 2 -and $script:Failures -eq 0 -and @($script:LogLines | Where-Object { $_ -eq '[INFO] Service not present: NoSuchSvc' }).Count -eq 1)
+    Check 'ServiceMode Delete: the health check counts only services this run deleted' ((Test-ServiceKeyDeletedByRun 'FakeSvc') -and -not (Test-ServiceKeyDeletedByRun 'FakeSvcOther') -and -not (Test-ServiceKeyDeletedByRun 'NoSuchSvc'))
+    Restore-KeyBackups
+    Check 'ServiceMode Delete: -Revert brings the deleted service keys back' ([int](Get-RegSnapshot -Full "$ServicesRoot\FakeSvc" -Name 'Start').Value -eq 3 -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c"))
+    $ServicesRoot = $realServicesRoot
+
+    # RemoveOneDrive: installs and uninstallers are found per user and per machine; with an account signed in it is
+    # gone or kept, never half: nothing changes, not even the policy, and the log says why.
+    $odTemp = Join-Path ([IO.Path]::GetTempPath()) ('ft-od-' + [guid]::NewGuid().ToString('N'))
+    $lad = Join-Path $odTemp 'Local'; $pf = Join-Path $odTemp 'PF'
+    New-Item -ItemType Directory -Force -Path (Join-Path $lad 'Microsoft\OneDrive\25.1.0'), (Join-Path $pf 'Microsoft OneDrive\25.2.0') | Out-Null
+    foreach ($f in (Join-Path $lad 'Microsoft\OneDrive\OneDrive.exe'), (Join-Path $lad 'Microsoft\OneDrive\25.1.0\OneDriveSetup.exe'), (Join-Path $pf 'Microsoft OneDrive\25.2.0\OneDriveSetup.exe')) { Set-Content -LiteralPath $f -Value '' }
+    $od = Get-OneDriveState -LocalAppData $lad -ProgramDirs @($pf, '')
+    $mine = @($od.Uninstallers | Where-Object { $_.Path -like "$odTemp*" })
+    $machineArgs = @($mine | Where-Object { $_.Path -like "$pf*" } | ForEach-Object { $_.Arguments -join ' ' })
+    $userArgs = @($mine | Where-Object { $_.Path -like "$lad*" } | ForEach-Object { $_.Arguments -join ' ' })
+    Check 'RemoveOneDrive: a per user install and both uninstallers are found, the per machine one with /allusers' (@($od.Installed).Count -eq 1 -and $mine.Count -eq 2 -and $machineArgs[0] -eq '/uninstall /allusers' -and $userArgs[0] -eq '/uninstall')
+    Remove-Item -LiteralPath $odTemp -Recurse -Force
+    & {
+        function Get-OneDriveState { [pscustomobject]@{ Installed = @('C:\x\OneDrive.exe'); Uninstallers = @(); SignedIn = @('Personal') } }
+        function Set-TweakList { $script:odPolicy = $true }
+        $script:odPolicy = $false; $script:LogLines.Clear()
+        Remove-OneDrive
+        Check 'RemoveOneDrive: with an account signed in nothing changes, not even the policy, and the log says why' (-not $script:odPolicy -and @($script:LogLines | Where-Object { $_ -like '`[WARN`] OneDrive kept: an account is signed in (Personal)*' }).Count -eq 1)
+    }
 
     # Migration: a version 1 state file (v7.4 and older, no journal) loads without loss and is saved as version 2.
     Reset-TestState

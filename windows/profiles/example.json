@@ -2,6 +2,7 @@
   "Enable": ["TimerResolution", "MpoOff"],
   "Skip": ["Packages", "MenuRestartExplorer"],
   "TaskMode": "Disable",
+  "ServiceMode": "Disable",
   "PowerProfile": "High",
   "PowerMode": "Keep",
   "PauseDays": 60,

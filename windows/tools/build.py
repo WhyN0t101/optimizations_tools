@@ -232,7 +232,7 @@ print('mouse scales', [c[0] for c in cases])
 
 # 7. docs/OPTIONS.md, generated from $OptionInfo so the option reference cannot drift from the script.
 OPTION_GROUPS = [
-    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
+    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'EdgeBackground', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
                   'NvidiaTelemetryStrip']),
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
@@ -260,6 +260,7 @@ NOT_REVERTED = {
     'Packages': 'no, installed software stays',
     'Debloat': 'no, reinstall apps from the Store or winget',
     'RemoveQuickAssist': 'no, add it back with Add-WindowsCapability',
+    'RemoveOneDrive': 'the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive',
     'NvidiaTelemetryStrip': 'no, reinstall the driver',
     'FaultTolerantHeap': 'no',
     'Cdp': 'services yes; the cache folder is deleted (Windows rebuilds it)',
@@ -302,6 +303,7 @@ for title, group in OPTION_GROUPS:
 md += ['## Other settings', '',
        '| Parameter | Values | Default | What it does |', '|---|---|---|---|',
        '| `-TaskMode` | Delete, Disable, None | Delete | Delete scheduled tasks (backed up; time sync, retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks are kept), disable 12 telemetry tasks, or leave them |',
+       '| `-ServiceMode` | Disable, Delete | Disable | What the service group options do: disable the services, or delete them (each key is exported first and `-Revert` brings it back; gone after a restart; a Windows update may register one again) |',
        '| `-Defender` | Keep, Disable, Enable | Keep | Defender real time protection |',
        '| `-PowerProfile` | Off, Medium, High | High | Custom power plan |',
        '| `-PowerMode` | Keep, Balanced, Best | Keep | Windows power mode overlay |',

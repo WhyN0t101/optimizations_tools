@@ -230,6 +230,20 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   `GameDVR_Enabled` (Game Bar sets it), the USB 3 root hub idle value (its driver saves it; also seen on 8 Nov) and
   the Update Orchestrator tasks (UsoSvc disabled `Schedule Work` again four minutes after the revert enabled it).
 
+After v7.5 (not yet run in the VM):
+- `RemoveOneDrive` (on): uninstalls OneDrive (per user and per machine installs) and sets the `DisableFileSyncNGSC`
+  policy so it does not set itself up again. When an account is signed in it changes nothing and says why: files
+  that live only in the cloud would become unreachable. `-Revert` lifts the policy; OneDrive itself comes back with
+  `winget install Microsoft.OneDrive`.
+- `EdgeBackground` (on): the Edge policies `StartupBoostEnabled 0` and `BackgroundModeEnabled 0`, so Edge no longer
+  starts processes at sign in or keeps them after its last window closes. Edge then says it is managed.
+- `-ServiceMode Disable|Delete` (default Disable): with Delete, the service group options delete their services
+  (and per user copies) instead of disabling them. Each key is exported first and `-Revert` imports it again; the
+  services are gone after the next restart. A Windows update may register a deleted service again. Disable stays
+  the default because of that, and because the profiles must equal the defaults.
+- `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
+  writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
+
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
 console colours, Task Manager always on top, DDU and Safe Mode cleaning.

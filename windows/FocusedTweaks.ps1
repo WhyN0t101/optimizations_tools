@@ -86,6 +86,7 @@ param(
     [string[]]$Only = @(),
     [string[]]$SkipRegGroup = @(),
     [ValidateSet('Delete', 'Disable', 'None')][string]$TaskMode = 'Delete',
+    [ValidateSet('Disable', 'Delete')][string]$ServiceMode = 'Disable',
     [string[]]$TaskKeep = @(),
     [ValidateSet('Keep', 'Disable', 'Enable')][string]$Defender = 'Keep',
     [ValidateSet('Off', 'Medium', 'High')][string]$PowerProfile = 'High',
@@ -198,6 +199,8 @@ $OptionInfo = [ordered]@{
     NoAutoMaintenance     = @($false, 'Turn off Windows automatic maintenance (upstream group). Off: it runs SSD retrim, and only when idle', 'Folklore', '')
     NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access', 'n/a', '')
     RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert', 'n/a', '')
+    RemoveOneDrive        = @($true, 'Uninstall OneDrive and block it by policy. Skipped while an account is signed in; files in the OneDrive folder stay on disk. Not reversible by -Revert', 'n/a', '')
+    EdgeBackground        = @($true, 'Stop Edge running in the background: no startup boost, no background apps once it is closed (policy; Edge then says it is managed)', 'Documented', 'https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies#startupboostenabled')
     LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
     HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)', 'n/a', '')
@@ -254,7 +257,7 @@ function Import-RunProfile {
     if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) { throw "Profile not found: $ProfilePath" }
     $data = Get-Content -LiteralPath $ProfilePath -Raw | ConvertFrom-Json
     $lists = 'Enable', 'Skip', 'Only', 'SkipRegGroup', 'TaskKeep'
-    $choices = @{ TaskMode = @('Delete', 'Disable', 'None'); Defender = @('Keep', 'Disable', 'Enable'); PowerProfile = @('Off', 'Medium', 'High'); PowerMode = @('Keep', 'Balanced', 'Best') }
+    $choices = @{ TaskMode = @('Delete', 'Disable', 'None'); ServiceMode = @('Disable', 'Delete'); Defender = @('Keep', 'Disable', 'Enable'); PowerProfile = @('Off', 'Medium', 'High'); PowerMode = @('Keep', 'Balanced', 'Best') }
     foreach ($prop in $data.PSObject.Properties) {
         $name = $prop.Name
         if ($BoundNames -contains $name) { continue }
@@ -285,6 +288,7 @@ function Resolve-Options {
         $keep = { param($n) ($CommandLineNames -contains $n) -or (-not $typed -and $ProfileNames -contains $n) }
         foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = $false }
         if (-not (& $keep 'TaskMode')) { $script:TaskMode = 'None' }
+        if (-not (& $keep 'ServiceMode')) { $script:ServiceMode = 'Disable' }
         if (-not (& $keep 'PowerProfile')) { $script:PowerProfile = 'Off' }
         if (-not (& $keep 'PowerMode')) { $script:PowerMode = 'Keep' }
         if (-not (& $keep 'Defender')) { $script:Defender = 'Keep' }
@@ -310,7 +314,8 @@ if ($ListOptions) {
     Write-Host 'Evidence: Documented (a vendor page describes the mechanism, sources in docs\OPTIONS.md), Folklore (no measurement), n/a (not about speed).'
     Write-Host ''
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
-    Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
+    Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -ServiceMode Disable|Delete (default Disable),'
+    Write-Host '-Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
@@ -2116,6 +2121,18 @@ $PowerOverlayNames = @{
     'ded574b5-45a0-4f42-8737-46345c09c238' = 'OVERLAY_SCHEME_MAX'
 }
 
+# Edge in the background: startup boost starts Edge processes at sign in, background mode keeps them after the last
+# window closes. Both are Microsoft Edge policies that apply without a domain.
+$EdgeBackgroundRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'StartupBoostEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'BackgroundModeEnabled' 0 'DWord'
+)
+
+# OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
+$OneDriveRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
+)
+
 # Lock screen off (from ZOICWARE, optional tweaks).
 $LockScreenRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'
@@ -3513,15 +3530,45 @@ function Set-ServiceStart {
     }
 }
 
+$ServicesRoot = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services'
+
+function Remove-ServiceKey {
+    # -ServiceMode Delete: the service is gone after the next restart. Its key, and the keys of its per user copies
+    # (Name_xxxxx), are exported first by Remove-RegKey, so -Revert brings them back (also after a restart).
+    param([Parameter(Mandatory)][string]$Name)
+    $root = Open-RegKey -Full $ServicesRoot
+    if (-not $root) { return }
+    try { $keys = @($root.GetSubKeyNames() | Where-Object { $_ -ieq $Name -or $_ -like "${Name}_*" }) } finally { $root.Close() }
+    if (@($keys | Where-Object { $_ -ieq $Name }).Count -eq 0) { Write-Log "Service not present: $Name"; return }
+    if (-not $script:DryRun) {
+        foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
+            if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) did not stop within 30 s; it is gone after the next restart anyway." }
+        }
+    }
+    foreach ($k in $keys) { Remove-RegKey -Path "$ServicesRoot\$k" }
+}
+
+function Test-ServiceKeyDeletedByRun {
+    # A missing service key counts as done only when this script deleted it (it holds the export).
+    param([string]$Name)
+    $path = "$ServicesRoot\$Name"
+    return @($script:State.KeyBackups | Where-Object { $_.Path -ieq $path }).Count -gt 0
+}
+
 function Disable-ServiceGroups {
     foreach ($g in $ServiceGroups.Keys) {
         if (-not $Opt[$g]) { Write-Log "Services kept (option $g is off): $($ServiceGroups[$g] -join ', ')" }
     }
+    if ($ServiceMode -eq 'Delete') { Write-Log 'Service mode Delete: the services below are deleted (their keys are exported first) and are gone after the next restart. A Windows update may register one again.' 'WARN' }
     $done = @()
     foreach ($g in $ServiceGroups.Keys) {
         if (-not $Opt[$g]) { continue }
         $script:JournalOption = $g
-        foreach ($name in $ServiceGroups[$g]) { if ($done -notcontains $name) { Set-ServiceStart -Name $name -Mode Disabled; $done += $name } }
+        foreach ($name in $ServiceGroups[$g]) {
+            if ($done -contains $name) { continue }
+            if ($ServiceMode -eq 'Delete') { Remove-ServiceKey -Name $name } else { Set-ServiceStart -Name $name -Mode Disabled }
+            $done += $name
+        }
     }
 }
 
@@ -4234,6 +4281,58 @@ function Remove-QuickAssist {
     }
     if ($removed -eq 0) { Write-Log 'Quick Assist was not found, nothing to remove.' }
     else { Write-Log 'Quick Assist removed. To get it back: Add-WindowsCapability -Online -Name App.Support.QuickAssist~~~~0.0.1.0, or install it from the Store.' 'WARN' }
+}
+
+function Get-OneDriveState {
+    # Where OneDrive is installed (per user, or per machine in Program Files), its uninstallers, and the accounts
+    # signed in for the user running the script.
+    param([string]$LocalAppData = $env:LOCALAPPDATA, [string[]]$ProgramDirs = @($env:ProgramFiles, ${env:ProgramFiles(x86)}))
+    $machineDirs = @($ProgramDirs | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft OneDrive' })
+    $installed = @(@((Join-Path $LocalAppData 'Microsoft\OneDrive')) + $machineDirs | ForEach-Object { Join-Path $_ 'OneDrive.exe' } | Where-Object { Test-Path -LiteralPath $_ })
+    $uninstallers = [System.Collections.Generic.List[object]]::new()
+    foreach ($f in @(Get-ChildItem -Path (Join-Path $LocalAppData 'Microsoft\OneDrive\*\OneDriveSetup.exe') -ErrorAction SilentlyContinue)) { $uninstallers.Add([pscustomobject]@{ Path = $f.FullName; Arguments = @('/uninstall') }) }
+    foreach ($d in $machineDirs) {
+        foreach ($f in @(Get-ChildItem -Path (Join-Path $d '*\OneDriveSetup.exe') -ErrorAction SilentlyContinue)) { $uninstallers.Add([pscustomobject]@{ Path = $f.FullName; Arguments = @('/uninstall', '/allusers') }) }
+    }
+    # The setup stub Windows ships can uninstall a per user copy as well.
+    foreach ($f in @('System32', 'SysWOW64' | ForEach-Object { Join-Path $env:windir "$_\OneDriveSetup.exe" } | Where-Object { Test-Path -LiteralPath $_ })) { $uninstallers.Add([pscustomobject]@{ Path = $f; Arguments = @('/uninstall') }) }
+    $accounts = @()
+    $key = Open-RegKey -Full 'HKEY_CURRENT_USER\Software\Microsoft\OneDrive\Accounts'
+    if ($key) {
+        try {
+            foreach ($n in $key.GetSubKeyNames()) {
+                $k = $key.OpenSubKey($n)
+                if (-not $k) { continue }
+                try { if ([string]$k.GetValue('UserEmail', '')) { $accounts += $n } } finally { $k.Close() }
+            }
+        }
+        finally { $key.Close() }
+    }
+    return [pscustomobject]@{ Installed = $installed; Uninstallers = $uninstallers.ToArray(); SignedIn = $accounts }
+}
+
+function Remove-OneDrive {
+    # Gone or kept, never half: with an account signed in, files that live only in the cloud would become unreachable
+    # here, so OneDrive stays as it is and the log says why.
+    $od = Get-OneDriveState
+    if ($od.SignedIn.Count -gt 0) {
+        Write-Log "OneDrive kept: an account is signed in ($($od.SignedIn -join ', ')). Removing it would leave files that are only in the cloud unreachable here. Sign out of OneDrive (Settings, Account, Unlink this PC) and run again, or skip RemoveOneDrive." 'WARN'
+        return
+    }
+    Set-TweakList $OneDriveRegs
+    if ($od.Installed.Count -eq 0) { Write-Log 'OneDrive is not installed; the policy keeps it from setting itself up again.'; return }
+    if (Test-DryRun "uninstall OneDrive ($($od.Installed -join ', '))") { return }
+    Stop-Process -Name OneDrive -Force -ErrorAction SilentlyContinue
+    foreach ($u in $od.Uninstallers) {
+        if (@((Get-OneDriveState).Installed).Count -eq 0) { break }
+        $proc = Start-Process -FilePath $u.Path -ArgumentList $u.Arguments -PassThru -WindowStyle Hidden
+        $null = $proc.Handle   # keeps the exit code readable after the process ends
+        if (-not $proc.WaitForExit(300000)) { Write-Log "OneDrive uninstaller $($u.Path) did not finish within 5 minutes." 'WARN'; continue }
+        Write-Log "OneDrive uninstaller $($u.Path) $($u.Arguments -join ' ') exited with code $($proc.ExitCode)."
+    }
+    $left = @((Get-OneDriveState).Installed)
+    if ($left.Count -eq 0) { Write-Log 'OneDrive uninstalled. Files in the OneDrive folder stay on disk. To get it back: -Revert (lifts the policy), then winget install Microsoft.OneDrive.' 'OK' }
+    else { $script:Failures++; Write-Log "OneDrive is still installed: $($left -join ', ')." 'ERROR' }
 }
 #endregion
 
@@ -5049,19 +5148,24 @@ function Test-ServiceStartChanged {
 
 function Test-HealthServices {
     foreach ($g in $ServiceGroups.Keys) {
-        $present = 0; $wrong = @(); $native = @()
+        $present = 0; $wrong = @(); $native = @(); $deleted = 0
         foreach ($name in $ServiceGroups[$g]) {
             $start = Get-ServiceStartNow $name
-            if ($null -eq $start) { continue }
+            if ($null -eq $start) {
+                if ($Opt[$g] -and (Test-ServiceKeyDeletedByRun $name)) { $deleted++ }
+                continue
+            }
             $present++
             if ($Opt[$g] -eq ($start -eq 4)) { continue }
             # A service that is disabled although the option is off only counts when this script disabled it.
             # Some (RemoteRegistry, shpamsvc) are disabled by Windows itself.
             if ($Opt[$g] -or (Test-ServiceStartChanged $name)) { $wrong += $name } else { $native += $name }
         }
-        if ($present -eq 0) { continue }
+        if ($present -eq 0 -and $deleted -eq 0) { continue }
         if ($Opt[$g]) {
-            if ($wrong.Count -eq 0) { Write-Health 'PASS' 'Services' "$g`: all $present service(s) are disabled." }
+            $how = "all $present service(s) are disabled."
+            if ($deleted -gt 0) { $how = "$deleted service(s) deleted, $present disabled." }
+            if ($wrong.Count -eq 0) { Write-Health 'PASS' 'Services' "$g`: $how" }
             else { Write-Health 'WARN' 'Services' "$g`: still enabled: $($wrong -join ', '). Protected services may need a restart." }
         }
         elseif ($wrong.Count -eq 0) {
@@ -5243,6 +5347,7 @@ function Test-HealthRegistry {
     if ($Opt['MenuRunAsAdmin']) { Test-HealthTweakTable -Label 'Run as administrator menu' -Tweaks $MenuRunAsAdminRegs }
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
+    if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['NvmeNativeDriver']) { Test-HealthTweakTable -Label 'Native NVMe driver' -Tweaks $NvmeRegs }
 }
 
@@ -5473,8 +5578,17 @@ function Test-HealthSystem {
         if ($qa.Count -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $env:windir 'System32\quickassist.exe'))) { Write-Health 'PASS' 'System' 'Quick Assist is removed.' }
         else { Write-Health 'WARN' 'System' 'Quick Assist is still present. A restart may finish the removal.' }
     }
+    if ($Opt['RemoveOneDrive']) {
+        $od = Get-OneDriveState
+        if ($od.SignedIn.Count -gt 0) { Write-Health 'INFO' 'System' "OneDrive kept because an account is signed in ($($od.SignedIn -join ', '))." }
+        else {
+            if ($od.Installed.Count -eq 0) { Write-Health 'PASS' 'System' 'OneDrive is removed.' }
+            else { Write-Health 'WARN' 'System' "OneDrive is still installed: $($od.Installed -join ', ')." }
+            Test-HealthTweakTable -Label 'OneDrive policy' -Tweaks $OneDriveRegs
+        }
+    }
     if ($Opt['IPv4Only']) {
-        $v6 = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue } | Where-Object { $_.Enabled })
+        $v6 =@(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue } | Where-Object { $_.Enabled })
         if ($v6.Count -eq 0) { Write-Health 'PASS' 'System' 'IPv6 is off on every physical network adapter.' }
         else { Write-Health 'WARN' 'System' "IPv6 is still on for: $(@($v6 | ForEach-Object { $_.Name }) -join ', ')." }
     }
@@ -5914,7 +6028,7 @@ function Show-Plan {
     Write-Log "  Options on : $($on -join ', ')"
     Write-Log "  Options off: $($off -join ', ')"
     foreach ($line in @(Get-SecurityTradeoffs)) { Write-Log "  Security trade-off: $line" 'WARN' }
-    Write-Log "  Tasks: $TaskMode | Defender: $Defender | Power profile: $PowerProfile | Power mode: $PowerMode | Pause days: $PauseDays"
+    Write-Log "  Tasks: $TaskMode | Services: $ServiceMode | Defender: $Defender | Power profile: $PowerProfile | Power mode: $PowerMode | Pause days: $PauseDays"
     if ($WantNvidia) { Write-Log "  NVIDIA: $(if ($NvidiaInstaller) { $NvidiaInstaller } else { 'download ' + $(if ($NvidiaVersion) { $NvidiaVersion } else { 'latest' }) })" }
     if ($ProfilePath) { Write-Log "  Profile: $ProfilePath (command line parameters win over it)" }
     $script:UserMismatch = Get-UserMismatch
@@ -5926,6 +6040,8 @@ function Confirm-Run {
     Write-Host ''
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
+    if ($Opt['RemoveOneDrive']) { $notes += 'OneDrive will be uninstalled unless an account is signed in (reinstall with winget).' }
+    if ($ServiceMode -eq 'Delete') { $notes += 'Services in the enabled service groups will be deleted (exported first, -Revert brings them back).' }
     if ($TaskMode -eq 'Delete') { $notes += 'Scheduled tasks will be deleted (backups are kept), except time sync, SSD retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks.' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
     if ($Opt['SpectreMeltdownOff']) { $notes += 'CPU security mitigations will be turned off.' }
@@ -5978,6 +6094,8 @@ function Invoke-Apply {
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' -Option 'Debloat' { Remove-BloatApps } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
+    if ($Opt['RemoveOneDrive']) { Invoke-Step 'Remove OneDrive' -Option 'RemoveOneDrive' { Remove-OneDrive } }
+    if ($Opt['EdgeBackground']) { Invoke-Step 'Edge in the background' -Option 'EdgeBackground' { Set-TweakList $EdgeBackgroundRegs } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.
