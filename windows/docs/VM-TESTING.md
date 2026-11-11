@@ -42,7 +42,9 @@ with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<number>-<stag
 values the revert did not bring back. The exit code is 1 when a stage failed or the health check reported a failure.
 
 Each stage folder also holds `guest-diag.txt`: Windows Update events, restarts, crashed services and the VMware Tools
-state during that stage. `summary.txt` mentions it when anything happened. Benchmark stages run with the VM's
+state during that stage. `summary.txt` mentions it when anything happened. Before the first benchmark the VM is restarted, so both
+benchmarks start from a fresh boot (the one after Apply follows a restart too), and before every benchmark the test
+waits until the VM's CPU use stays below 15 % for 30 seconds (at most 10 minutes). Benchmark stages run with the VM's
 virtual network cable unplugged (nothing changes inside Windows), so update and cloud traffic add no noise; the other
 stages keep the network, because `Packages` needs it.
 

@@ -345,6 +345,28 @@ exit `$code
     Write-Step "Stage $Name finished with exit code $code. Results: $dest"
 }
 
+function Wait-GuestIdle {
+    # A benchmark taken while Windows still does startup, update or Store work measures that work. Waits until the
+    # guest's CPU use stays below 15 % for 30 seconds in a row, for up to 10 minutes, then lets the benchmark run
+    # either way (it flags a busy run itself).
+    $idle = Join-Path $OutDir 'wait-idle.ps1'
+    @'
+$deadline = (Get-Date).AddMinutes(10); $quiet = 0
+while ((Get-Date) -lt $deadline -and $quiet -lt 30) {
+    $cpu = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'").PercentProcessorTime
+    if ($cpu -lt 15) { $quiet++ } else { $quiet = 0 }
+    Start-Sleep -Seconds 1
+}
+if ($quiet -lt 30) { exit 1 }
+exit 0
+'@ | Set-Content -LiteralPath $idle -Encoding ASCII
+    [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $idle, "$guestDir\wait-idle.ps1") -Guest)
+    Write-Step 'Waiting for the VM to go idle (CPU below 15 % for 30 s, at most 10 minutes)'
+    $r = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\wait-idle.ps1") -Guest -AllowFail
+    if ($r.Code -eq 0) { Write-Step 'VM is idle' }
+    else { Write-Step 'The VM did not go idle within 10 minutes; benchmarking anyway (the benchmark flags a busy run)' }
+}
+
 $nics = @(Select-String -LiteralPath $Vmx -Pattern '^\s*(ethernet\d+)\.present\s*=\s*"TRUE"' | ForEach-Object { $_.Matches[0].Groups[1].Value })
 
 function Set-GuestNetwork {
@@ -438,20 +460,25 @@ $guestDiagScript | Set-Content -LiteralPath $diagFile -Encoding ASCII
 
 # Folders are numbered, so a stage can run twice (a benchmark before and after the run).
 $index = 0
+$restartedSinceRevert = $false
 foreach ($stage in $Stages) {
     $index++
     $label = '{0:00}-{1}' -f $index, $stage
     switch ($stage) {
         'Dry' { Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
         'Benchmark' {
+            # Both benchmarks must start from the same kind of boot: the one after Apply follows a restart, so the
+            # first one gets a restart too instead of running in the restored snapshot.
+            if (-not $restartedSinceRevert) { Restart-Guest; $restartedSinceRevert = $true }
             Set-GuestNetwork -Connected $false
+            Wait-GuestIdle
             try { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
             finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
         }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
-        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest }
+        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest; $restartedSinceRevert = $true }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
-        'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest }
+        'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest; $restartedSinceRevert = $true }
     }
 }
 
