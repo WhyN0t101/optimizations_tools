@@ -42,6 +42,7 @@ $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path $PSScriptRoot -Parent
 $scriptFile = Join-Path $repo 'FocusedTweaks.ps1'
+$explainFile = Join-Path $PSScriptRoot 'Explain-Processes.ps1'
 $guestDir = 'C:\FT'
 $guestPs = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not $OutDir) { $OutDir = Join-Path $repo ('test-results\{0:yyyyMMdd-HHmmss}' -f (Get-Date)) }
@@ -278,7 +279,8 @@ $(Get-GuestPackText -Name $Name)
 }
 
 function Invoke-GuestStage {
-    param([string]$Name, [string]$Arguments)
+    # $After is extra guest code run once the script is done, before the results are packed (it may use $out).
+    param([string]$Name, [string]$Arguments, [string]$After = '')
     $runner = Join-Path $OutDir "run-$Name.ps1"
     $done = "$guestDir\done-$Name.txt"
     # The runner keeps all quoting inside one PowerShell file, so lists such as -Only A,B work. It is started without
@@ -299,6 +301,7 @@ catch {
     `$code = 99
 }
 Set-Content -LiteralPath (Join-Path `$out 'exitcode.txt') -Value `$code
+$After
 $(Get-GuestPackText -Name $Name)
 Set-Content -LiteralPath '$done' -Value `$code
 exit `$code
@@ -454,6 +457,7 @@ Write-Step "Copying the script into $guestDir"
 [void](Invoke-Vmrun -Arguments @('createDirectoryInGuest', $Vmx, $guestDir) -Guest -AllowFail)
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $scriptFile, "$guestDir\FocusedTweaks.ps1") -Guest)
 if ($ProfilePath) { [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, (Resolve-Path -LiteralPath $ProfilePath).Path, "$guestDir\profile.json") -Guest) }
+[void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $explainFile, "$guestDir\Explain-Processes.ps1") -Guest)
 $diagFile = Join-Path $OutDir 'collect-diag.ps1'
 $guestDiagScript | Set-Content -LiteralPath $diagFile -Encoding ASCII
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $diagFile, "$guestDir\collect-diag.ps1") -Guest)
@@ -472,7 +476,10 @@ foreach ($stage in $Stages) {
             if (-not $restartedSinceRevert) { Restart-Guest; $restartedSinceRevert = $true }
             Set-GuestNetwork -Connected $false
             Wait-GuestIdle
-            try { Invoke-GuestStage -Name $label -Arguments '-Benchmark' }
+            # Which processes and services run, by name, so a later comparison shows what a run removed and what is
+            # left. Explain-Processes only reads.
+            $snapshot = "try { & '$guestDir\Explain-Processes.ps1' -SaveSnapshot (Join-Path `$out 'processes.json') *> (Join-Path `$out 'processes.txt') } catch { Add-Content -LiteralPath (Join-Path `$out 'processes.txt') -Value ('SNAPSHOT FAILED: ' + `$_.Exception.Message) }"
+            try { Invoke-GuestStage -Name $label -Arguments '-Benchmark' -After $snapshot }
             finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
         }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
@@ -480,6 +487,15 @@ foreach ($stage in $Stages) {
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
         'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest; $restartedSinceRevert = $true }
     }
+}
+
+# What the run removed and what is still running: the first benchmark's snapshot against the last one's. Only reads
+# the two files on this PC.
+$snaps = @(Get-ChildItem -Path (Join-Path $OutDir '*-Benchmark\processes.json') -ErrorAction SilentlyContinue | Sort-Object { $_.Directory.Name })
+if ($snaps.Count -ge 2) {
+    $compareFile = Join-Path $OutDir 'processes-compare.txt'
+    & $explainFile -Compare $snaps[0].FullName, $snaps[-1].FullName *> $compareFile
+    Write-Step "Processes before ($($snaps[0].Directory.Name)) and after ($($snaps[-1].Directory.Name)) compared in $compareFile; each benchmark folder has the full list in processes.txt"
 }
 
 $ok = Write-Summary

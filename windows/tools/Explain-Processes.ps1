@@ -193,6 +193,8 @@ function Show-Report($Snap) {
 function Show-Comparison([string]$A, [string]$B) {
     $sa = Get-Content -LiteralPath $A -Raw | ConvertFrom-Json
     $sb = Get-Content -LiteralPath $B -Raw | ConvertFrom-Json
+    # Two snapshots of one machine (before and after a run) are told apart by their time.
+    if ($sa.Machine -eq $sb.Machine) { $sa.Machine = "$($sa.Machine) at $($sa.When)"; $sb.Machine = "$($sb.Machine) at $($sb.When)" }
     Write-Host ("`n{0} ({1} processes, {2} services)  vs  {3} ({4} processes, {5} services)" -f $sa.Machine, @($sa.Processes).Count, @($sa.Services).Count, $sb.Machine, @($sb.Processes).Count, @($sb.Services).Count) -ForegroundColor Cyan
     $svcA = @($sa.Services | ForEach-Object { $_.Name }); $svcB = @($sb.Services | ForEach-Object { $_.Name })
     foreach ($pair in @(@($sa, $svcA, $svcB), @($sb, $svcB, $svcA))) {

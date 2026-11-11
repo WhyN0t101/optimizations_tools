@@ -48,6 +48,10 @@ waits until the VM's CPU use stays below 15 % for 30 seconds (at most 10 minutes
 virtual network cable unplugged (nothing changes inside Windows), so update and cloud traffic add no noise; the other
 stages keep the network, because `Packages` needs it.
 
+Each benchmark folder also holds `processes.txt` and `processes.json`, a snapshot by `tools\Explain-Processes.ps1`
+(it only reads), and `processes-compare.txt` in the result folder compares the first benchmark with the last: the
+services and process counts the run removed, and what still runs.
+
 Stages are started without waiting and the host polls for a done marker. If VMware Tools stops answering (busy or
 restarting guest), the test waits up to `-BootTimeoutSeconds` for it to return; a stage that runs longer than
 `-StageTimeoutMinutes` (120) fails. When a stage fails, whatever the guest has (console output so far, logs,
