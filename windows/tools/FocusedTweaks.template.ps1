@@ -662,7 +662,26 @@ $WindowsRewrittenValues = @(
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationAfterglow'
     # Start menu "All apps" list view: Windows 11 build 26200 resets it to its own default after a restart.
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Start|AllAppsViewMode'
+    # Game Bar sets it again on its own: in the VM test of 11 Nov 2026 (build 26200) it was 0, the run wrote 0, and it
+    # was 1 after -Revert, although nothing in this script writes 1.
+    'HKEY_CURRENT_USER\System\GameConfigStore|GameDVR_Enabled'
+    # The USB 3 root hub driver saves its own idle setting: in both VM tests (8 and 11 Nov 2026) every other device
+    # took the original back on -Revert, the root hub kept the run's 0. Wildcard: the instance ID differs per PC.
+    'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\ROOT_HUB30\*\Device Parameters\WDF|IdleInWorkingState'
 )
+
+function Test-WindowsRewritten {
+    # Entries may hold wildcards (device instance IDs differ per PC).
+    param([string]$Path, [string]$Name)
+    $id = "$Path|$Name"
+    foreach ($w in $WindowsRewrittenValues) { if ($id -like $w) { return $true } }
+    return $false
+}
+
+# Tasks that UsoSvc registers, enables and disables itself (the run already handles the copies it registers again).
+# After -Revert puts them back, UsoSvc may set their state to its own liking within minutes: in the VM test of
+# 11 Nov 2026, 'Schedule Work' was enabled by the revert and disabled again four minutes later.
+$WindowsManagedTasks = @('\Microsoft\Windows\UpdateOrchestrator\*')
 
 # Policy values that Microsoft documents for some editions only. Honoured and Ignored are EditionID wildcards
 # (Core* is every Home edition). An edition in neither list gets 'unknown', and so does every other value under a
@@ -3276,6 +3295,42 @@ function Get-BenchmarkMachine {
     }
 }
 
+function Get-ActivePlanName {
+    # powercfg prints '<label>: <GUID>  (<name>)' in the Windows language. The name can hold brackets itself
+    # ('Tweaked Performance (High)'), so take everything between the first bracket after the GUID and the last one.
+    param([string]$Text = ((powercfg /getactivescheme) | Out-String))
+    $m = [regex]::Match($Text.Trim(), '[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\s+\((.*)\)\s*$')
+    if ($m.Success) { return $m.Groups[2].Value }
+    return $Text.Trim()
+}
+
+# A benchmark whose CPU use during the idle window has a median above this was taken while Windows was busy
+# (updates, Store, indexing, startup work); its numbers include that work.
+$BenchmarkBusyPercent = 20
+
+function Test-BenchmarkBusy {
+    # The busy median of a saved or new benchmark, or $null when it was not busy (or the metric is missing).
+    param($Result)
+    $p = @($Result.Metrics.PSObject.Properties | Where-Object { $_.Name -like 'Idle CPU over*' })[0]
+    if (-not $p -or -not $p.Value) { return $null }
+    if ([double]$p.Value.Median -gt $BenchmarkBusyPercent) { return [double]$p.Value.Median }
+    return $null
+}
+
+function Get-BootTimesSinceBoot {
+    # Boot time events (Diagnostics-Performance event 100), newest first, but only when the newest one belongs to the
+    # current boot. Windows writes it a few minutes after sign in, and not at all while the Diagnostic Policy Service
+    # is disabled (SvcDiagnostics); older events would repeat the previous result as if it were new.
+    # Returns Current ($false when the newest event is older than the last boot) and Times in seconds.
+    param([int]$Max, [datetime]$LastBoot = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime,
+        [object[]]$Events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents $Max -ErrorAction SilentlyContinue))
+    $result = [pscustomobject]@{ Current = $true; Times = @() }
+    if ($Events.Count -eq 0) { return $result }
+    if ($Events[0].TimeCreated -lt $LastBoot) { $result.Current = $false; return $result }
+    $result.Times = @($Events | ForEach-Object { [double](@(([xml]$_.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text') / 1000 })
+    return $result
+}
+
 function Get-BenchmarkSettings {
     # What the options change. Recorded with every benchmark and shown when it differs, but it does not block a
     # comparison: comparing before and after a run is the point.
@@ -3291,7 +3346,7 @@ function Get-BenchmarkSettings {
     $mode = $PowerOverlayNames[$overlayGuid]
     if (-not $mode) { $mode = $overlayGuid }
     return [ordered]@{
-        'Power plan'                   = ((powercfg /getactivescheme) | Out-String).Trim() -replace '^.*\(([^)]*)\)\s*$', '$1'
+        'Power plan'                   = Get-ActivePlanName
         'Power mode'                   = $mode
         'VBS (core isolation)'         = $vbsText
         'Hypervisor present'           = $(if ($cs) { [bool]$cs.HypervisorPresent } else { $false })
@@ -3360,9 +3415,11 @@ function Invoke-Benchmark {
     $memory = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Memory -ErrorAction SilentlyContinue
     # Processor counters through WMI: the class and property names are the same in every Windows language.
     $idle = @(for ($i = 0; $i -lt $BenchmarkIdleSeconds; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
-    $boots = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents $BenchmarkRuns -ErrorAction SilentlyContinue | ForEach-Object {
-            [double](@(([xml]$_.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text') / 1000
-        })
+    $bootInfo = Get-BootTimesSinceBoot -Max $BenchmarkRuns
+    $boots = @($bootInfo.Times)
+    if (-not $bootInfo.Current) {
+        Write-Log 'Boot time not measured: Windows has not recorded this boot yet (it does so a few minutes after sign in, and never while the Diagnostic Policy Service is disabled by SvcDiagnostics).' 'WARN'
+    }
     $m = [ordered]@{}
     $m['Timer resolution now (ms)'] = Get-Stats @($timer.CurrentMs)
     $m['Sleep(1) actual (ms)'] = Get-Stats @($micro | ForEach-Object { $_[0] })
@@ -3386,6 +3443,8 @@ function Invoke-Benchmark {
     }
     # Through JSON once, so the run is compared in the same shape as a saved one.
     $now = ConvertTo-Json -InputObject $now -Depth 5 | ConvertFrom-Json
+    $busy = Test-BenchmarkBusy $now
+    if ($null -ne $busy) { Write-Log "Windows was busy during the idle window (median CPU use $busy %, above $BenchmarkBusyPercent %), so these numbers include background work. Wait until updates and startup work are done, then run the benchmark again." 'WARN' }
     $baselineFile = $null
     if ($BenchmarkBaseline) { $baselineFile = Join-Path $StateDir "benchmark-baseline-$BenchmarkBaseline.json" }
     $before = $null; $beforeName = ''
@@ -3406,6 +3465,9 @@ function Invoke-Benchmark {
             if (-not $Json) { Write-Host ($cmp.Rows | Format-Table -AutoSize | Out-String) }
             Write-Log "Compared with $beforeName (median [min..max]; lower is better for every measurement; 'within noise' means the ranges overlap)."
             foreach ($c in $cmp.SettingChanges) { Write-Log "  Setting changed since then: $c" }
+            $busyBefore = Test-BenchmarkBusy $before
+            if ($null -ne $busyBefore) { Write-Log "This comparison is not reliable: Windows was busy during $beforeName (median CPU use $busyBefore %), so the differences include that background work, not only the options." 'WARN' }
+            elseif ($null -ne $busy) { Write-Log 'This comparison is not reliable: Windows was busy during this benchmark (see above).' 'WARN' }
         }
     }
     elseif ($baselineFile) {
@@ -3587,7 +3649,7 @@ function Test-HealthRegistry {
             'Set' {
                 $snap = Get-RegSnapshot -Full $full -Name $op.Name
                 if (-not (Test-RegMatchesOp -Snap $snap -Op $op)) {
-                    if ($WindowsRewrittenValues -contains "$full|$($op.Name)") {
+                    if (Test-WindowsRewritten -Path $full -Name $op.Name) {
                         Write-Health 'INFO' 'Registry' "$full\$(Show-RegName $op.Name) is $(Format-RegValueShort $snap): Windows resets this value itself."
                     }
                     else { $bad.Add(('[{0}] {1}\{2} is {3}' -f $op.Group, $full, (Show-RegName $op.Name), (Format-RegValueShort $snap))) }
@@ -4044,14 +4106,14 @@ function Test-RevertResult {
         $was = if ($e.Existed) { '{0} ({1})' -f (@($e.Value) -join ','), $e.Kind } else { '<missing>' }
         $is = if ($now.Existed) { '{0} ({1})' -f (@($now.Value) -join ','), $now.Kind } else { '<missing>' }
         if ($was -eq $is) { continue }
-        if ($WindowsRewrittenValues -contains "$($e.Path)|$($e.Name)") {
+        if (Test-WindowsRewritten -Path $e.Path -Name $e.Name) {
             $rewritten++
             Add-Content -Path $LogFile -Value "          revert check: [Note] $($e.Path)\$(Show-RegName $e.Name) was $was, is $is (Windows recomputes this value)"
             continue
         }
         $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Registry'; Message = "$($e.Path)\$(Show-RegName $e.Name) was $was, is $is" })
     }
-    if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) Windows recomputes itself (accent colours) differ, as expected." }
+    if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) that Windows sets itself (accent colours, Start view, Game Bar, USB root hub idle) differ, as expected." }
     $badReg = $items.Count
     foreach ($t in @($script:State.Tasks)) {
         $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
@@ -4061,6 +4123,10 @@ function Test-RevertResult {
         }
         # Disabled by the run and still disabled, although it was enabled before.
         if ($t.WasEnabled -and $now.State -eq 'Disabled') {
+            if (Test-NameMatch "$($t.Path)$($t.Name)" $WindowsManagedTasks) {
+                Add-Content -Path $LogFile -Value "          revert check: [Note] $($t.Path)$($t.Name) is back but disabled again (UsoSvc manages this task itself)"
+                continue
+            }
             $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task still disabled: $($t.Path)$($t.Name)" })
         }
     }

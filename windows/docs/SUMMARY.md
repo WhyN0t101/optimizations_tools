@@ -220,6 +220,15 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
 - VM test of 11 Nov 2026: the pre flight check refused the unmanaged Windows 11 VM as MDM enrolled, because
   Windows creates 'Local Authority', 'Cloud Authority' and 'Deploy Authority' enrolments itself. Those providers no
   longer count as MDM.
+- Second VM test of 11 Nov 2026 (`desktop-max.json`, every stage exit code 0, health 0 failed): the first benchmark
+  ran at 92.5 % median CPU use (startup work in the freshly restored snapshot, servicing restart pending), so its
+  comparison with the second was not fair. A benchmark with median CPU use above 20 % in the idle window is now
+  flagged, and a comparison with such a run is called unreliable. `Test-InVm.ps1` restarts the VM before the first
+  benchmark and waits until the guest is idle before each one. Boot time now counts only when Windows recorded the
+  current boot (it repeated the previous restart before; `SvcDiagnostics` stops the recording). The power plan
+  name is read correctly when it contains brackets. The revert check now treats three differences as Windows' own:
+  `GameDVR_Enabled` (Game Bar sets it), the USB 3 root hub idle value (its driver saves it; also seen on 8 Nov) and
+  the Update Orchestrator tasks (UsoSvc disabled `Schedule Work` again four minutes after the revert enabled it).
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
