@@ -25,7 +25,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Vmx = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Virtual Machines\Windows 11\Windows 11.vmx'),
+    # The guest runs Windows 11, but the VM was created as "Windows 10 x64" to skip the TPM and Secure Boot checks.
+    [string]$Vmx = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Virtual Machines\Windows 10 x64\Windows 10 x64.vmx'),
     [string]$Snapshot = 'ft-base',
     [string]$GuestUser = 'Administrator',
     [string]$ProfilePath,
