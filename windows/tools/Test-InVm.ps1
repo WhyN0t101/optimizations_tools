@@ -25,8 +25,7 @@
 #>
 [CmdletBinding()]
 param(
-    # The guest runs Windows 11, but the VM was created as "Windows 10 x64" to skip the TPM and Secure Boot checks.
-    [string]$Vmx = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Virtual Machines\Windows 10 x64\Windows 10 x64.vmx'),
+    [string]$Vmx = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Virtual Machines\Windows 11 x64\Windows 11 x64.vmx'),
     [string]$Snapshot = 'ft-base',
     [string]$GuestUser = 'Administrator',
     [string]$ProfilePath,
@@ -307,6 +306,9 @@ Set-Content -LiteralPath '$done' -Value `$code
 exit `$code
 "@ | Set-Content -LiteralPath $runner -Encoding ASCII
     [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $runner, "$guestDir\run-$Name.ps1") -Guest)
+    # A done marker or zip left from an earlier test would end this stage at once with old results.
+    foreach ($stale in $done, "$guestDir\out-$Name.zip") { [void](Invoke-Vmrun -Arguments @('deleteFileInGuest', $Vmx, $stale) -Guest -AllowFail) }
+    if (Test-GuestFile -Path $done) { throw "Could not delete the old $done in the VM, so this stage would report old results." }
     Write-Step "Stage $Name in the VM: FocusedTweaks.ps1 $Arguments"
     $launch = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, '-noWait', '-activeWindow', '-interactive', $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\run-$Name.ps1") -Guest -AllowFail
     $problem = $null
@@ -452,6 +454,17 @@ if ($startProc.ExitCode -ne 0 -and (Invoke-Vmrun -Arguments @('checkToolsState',
     throw "vmrun start failed with exit code $($startProc.ExitCode)."
 }
 Wait-GuestDesktop
+
+# Results of an earlier test inside the snapshot mean it was taken after a test: the VM is then not in its original
+# state (removed apps, Quick Assist and OneDrive do not come back with -Revert), so say so loudly.
+$listing = Invoke-Vmrun -Arguments @('listDirectoryInGuest', $Vmx, $guestDir) -Guest -AllowFail
+if ($listing.Code -eq 0 -and $listing.Output -match '(?m)^(done-|out-).+') {
+    Write-Host ''
+    Write-Host "WARNING: the '$Snapshot' snapshot already holds results of an earlier test in $guestDir. It was taken after a test, so" -ForegroundColor Yellow
+    Write-Host 'this VM is not stock Windows: apps, Quick Assist and OneDrive removed by that test stay removed. Retake the snapshot' -ForegroundColor Yellow
+    Write-Host 'from a VM that never ran FocusedTweaks. The stale result files are deleted before each stage.' -ForegroundColor Yellow
+    Write-Host ''
+}
 
 Write-Step "Copying the script into $guestDir"
 [void](Invoke-Vmrun -Arguments @('createDirectoryInGuest', $Vmx, $guestDir) -Guest -AllowFail)
