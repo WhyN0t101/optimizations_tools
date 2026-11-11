@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v7.4.
+    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). v7.5.
 
 .DESCRIPTION
     A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
@@ -21,7 +21,8 @@
     cache, the temp and update cache cleanup, and System Protection once switched on.
 
     SpectreMeltdownOff, CoreIsolation and the TimerResolution service are on by default: they trade security
-    or battery for speed. Switch them off with -Skip. DepOff stays off because it needs Secure Boot off.
+    or battery for speed. Switch them off with -Skip. The former DepOff option is gone (no speed gain, and it needed
+    Secure Boot off); -Revert still restores DEP for state files from runs that used it.
 
     Not ported from upstream (they edit per app settings.dat hives or are cosmetic): Store and App Actions
     settings, calendar expansion, priority notification blob, terminal and console colours, Task Manager
@@ -40,6 +41,10 @@
     the command line win over the profile. Starter profiles: desktop-max.json, laptop.json, privacy.json.
 
     Use -Revert to undo a run, or -RestoreTask <task path wildcards> to bring back only some deleted or disabled tasks.
+
+    Unattended: -Json prints one result object and nothing else on the console (the log file still gets everything);
+    a real run with -Json needs -Force, since it cannot answer questions. Exit codes: 0 ok, 1 failures (or a failed
+    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable.
     tools\Explain-Processes.ps1 explains what is running and why, without changing anything.
 
 .EXAMPLE
@@ -49,13 +54,13 @@
     .\FocusedTweaks.ps1 -ProfilePath .\profiles\laptop.json -DryRun
 
 .EXAMPLE
-    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
+    .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Application Experience\*'
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -DryRun
 
 .EXAMPLE
-    .\FocusedTweaks.ps1 -Skip Uac,RunKeys -Enable KeepDefinitionUpdates -PauseDays 30
+    .\FocusedTweaks.ps1 -Skip Uac,RunKeys -Enable MpoOff -PauseDays 30
 
 .EXAMPLE
     .\FocusedTweaks.ps1 -NvidiaDownload -NvidiaApp
@@ -97,7 +102,13 @@ param(
     [ValidateRange(1, 730)][int]$PauseDays = 365,
     [string]$ProfilePath,
     [switch]$Benchmark,
+    [ValidateRange(1, 50)][int]$BenchmarkRuns = 5,
+    [ValidateRange(10, 600)][int]$BenchmarkIdleSeconds = 60,
+    [ValidatePattern('^[A-Za-z0-9_-]{1,40}$')][string]$BenchmarkBaseline,
     [switch]$StartupReview,
+    [switch]$AllowManaged,
+    [string[]]$SkipCheck = @(),
+    [switch]$Json,
     [string]$StateDir = (Join-Path $env:ProgramData 'FocusedTweaks')
 )
 
@@ -108,6 +119,11 @@ if (-not ($ListOptions -or $ListRegGroups)) {
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         if (-not $PSCommandPath) { throw 'This script needs administrator rights. Start PowerShell as administrator and run it from a file.' }
+        # An unattended caller cannot accept an elevation prompt and would never see the result of the new window.
+        if ($Json) {
+            ConvertTo-Json -InputObject ([ordered]@{ ExitCode = 3; Result = 'pre flight refused'; Reason = 'Administrator rights are needed. Start the -Json run from an elevated PowerShell.' })
+            exit 3
+        }
         $quote = { param($s) "'" + ([string]$s -replace "'", "''") + "'" }
         $forwarded = foreach ($entry in $PSBoundParameters.GetEnumerator()) {
             if ($entry.Value -is [switch]) { if ($entry.Value.IsPresent) { "-$($entry.Key)" } }
@@ -129,97 +145,101 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 #region Options ---------------------------------------------------------------------------
-# Name = default state, description. Defaults mirror upstream unless noted.
+# Name = default state, description, evidence tier, source. Defaults mirror upstream unless noted. The tier says what
+# backs the option's effect (docs/AUDIT.md C-3); it is information only and never decides a default:
+# Measured (a measurement on real hardware), Documented (a vendor page describes the mechanism; the size of the
+# effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
-    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present')
-    Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more)')
-    Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below')
-    Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization')
-    RunKeys               = @($true, 'Delete the HKCU and HKLM Run keys once, clearing every startup entry')
-    PrivacyDenials        = @($true, 'Deny app access to camera, location, radios, files and more, and reset the consent database')
-    CoreIsolation         = @($true, 'Disable core isolation (VBS, HVCI, Credential Guard). Faster, but kernel memory loses its hypervisor protection')
-    HideLockOption        = @($false, 'Hide Lock in the Start power menu. Off, you excluded it')
-    HideSleepOption       = @($false, 'Hide Sleep in the Start power menu. Off, you excluded it')
-    RegHibernateOff       = @($false, 'HibernateEnabled 0 in the registry. Off, you excluded it')
-    TaskbarEndTask        = @($true, 'Add End task to the right click menu of taskbar apps (Windows 11, upstream registry group)')
-    DisableHibernate      = @($false, 'powercfg /hibernate off (also removes Fast Startup). Upstream does this with its power plan')
-    MsiMode               = @($true, 'Enable MSI interrupts for display adapters')
-    MemoryCompression     = @($true, 'Disable memory compression when RAM is above 8 GB')
-    SleepStudy            = @($true, 'Turn off Sleep Study and power diagnostic event logs')
-    PasswordExpiry        = @($true, 'Local passwords never expire (Windows 11 only)')
-    FaultTolerantHeap     = @($true, 'Reset the fault tolerant heap (not reversible)')
-    NotificationSettings  = @($true, 'Turn off notifications for every app listed under Notifications settings')
-    RestartExplorer       = @($true, 'Refresh user settings and restart Explorer at the end')
-    TelemetryPolicy       = @($true, 'Telemetry, CEIP, app compatibility and advertising policy plus DiagTrack services')
-    TelemetryHosts        = @($true, 'Block 30 Microsoft telemetry domains in the hosts file')
-    BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)')
-    Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache')
-    SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more')
-    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)')
-    SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time')
-    SvcBiometrics         = @($true, 'Disable the Windows Biometric Service')
-    SvcSmartCard          = @($true, 'Disable smart card services')
-    SvcDiagnostics        = @($true, 'Disable diagnostic policy and Wdi services (troubleshooters)')
-    SvcBluetooth          = @($false, 'Disable Bluetooth services. Off, you asked to keep Bluetooth')
-    SvcPrinting           = @($false, 'Disable print spooler services. Off, you asked to keep printing')
-    SvcDeliveryOpt        = @($true, 'Disable Delivery Optimization (peer to peer update sharing in the background)')
-    SvcRadio              = @($false, 'Disable Radio Management (airplane mode and radio toggles). Off, it supports Bluetooth')
-    DriverExclusion       = @($true, 'Exclude drivers from Windows Update and stop device metadata downloads')
-    SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications')
-    PauseUpdates          = @($true, 'Pause updates for -PauseDays and set update services to Manual')
-    PauseStopsUpdateTasks = @($true, 'While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks')
-    KeepDefinitionUpdates = @($false, 'Leave Defender definition updates out of the excluded classifications')
-    RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file')
-    MouseAccel            = @($true, 'Turn off mouse acceleration using the profile for your display scaling')
-    ClearDesktopIcons     = @($true, 'Hide Recycle Bin, This PC and other system icons and move shortcuts off the desktop (restorable)')
-    HideAllDesktopIcons   = @($false, 'Also hide every other desktop icon (files stay on disk). Same as View, Show desktop icons')
-    EnableSystemRestore   = @($false, 'If the restore point fails, turn System Protection on for the system drive and retry')
-    ClearStartPins        = @($true, 'Clear all pinned apps from the Start menu (Windows 11, current user, layout is backed up)')
-    ForceDpi100           = @($false, 'Force 100% display scaling and drop per-monitor scaling (upstream groups). Off: no speed gain, and it skews the mouse profile')
-    NoAutoMaintenance     = @($false, 'Turn off Windows automatic maintenance (upstream group). Off: it runs SSD retrim, and only when idle')
-    NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access')
-    RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert')
-    LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart')
-    HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart')
-    DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)')
-    NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)')
-    NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it')
-    TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible')
-    UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible')
-    SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart')
-    DepOff                = @($false, 'Turn off Data Execution Prevention (bcdedit nx AlwaysOff). Secure Boot must be off. Needs a restart')
-    TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Costs battery on laptops')
-    DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)')
-    DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)')
-    MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups')
-    WriteCacheFlushOff    = @($false, 'Turn off write cache buffer flushing on SATA and NVMe disks. Faster, but a power cut can lose data')
-    FastShutdown          = @($true, 'Shorter shutdown timeouts and end hung apps automatically. Unsaved work in hung apps is lost')
-    BlockFeatureUpgrades  = @($false, 'Stay on the current Windows version (TargetReleaseVersion). Security updates continue until it ends')
-    SearchIndexingOff     = @($true, 'Disable the Windows Search indexer service (search in Start and Explorer gets slower)')
-    TimeServerPool        = @($true, 'Sync the clock from pool.ntp.org instead of time.windows.com')
-    MenuKillNotResponding = @($true, 'Add "Kill not responding tasks" to the desktop right click menu')
-    MenuRestartExplorer   = @($true, 'Add "Restart Explorer" to the desktop right click menu')
-    MenuTakeOwnership     = @($false, 'Add "Take ownership" to the right click menu of files and folders (easy to misuse on system files)')
-    MenuRunAsAdmin        = @($false, 'Add "Run as administrator" to .ps1, .msi and .vbs files (.bat and .cmd already have it)')
-    MenuNoShare           = @($false, 'Remove "Share" from the right click menu')
-    MenuNoGiveAccess      = @($false, 'Remove "Give access to" from the right click menu')
-    MenuNoCast            = @($false, 'Remove "Cast to device" from the right click menu')
-    MenuNoLibrary         = @($false, 'Remove "Include in library" from the right click menu')
-    MenuNoQuickAccess     = @($false, 'Remove "Pin to Quick access" and "Add to favorites" from the right click menu')
-    MenuNoPinToStart      = @($false, 'Remove "Pin to Start" from the right click menu')
-    MenuNoPrevVersions    = @($false, 'Remove "Restore previous versions" from the right click menu and Properties')
-    MenuNoTroubleshoot    = @($false, 'Remove "Troubleshoot compatibility" from the right click menu')
-    MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu')
-    MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu')
-    MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu')
-    LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)')
-    IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs')
-    NvmeNativeDriver      = @($false, 'Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave')
-    HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)')
-    NvidiaProfile         = @($true, 'NVIDIA GPUs only: import a low latency, maximum performance global profile with Profile Inspector (the driver settings are backed up first)')
-    NvidiaReBar           = @($false, 'NVIDIA GPUs only: force Resizable BAR on for every game. Off: helps some games and slows others, and needs ReBar on in the BIOS')
-    NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins')
+    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
+    Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more)', 'Folklore', '')
+    Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
+    Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
+    RunKeys               = @($true, 'Delete the HKCU and HKLM Run keys once, clearing every startup entry', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys')
+    PrivacyDenials        = @($true, 'Deny app access to camera, location, radios, files and more, and reset the consent database', 'n/a', '')
+    CoreIsolation         = @($true, 'Disable core isolation (VBS, HVCI, Credential Guard). Faster, but kernel memory loses its hypervisor protection', 'Documented', 'https://support.microsoft.com/en-us/windows/security/windows-security/device-security-in-the-windows-security-app')
+    HideLockOption        = @($false, 'Hide Lock in the Start power menu. Off, you excluded it', 'n/a', '')
+    HideSleepOption       = @($false, 'Hide Sleep in the Start power menu. Off, you excluded it', 'n/a', '')
+    RegHibernateOff       = @($false, 'HibernateEnabled 0 in the registry. Off, you excluded it', 'n/a', '')
+    TaskbarEndTask        = @($true, 'Add End task to the right click menu of taskbar apps (Windows 11, upstream registry group)', 'n/a', '')
+    DisableHibernate      = @($false, 'powercfg /hibernate off (also removes Fast Startup). Upstream does this with its power plan', 'n/a', '')
+    MsiMode               = @($true, 'Enable MSI interrupts for display adapters', 'Folklore', '')
+    MemoryCompression     = @($true, 'Disable memory compression when RAM is 32 GB or more', 'Folklore', '')
+    SleepStudy            = @($true, 'Turn off Sleep Study and power diagnostic event logs', 'Folklore', '')
+    PasswordExpiry        = @($true, 'Local passwords never expire (Windows 11 only)', 'n/a', '')
+    FaultTolerantHeap     = @($true, 'Reset the fault tolerant heap (not reversible)', 'Folklore', '')
+    NotificationSettings  = @($true, 'Turn off notifications for every app listed under Notifications settings', 'n/a', '')
+    RestartExplorer       = @($true, 'Refresh user settings and restart Explorer at the end', 'n/a', '')
+    TelemetryPolicy       = @($true, 'Telemetry, CEIP, app compatibility and advertising policy plus DiagTrack services', 'Folklore', '')
+    TelemetryHosts        = @($true, 'Block 30 Microsoft telemetry domains in the hosts file', 'Folklore', '')
+    BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)', 'n/a', '')
+    Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache', 'Folklore', '')
+    SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more', 'Folklore', '')
+    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)', 'Folklore', '')
+    SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time', 'Folklore', '')
+    SvcBiometrics         = @($true, 'Disable the Windows Biometric Service', 'Folklore', '')
+    SvcSmartCard          = @($true, 'Disable smart card services', 'Folklore', '')
+    SvcDiagnostics        = @($true, 'Disable diagnostic policy and Wdi services (troubleshooters)', 'Folklore', '')
+    SvcBluetooth          = @($false, 'Disable Bluetooth services. Off, you asked to keep Bluetooth', 'Folklore', '')
+    SvcPrinting           = @($false, 'Disable print spooler services. Off, you asked to keep printing', 'Folklore', '')
+    SvcDeliveryOpt        = @($true, 'Disable Delivery Optimization (peer to peer update sharing in the background)', 'Documented', 'https://learn.microsoft.com/en-us/windows/deployment/do/waas-delivery-optimization')
+    SvcRadio              = @($false, 'Disable Radio Management (airplane mode and radio toggles). Off, it supports Bluetooth', 'Folklore', '')
+    DriverExclusion       = @($true, 'Exclude drivers from Windows Update and stop device metadata downloads', 'n/a', '')
+    SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications', 'n/a', '')
+    PauseUpdates          = @($true, 'Pause updates for -PauseDays and set update services to Manual', 'n/a', '')
+    PauseStopsUpdateTasks = @($true, 'While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks', 'n/a', '')
+    KeepDefinitionUpdates = @($true, 'Leave Defender definition updates out of the excluded classifications, so Defender keeps current signatures', 'n/a', '')
+    RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file', 'n/a', '')
+    MouseAccel            = @($true, 'Turn off mouse acceleration using the profile for your display scaling', 'n/a', '')
+    ClearDesktopIcons     = @($true, 'Hide Recycle Bin, This PC and other system icons and move shortcuts off the desktop (restorable)', 'n/a', '')
+    HideAllDesktopIcons   = @($false, 'Also hide every other desktop icon (files stay on disk). Same as View, Show desktop icons', 'n/a', '')
+    EnableSystemRestore   = @($false, 'If the restore point fails, turn System Protection on for the system drive and retry', 'n/a', '')
+    ClearStartPins        = @($true, 'Clear all pinned apps from the Start menu (Windows 11, current user, layout is backed up)', 'n/a', '')
+    ForceDpi100           = @($false, 'Force 100% display scaling and drop per-monitor scaling (upstream groups). Off: no speed gain, and it skews the mouse profile', 'Folklore', '')
+    NoAutoMaintenance     = @($false, 'Turn off Windows automatic maintenance (upstream group). Off: it runs SSD retrim, and only when idle', 'Folklore', '')
+    NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access', 'n/a', '')
+    RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert', 'n/a', '')
+    LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
+    HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
+    DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)', 'n/a', '')
+    NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
+    NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
+    TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible', 'Folklore', '')
+    UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible', 'Folklore', '')
+    SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart', 'Documented', 'https://support.microsoft.com/en-us/topic/kb4073119-windows-client-guidance-for-it-pros-to-protect-against-silicon-based-microarchitectural-and-speculative-execution-side-channel-vulnerabilities-35820a8a-ae13-1299-88cc-357f104f5b11')
+    TimerResolution       = @($true, 'Compile and install a small service that holds the timer at its finest resolution (about 0.5 ms). Windows 11 only; skipped on machines with a battery', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod')
+    DevicePowerSaving     = @($true, 'Turn off power saving and selective suspend for ACPI, HID, PCI and USB devices (skipped on battery)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-selective-suspend')
+    DeviceWakeOff         = @($false, 'Stop devices waking the PC (keyboard and mouse can no longer wake it from sleep)', 'n/a', '')
+    MpoOff                = @($false, 'Turn off multiplane overlay (OverlayTestMode 5). Can fix flicker and stutter, can break some HDR setups', 'Folklore', '')
+    WriteCacheFlushOff    = @($false, 'Turn off write cache buffer flushing on SATA and NVMe disks. Faster, but a power cut can lose data', 'Folklore', '')
+    FastShutdown          = @($true, 'Shorter shutdown timeouts and end hung apps automatically. Unsaved work in hung apps is lost', 'n/a', '')
+    BlockFeatureUpgrades  = @($false, 'Stay on the current Windows version (TargetReleaseVersion). Security updates continue until it ends', 'n/a', '')
+    SearchIndexingOff     = @($true, 'Disable the Windows Search indexer service (search in Start and Explorer gets slower)', 'Documented', 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-search')
+    TimeServerPool        = @($true, 'Sync the clock from pool.ntp.org instead of time.windows.com', 'n/a', '')
+    MenuKillNotResponding = @($true, 'Add "Kill not responding tasks" to the desktop right click menu', 'n/a', '')
+    MenuRestartExplorer   = @($true, 'Add "Restart Explorer" to the desktop right click menu', 'n/a', '')
+    MenuTakeOwnership     = @($false, 'Add "Take ownership" to the right click menu of files and folders (easy to misuse on system files)', 'n/a', '')
+    MenuRunAsAdmin        = @($false, 'Add "Run as administrator" to .ps1, .msi and .vbs files (.bat and .cmd already have it)', 'n/a', '')
+    MenuNoShare           = @($false, 'Remove "Share" from the right click menu', 'n/a', '')
+    MenuNoGiveAccess      = @($false, 'Remove "Give access to" from the right click menu', 'n/a', '')
+    MenuNoCast            = @($false, 'Remove "Cast to device" from the right click menu', 'n/a', '')
+    MenuNoLibrary         = @($false, 'Remove "Include in library" from the right click menu', 'n/a', '')
+    MenuNoQuickAccess     = @($false, 'Remove "Pin to Quick access" and "Add to favorites" from the right click menu', 'n/a', '')
+    MenuNoPinToStart      = @($false, 'Remove "Pin to Start" from the right click menu', 'n/a', '')
+    MenuNoPrevVersions    = @($false, 'Remove "Restore previous versions" from the right click menu and Properties', 'n/a', '')
+    MenuNoTroubleshoot    = @($false, 'Remove "Troubleshoot compatibility" from the right click menu', 'n/a', '')
+    MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu', 'n/a', '')
+    MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu', 'n/a', '')
+    MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
+    LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
+    IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
+    HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
+    NvmeNativeDriver      = @($false, 'Use the newer native NVMe driver (Windows 11 24H2+). Experimental, disk tools and BitLocker may misbehave', 'Documented', 'https://techcommunity.microsoft.com/blog/windowsservernewsandbestpractices/announcing-native-nvme-in-windows-server-2025-ushering-in-a-new-era-of-storage-p/4477353')
+    HealthCheckAfter      = @($true, 'Run the health check at the end of a run (standalone: -HealthCheck)', 'n/a', '')
+    NvidiaProfile         = @($true, 'NVIDIA GPUs only: import a low latency, maximum performance global profile with Profile Inspector (the driver settings are backed up first)', 'Folklore', '')
+    NvidiaReBar           = @($false, 'NVIDIA GPUs only: force Resizable BAR on for every game. Off: helps some games and slows others, and needs ReBar on in the BIOS', 'Folklore', '')
+    NvidiaTelemetryStrip  = @($true, 'After an NVIDIA install, remove telemetry DLLs and container plugins', 'Folklore', '')
 }
+$EvidenceTiers = @('Measured', 'Documented', 'Folklore', 'n/a')
 $Opt = @{}
 foreach ($k in $OptionInfo.Keys) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
@@ -272,7 +292,9 @@ function Resolve-Options {
         if (-not (& $keep 'Skip')) { $skipList = @() }
     }
     foreach ($pair in @(@($Only, $true), @($enableList, $true), @($skipList, $false))) {
-        foreach ($name in $pair[0]) {
+        # powershell -File passes "A,B" as one string, so each entry is split on commas here. Only option names are
+        # split: registry group titles (-SkipRegGroup) can contain a comma.
+        foreach ($name in @($pair[0] | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
             $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
             if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
             $Opt[$match] = $pair[1]
@@ -281,17 +303,19 @@ function Resolve-Options {
 }
 
 if ($ListOptions) {
-    Write-Host ('{0,-24} {1,-5} {2}' -f 'Option', 'Def.', 'What it does')
+    Write-Host ('{0,-24} {1,-5} {2,-11} {3}' -f 'Option', 'Def.', 'Evidence', 'What it does')
     foreach ($k in $OptionInfo.Keys) {
-        Write-Host ('{0,-24} {1,-5} {2}' -f $k, $(if ($OptionInfo[$k][0]) { 'on' } else { 'off' }), $OptionInfo[$k][1])
+        Write-Host ('{0,-24} {1,-5} {2,-11} {3}' -f $k, $(if ($OptionInfo[$k][0]) { 'on' } else { 'off' }), $OptionInfo[$k][2], $OptionInfo[$k][1])
     }
+    Write-Host 'Evidence: Documented (a vendor page describes the mechanism, sources in docs\OPTIONS.md), Folklore (no measurement), n/a (not about speed).'
     Write-Host ''
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
-    Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\TPM\*''.'
+    Write-Host 'Pre flight checks run before every run; skip one by name with -SkipCheck <name>. A managed PC (domain, Entra ID, MDM) is refused unless -AllowManaged.'
+    Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
 }
 Resolve-Options
@@ -1903,6 +1927,16 @@ $TaskKeepBuiltIn = @(
     # ("Element not found"), so deleting it could never be undone.
     '\Microsoft\Windows\Application Experience\SdbinstMergeDbTask'
     '\Microsoft\Windows\UpdateOrchestrator\StartOobeAppsScanAfterUpdate'   # same: "Element not found" on restore
+    # docs/AUDIT.md A-03: deleting these stops protection or updates without a word: Defender scans, cache upkeep and
+    # verification, the System Restore point schedule, certificate enrolment and renewal, and the browser updaters
+    # (Edge, Google, Firefox). Telemetry tasks next to them, such as the Firefox Default Browser Agent, still go.
+    '\Microsoft\Windows\Windows Defender\*'
+    '\Microsoft\Windows\SystemRestore\SR'
+    '\Microsoft\Windows\CertificateServicesClient\*'
+    '\MicrosoftEdgeUpdate*'
+    '\GoogleUpdateTask*'
+    '\GoogleSystem\GoogleUpdater\*'
+    '\Mozilla\Firefox Background Update*'
 )
 # Upstream sets NtfsDisableLastAccessUpdate to the legacy value 1, which current Windows replaces at boot with
 # 0x80000002 (system managed, last access ON). 0x80000001 is the user managed "off" that stays (fsutil writes it).
@@ -2138,11 +2172,49 @@ $WindowsRewrittenValues = @(
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\DWM|ColorizationAfterglow'
     # Start menu "All apps" list view: Windows 11 build 26200 resets it to its own default after a restart.
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Start|AllAppsViewMode'
+    # Game Bar sets it again on its own: in the VM test of 11 Nov 2026 (build 26200) it was 0, the run wrote 0, and it
+    # was 1 after -Revert, although nothing in this script writes 1.
+    'HKEY_CURRENT_USER\System\GameConfigStore|GameDVR_Enabled'
+    # The USB 3 root hub driver saves its own idle setting: in both VM tests (8 and 11 Nov 2026) every other device
+    # took the original back on -Revert, the root hub kept the run's 0. Wildcard: the instance ID differs per PC.
+    'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\ROOT_HUB30\*\Device Parameters\WDF|IdleInWorkingState'
 )
+
+function Test-WindowsRewritten {
+    # Entries may hold wildcards (device instance IDs differ per PC).
+    param([string]$Path, [string]$Name)
+    $id = "$Path|$Name"
+    foreach ($w in $WindowsRewrittenValues) { if ($id -like $w) { return $true } }
+    return $false
+}
+
+# Tasks that UsoSvc registers, enables and disables itself (the run already handles the copies it registers again).
+# After -Revert puts them back, UsoSvc may set their state to its own liking within minutes: in the VM test of
+# 11 Nov 2026, 'Schedule Work' was enabled by the revert and disabled again four minutes later.
+$WindowsManagedTasks = @('\Microsoft\Windows\UpdateOrchestrator\*')
+
+# Policy values that Microsoft documents for some editions only. Honoured and Ignored are EditionID wildcards
+# (Core* is every Home edition). An edition in neither list gets 'unknown', and so does every other value under a
+# Policies key on an edition outside $EditionFullPolicy: nothing here guesses (docs/AUDIT.md A-09 and U-07).
+$EditionRules = @(
+    # Diagnostic data level 0 (Security) exists on Enterprise, Education and Server; Home and Pro treat it as 1 (Required).
+    @{ Names = @('AllowTelemetry'); Value = 0; Label = 'Enterprise, Education and Server'
+        Honoured = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*'); Ignored = @('Core*', 'Professional', 'ProfessionalN') }
+    # Windows Update for Business (deferrals, target version) is documented for Pro, Enterprise and Education.
+    @{ Names = @('DeferFeatureUpdates', 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdates', 'DeferQualityUpdatesPeriodInDays', 'ProductVersion', 'TargetReleaseVersion', 'TargetReleaseVersionInfo')
+        Label = 'Pro, Enterprise and Education'
+        Honoured = @('Professional*', 'Enterprise*', 'IoTEnterprise*', 'Education*'); Ignored = @('Core*') }
+)
+# Editions on which Group Policy values are taken as honoured when no rule above says otherwise.
+$EditionFullPolicy = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*')
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
 $StateFile = Join-Path $StateDir 'state.json'
+# One JSON line per recorded change, written and flushed before the change is made (docs/AUDIT.md A-01, A-11).
+$JournalFile = Join-Path $StateDir 'journal.jsonl'
+# 2: the state file records JournalSeq, the last journal line it holds. Files without it are version 1 (v7.4 and older).
+$StateVersion = 2
 $LogFile = Join-Path $StateDir ('run-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
@@ -2150,6 +2222,12 @@ $script:Failures = 0
 $script:Warnings = 0
 $script:TiCount = 0
 $script:ShellDirty = $false
+$script:JournalSeq = 0      # number of the last journal line written or read
+$script:StepId = 0
+$script:StepName = ''
+$script:JournalOption = ''  # option the current change belongs to, written into each journal line
+$script:StepEvents = [System.Collections.Generic.List[object]]::new()
+$script:StopRun = $false
 $script:State = @{
     Registry   = [System.Collections.Generic.List[object]]::new()
     KeyBackups = [System.Collections.Generic.List[object]]::new()
@@ -2158,6 +2236,7 @@ $script:State = @{
     Hosts      = [System.Collections.Generic.List[object]]::new()
     Power      = $null
     Defender   = $false
+    DefenderPrefs = $null
     Hibernate  = $null
     MemCompress = $null
     SleepStudy = $false
@@ -2186,8 +2265,44 @@ function Write-Log {
     if ($Level -eq 'WARN') { $script:Warnings++ }
     $line = '{0:HH:mm:ss} [{1}] {2}' -f (Get-Date), $Level, $Message
     $colour = switch ($Level) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'ERROR' { 'Red' } default { 'Gray' } }
-    Write-Host $line -ForegroundColor $colour
+    # With -Json the console gets only the result object; the log file still gets every line.
+    if (-not $Json) { Write-Host $line -ForegroundColor $colour }
     Add-Content -Path $LogFile -Value $line
+}
+
+# docs/AUDIT.md C-5: exit codes, also in the README and in the -Json result.
+$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable' }
+$script:PreflightResults = @()
+
+function Get-RunMode {
+    if ($Revert) { return 'revert' }
+    if ($RestoreTask.Count -gt 0) { return 'restoretask' }
+    if ($HealthCheck) { return 'healthcheck' }
+    if ($Benchmark) { return 'benchmark' }
+    if ($StartupReview) { return 'startupreview' }
+    if ($script:DryRun) { return 'dryrun' }
+    return 'apply'
+}
+
+function Get-RunResult {
+    # The object -Json prints: what ran, how it ended, and where the details are.
+    param([int]$Code, [string]$Reason = '')
+    $health = $null
+    if ($script:HealthItems.Count -gt 0) { $health = [ordered]@{ Counts = $script:Health; Items = @($script:HealthItems) } }
+    $journal = $null
+    if (Test-Path -LiteralPath $JournalFile) { $journal = $JournalFile }
+    return [ordered]@{
+        ExitCode = $Code; Result = $ExitCodes[$Code]; Reason = $Reason; Mode = (Get-RunMode)
+        Failures = $script:Failures; Warnings = $script:Warnings; Preflight = @($script:PreflightResults); Health = $health
+        Log = $LogFile; Journal = $journal; StateDir = $StateDir
+    }
+}
+
+function Exit-Run {
+    # Every exit after start up goes through here, so -Json always prints exactly one result object.
+    param([int]$Code, [string]$Reason = '')
+    if ($Json) { Write-Output (ConvertTo-Json -InputObject (Get-RunResult -Code $Code -Reason $Reason) -Depth 6) }
+    exit $Code
 }
 
 function Test-DryRun {
@@ -2196,56 +2311,275 @@ function Test-DryRun {
     return $false
 }
 
+function ConvertTo-StoredRecord {
+    # PowerShell 7 turns ISO date strings into dates when it reads JSON, which would corrupt restored registry
+    # strings. Registry records in the state file and the journal therefore carry an 's:' prefix on string values,
+    # which ConvertFrom-StoredRecord removes again. Anything that is not a registry record is returned unchanged.
+    param($Record)
+    if ($null -eq $Record -or -not $Record.PSObject.Properties['Kind']) { return $Record }
+    if (($Record.Kind -eq 'String' -or $Record.Kind -eq 'ExpandString') -and $Record.Value -is [string]) {
+        return [pscustomobject]@{ Path = $Record.Path; Name = $Record.Name; Existed = $Record.Existed; Kind = $Record.Kind; Value = ('s:' + $Record.Value) }
+    }
+    return $Record
+}
+
+function ConvertFrom-StoredRecord {
+    param($Record)
+    if ($null -eq $Record -or -not $Record.PSObject.Properties['Kind']) { return $Record }
+    if (($Record.Kind -eq 'String' -or $Record.Kind -eq 'ExpandString') -and $Record.Value -is [string] -and $Record.Value.StartsWith('s:')) {
+        $Record.Value = $Record.Value.Substring(2)
+    }
+    return $Record
+}
+
 function Save-State {
     if ($script:DryRun) { return }
-    # PowerShell 7 turns ISO date strings into dates when it reads JSON, which would corrupt restored registry
-    # strings. Stored strings therefore carry an 's:' prefix, which Import-State removes again.
     $copy = @{}
     foreach ($entry in $script:State.GetEnumerator()) { $copy[$entry.Key] = $entry.Value }
-    $copy.Registry = @($script:State.Registry | ForEach-Object {
-            if (($_.Kind -eq 'String' -or $_.Kind -eq 'ExpandString') -and $_.Value -is [string]) {
-                [pscustomobject]@{ Path = $_.Path; Name = $_.Name; Existed = $_.Existed; Kind = $_.Kind; Value = ('s:' + $_.Value) }
+    $copy.Registry = @($script:State.Registry | ForEach-Object { ConvertTo-StoredRecord $_ })
+    $copy.StateVersion = $StateVersion
+    $copy.JournalSeq = $script:JournalSeq
+    # Written to a temporary file and swapped in, so a crash during the write cannot leave a truncated state file.
+    # The version before it stays as state.json.bak, which Read-StateFile falls back to.
+    $temp = "$StateFile.tmp"
+    ConvertTo-Json -InputObject $copy -Depth 8 | Set-Content -LiteralPath $temp -Encoding UTF8
+    if (Test-Path -LiteralPath $StateFile) { [IO.File]::Replace($temp, $StateFile, "$StateFile.bak") }
+    else { [IO.File]::Move($temp, $StateFile) }
+}
+
+function Read-StateFile {
+    # The parsed state from state.json or, when that cannot be read, from state.json.bak (one step older).
+    $problems = @()
+    foreach ($file in $StateFile, "$StateFile.bak") {
+        if (-not (Test-Path -LiteralPath $file)) { continue }
+        try {
+            $raw = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            if ($null -eq $raw) { throw 'the file is empty.' }
+            if ($problems.Count -gt 0) { Write-Log "The state file could not be read ($($problems -join ' ')). Using the previous version, $file; the journal fills in what that version lacks." 'WARN' }
+            return $raw
+        }
+        catch { $problems += "$(Split-Path $file -Leaf): $($_.Exception.Message)" }
+    }
+    throw "The saved state in $StateDir cannot be read, so nothing was changed and -Revert cannot use it ($($problems -join ' ')). Keep the folder as it is: the task, registry key and hosts backups in it are intact."
+}
+
+function Add-StateItem {
+    # Adds one record to a list in the state. The same rules apply live and when the journal is replayed.
+    param([string]$Section, $Item)
+    if ($Section -eq 'Registry') {
+        if ($script:RecordedReg.Add("$($Item.Path)|$($Item.Name)")) { $script:State.Registry.Add($Item) }
+        return
+    }
+    if ($Section -in 'CreatedKeys', 'Hosts', 'Features') {
+        if (@($script:State[$Section]) -notcontains $Item) { $script:State[$Section].Add($Item) }
+        return
+    }
+    $script:State[$Section].Add($Item)
+}
+
+function Invoke-JournalEvent {
+    # Applies one journal event to the state. Change, Result and Rollback lines are the change log and alter nothing.
+    param($JournalEvent)
+    switch ($JournalEvent.Op) {
+        'Add' { Add-StateItem -Section $JournalEvent.Section -Item $JournalEvent.Item }
+        'Set' { $script:State[$JournalEvent.Name] = $JournalEvent.Value }
+        'Task' {
+            $r = $JournalEvent.Record
+            $e = Get-TaskRecord -Path $r.Path -Name $r.Name
+            if (-not $e) { $script:State.Tasks.Add($r) }
+            elseif ($JournalEvent.Mode -eq 'upgraded') { $e.Action = 'Deleted'; $e.XmlFile = $r.XmlFile }
+        }
+        'TaskUndo' {
+            # A delete that failed must not leave a record claiming the task was removed.
+            $e = Get-TaskRecord -Path $JournalEvent.Path -Name $JournalEvent.Name
+            if ($e -and $JournalEvent.Outcome -eq 'new') { [void]$script:State.Tasks.Remove($e) }
+            elseif ($e -and $JournalEvent.Outcome -eq 'upgraded') { $e.Action = 'Disabled'; $e.XmlFile = $null }
+        }
+    }
+}
+
+function Add-JournalEvents {
+    # Writes the events to the journal with one flushed write, and only then applies them to the state: a record of
+    # every change is on disk before the change is made. Each event is an ordered hashtable; it gets its Seq here.
+    # Dry runs and -Revert write no journal.
+    param([AllowEmptyCollection()][object[]]$Events = @())
+    if ($Events.Count -eq 0) { return }
+    if (-not ($script:DryRun -or $Revert)) {
+        $text = New-Object Text.StringBuilder
+        foreach ($e in $Events) {
+            $script:JournalSeq++
+            $e['Seq'] = $script:JournalSeq
+            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $script:StepId; StepName = $script:StepName; Option = $script:JournalOption }
+            foreach ($k in @($e.Keys)) {
+                if ($k -eq 'Seq') { continue }
+                if ($k -eq 'Item' -or $k -eq 'Before') { $line[$k] = ConvertTo-StoredRecord $e[$k] } else { $line[$k] = $e[$k] }
             }
-            else { $_ }
-        })
-    ConvertTo-Json -InputObject $copy -Depth 8 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+            [void]$text.Append((ConvertTo-Json -InputObject $line -Depth 6 -Compress)).Append("`n")
+        }
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($text.ToString())
+        $stream = [IO.FileStream]::new($JournalFile, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read, 4096, [IO.FileOptions]::WriteThrough)
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        finally { $stream.Dispose() }
+    }
+    foreach ($e in $Events) {
+        Invoke-JournalEvent -JournalEvent $e
+        $script:StepEvents.Add($e)
+    }
+}
+
+function Set-StateValue {
+    param([Parameter(Mandatory)][string]$Name, $Value)
+    Add-JournalEvents @([ordered]@{ Op = 'Set'; Name = $Name; Value = $Value })
+}
+
+function Add-StateRecord {
+    param([Parameter(Mandatory)][string]$Section, $Item)
+    Add-JournalEvents @([ordered]@{ Op = 'Add'; Section = $Section; Item = $Item })
+}
+
+function New-ChangeResult {
+    # The outcome of one change, as a journal line that refers to the line that announced it.
+    param([Parameter(Mandatory)]$Change, [Parameter(Mandatory)][string]$Result, [string]$Now = '')
+    $ref = 0
+    if ($Change.Contains('Seq')) { $ref = $Change['Seq'] }
+    return [ordered]@{ Op = 'Result'; Ref = $ref; Kind = $Change['Kind']; Target = $Change['Target']; Result = $Result; Now = $Now }
+}
+
+function Import-Journal {
+    # Replays the journal lines the state file does not hold yet (Seq above its JournalSeq). They exist when a run
+    # stopped during a step, after it recorded originals but before the state file was saved again.
+    param([long]$After = 0)
+    $script:JournalSeq = $After
+    if (-not (Test-Path -LiteralPath $JournalFile)) { return }
+    $replayed = 0; $bad = 0
+    foreach ($text in [IO.File]::ReadAllLines($JournalFile)) {
+        if (-not $text.Trim()) { continue }
+        try { $e = $text | ConvertFrom-Json }
+        catch { $bad++; continue }   # a line cut off when a run was killed while writing it
+        $seq = [long]$e.Seq
+        if ($seq -gt $script:JournalSeq) { $script:JournalSeq = $seq }
+        if ($seq -le $After) { continue }
+        foreach ($field in 'Item', 'Before') { if ($e.PSObject.Properties[$field]) { [void](ConvertFrom-StoredRecord $e.$field) } }
+        Invoke-JournalEvent -JournalEvent $e
+        if ($e.Op -in 'Add', 'Set', 'Task', 'TaskUndo') { $replayed++ }
+    }
+    if ($bad -gt 0) { Write-Log "$bad journal line(s) could not be read and were skipped (a run stopped while writing them)." 'WARN' }
+    if ($replayed -gt 0) { Write-Log "Recovered $replayed record(s) from the journal that the state file did not hold yet: the previous run stopped during a step. -Revert can undo those changes too." 'WARN' }
+}
+
+function Undo-CreatedKey {
+    # Removes one key the run created, only when it is empty again: anything added to it since is left alone.
+    param([string]$Full)
+    try { $key = Open-RegKey -Full $Full }
+    catch { Write-Log "Could not open the created key $Full. $($_.Exception.Message)" 'WARN'; return }
+    if (-not $key) { return }
+    $empty = ($key.ValueCount -eq 0) -and ($key.SubKeyCount -eq 0)
+    $key.Close()
+    if (-not $empty) { Write-Log "Key kept, it holds data added after the run: $Full"; return }
+    $parts = Split-RegPath $Full
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($script:Hives[$parts[0].ToUpperInvariant()], [Microsoft.Win32.RegistryView]::Default)
+    try { $base.DeleteSubKey($parts[1], $false) }
+    catch { Write-Log "Could not remove the created key $Full. $($_.Exception.Message)" 'WARN' }
+    finally { $base.Close() }
+}
+
+function Test-RollbackSafe {
+    # Registry values, registry keys, keys the run created and scheduled tasks can be put back exactly from the
+    # journal. Other records (hosts file, power plan, features, files, Defender and more) cannot.
+    param($JournalEvent)
+    switch ($JournalEvent.Op) {
+        'Change' { return ($JournalEvent.Kind -in 'Registry', 'RegistryKey', 'Task') }
+        'Add' { return ($JournalEvent.Section -in 'Registry', 'KeyBackups', 'CreatedKeys') }
+        'Set' { return $false }
+        default { return $true }   # Task, TaskUndo, Result and Rollback lines only describe
+    }
+}
+
+function Undo-FailedStep {
+    # docs/AUDIT.md A-04: a step that failed is put back from its own journal lines, newest first, so it is not left
+    # half done. When the step changed something the journal cannot put back, the run stops instead: nothing more is
+    # built on a half done step, and -Revert still undoes everything recorded.
+    param([string]$Name)
+    $changes = @($script:StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
+    if ($changes.Count -eq 0) { Write-Log "Rollback of '$Name': the step recorded no changes, nothing to undo."; return }
+    $unsafe = @($changes | Where-Object { -not (Test-RollbackSafe $_) })
+    if ($unsafe.Count -gt 0) {
+        $script:StopRun = $true
+        $what = @($unsafe | ForEach-Object { if ($_.Op -eq 'Set') { $_.Name } elseif ($_.Op -eq 'Add') { $_.Section } else { $_.Kind } } | Select-Object -Unique) -join ', '
+        Write-Log "Rollback of '$Name' is not safe: the step also changed $what, which the journal cannot put back. The run stops here. Everything recorded so far is saved, so -Revert undoes it." 'ERROR'
+        return
+    }
+    $failedTasks = @($script:StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
+    $tasks = [System.Collections.Generic.List[object]]::new()
+    $undone = 0; $problems = 0
+    [array]::Reverse($changes)
+    foreach ($e in $changes) {
+        try {
+            if ($e.Op -eq 'Change' -and $e.Kind -eq 'Registry') { Restore-RegValue -Entry $e.Before; $undone++ }
+            elseif ($e.Op -eq 'Change' -and $e.Kind -eq 'RegistryKey') {
+                $null = & cmd.exe /d /c "reg.exe import `"$($e.Before)`" >nul 2>&1"
+                if ($LASTEXITCODE -ne 0) { throw "reg.exe import failed ($LASTEXITCODE)." }
+                $undone++
+            }
+            elseif ($e.Op -eq 'Change' -and $e.Kind -eq 'Task' -and $failedTasks -notcontains $e.Seq) { $tasks.Add($e.Before) }
+            elseif ($e.Op -eq 'Add' -and $e.Section -eq 'CreatedKeys') { Undo-CreatedKey -Full $e.Item }
+        }
+        catch { $problems++; Write-Log "Rollback of '$Name': could not put back $($e.Target). $($_.Exception.Message)" 'WARN' }
+    }
+    if ($tasks.Count -gt 0) { Restore-Tasks -Tasks $tasks.ToArray(); $undone += $tasks.Count }
+    $outcome = 'OK'; if ($problems -gt 0) { $outcome = 'PARTIAL' }
+    Add-JournalEvents @([ordered]@{ Op = 'Rollback'; Kind = 'Step'; Target = $Name; Result = $outcome; Now = "$undone change(s) put back" })
+    if ($problems -eq 0) { Write-Log "Rolled back '$Name': $undone change(s) put back from the journal." 'WARN' }
+    else {
+        $script:StopRun = $true
+        Write-Log "Rollback of '$Name' put back $undone change(s) but $problems could not be put back (listed above). The run stops here; -Revert undoes what is recorded." 'ERROR'
+    }
 }
 
 function Invoke-Step {
-    param([string]$Name, [scriptblock]$Action)
+    param([string]$Name, [scriptblock]$Action, [string]$Option = '')
+    if ($script:StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
+    $script:StepId++
+    $script:StepName = $Name
+    $script:JournalOption = $Option
+    $script:StepEvents.Clear()
+    $failuresBefore = $script:Failures
     Write-Log "Starting: $Name"
     try {
         & $Action
-        Write-Log "Completed: $Name" 'OK'
+        if ($script:Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
+        else { Write-Log "Failed: $Name. $($script:Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
     }
     catch {
         $script:Failures++
         Write-Log "Failed: $Name. $($_.Exception.Message)" 'ERROR'
     }
     finally {
+        if ($script:Failures -gt $failuresBefore -and -not $Revert -and -not $script:DryRun) { Undo-FailedStep -Name $Name }
         if (-not $Revert) { Save-State }
+        $script:JournalOption = ''
     }
 }
 
 function Import-State {
-    if (-not (Test-Path -LiteralPath $StateFile)) { return }
-    $raw = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-    foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
-        if ($raw.PSObject.Properties[$section] -and $raw.$section) {
-            foreach ($item in @($raw.$section)) {
-                if ($section -eq 'Registry') {
-                    if (($item.Kind -eq 'String' -or $item.Kind -eq 'ExpandString') -and $item.Value -is [string] -and $item.Value.StartsWith('s:')) {
-                        $item.Value = $item.Value.Substring(2)
-                    }
-                    [void]$script:RecordedReg.Add("$($item.Path)|$($item.Name)")
+    $after = 0
+    if ((Test-Path -LiteralPath $StateFile) -or (Test-Path -LiteralPath "$StateFile.bak")) {
+        $raw = Read-StateFile
+        foreach ($section in 'Registry', 'KeyBackups', 'Tasks', 'Removed', 'Hosts', 'DesktopMoved', 'CreatedKeys', 'NetBindings', 'Features') {
+            if ($raw.PSObject.Properties[$section] -and $raw.$section) {
+                foreach ($item in @($raw.$section)) {
+                    if ($section -eq 'Registry') { $item = ConvertFrom-StoredRecord $item }
+                    Add-StateItem -Section $section -Item $item
                 }
-                $script:State[$section].Add($item)
             }
         }
+        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
+            if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
+        }
+        # Version 1 files (v7.4 and older) have no JournalSeq; there was no journal then, so every line is newer.
+        if ($raw.PSObject.Properties['JournalSeq']) { $after = [long]$raw.JournalSeq }
     }
-    foreach ($scalar in 'Power', 'Defender', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
-        if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
-    }
+    Import-Journal -After $after
 }
 
 function Test-RecordedFirst {
@@ -2376,15 +2710,9 @@ function Get-RegSnapshot {
     [pscustomobject]@{ Path = $Full; Name = $Name; Existed = $existed; Kind = $kind; Value = $value }
 }
 
-function Save-RegSnapshot {
-    # A set gives a fast "already recorded" test; device options record thousands of values.
-    param([string]$Full, [string]$Name)
-    if ($script:RecordedReg.Add("$Full|$Name")) { $script:State.Registry.Add((Get-RegSnapshot -Full $Full -Name $Name)) }
-}
-
-function Save-CreatedKeys {
-    # Records the keys a write is about to create, so -Revert can remove them again. Restoring the values alone would
-    # leave empty keys behind, and an empty right click menu key still shows up as a menu entry.
+function Get-MissingKeyEvents {
+    # Journal events for the keys a write is about to create, so -Revert can remove them again. Restoring the values
+    # alone would leave empty keys behind, and an empty right click menu key still shows up as a menu entry.
     param([string]$Full)
     $missing = @()
     $path = $Full
@@ -2395,24 +2723,42 @@ function Save-CreatedKeys {
         $missing += $path
         $path = $path.Substring(0, $path.LastIndexOf('\'))
     }
-    foreach ($m in $missing) { if (@($script:State.CreatedKeys) -notcontains $m) { $script:State.CreatedKeys.Add($m) } }
+    # Shallowest first, so a rollback, which goes newest first, removes the deepest key before its parent.
+    [array]::Reverse($missing)
+    foreach ($m in $missing) { if (@($script:State.CreatedKeys) -notcontains $m) { [ordered]@{ Op = 'Add'; Section = 'CreatedKeys'; Item = $m } } }
+}
+
+function New-RegChangeEvents {
+    # The journal lines that announce one registry write or removal, in the order they apply: the keys it creates, the
+    # original value the first time this value is seen (a set gives a fast test; device options record thousands),
+    # and last the change itself, which keeps the value as it is right now for a rollback of the step.
+    param([string]$Full, [string]$Name, [string]$After, [switch]$SkipKeys)
+    $before = Get-RegSnapshot -Full $Full -Name $Name
+    if (-not $SkipKeys) { Get-MissingKeyEvents -Full $Full }
+    if (-not $script:RecordedReg.Contains("$Full|$Name")) { [ordered]@{ Op = 'Add'; Section = 'Registry'; Item = $before } }
+    [ordered]@{ Op = 'Change'; Kind = 'Registry'; Target = "$Full\$(Show-RegName $Name)"; Before = $before; After = $After }
+}
+
+function Format-RegIntent {
+    param($Value, [string]$Kind)
+    if ($Kind -eq 'Binary') { return '<binary> (Binary)' }
+    return '{0} ({1})' -f (@($Value) -join ','), $Kind
+}
+
+function Complete-RegChange {
+    # docs/AUDIT.md A-06: every write is read back. Returns the journal line with OK or MISMATCH; a mismatch is also
+    # logged, unless -Quiet (the batched device writes report one summary instead).
+    param([Parameter(Mandatory)]$Change, [string]$Full, [string]$Name, $Value, [string]$Kind, [switch]$Quiet)
+    $expected = Format-RegIntent -Value $Value -Kind $Kind
+    if (Test-RegValueNow -Full $Full -Name $Name -Value $Value -Kind $Kind) { return New-ChangeResult -Change $Change -Result 'OK' -Now $expected }
+    $now = Format-RegValueShort (Get-RegSnapshot -Full $Full -Name $Name)
+    if (-not $Quiet) { Write-Log "MISMATCH: $Full\$(Show-RegName $Name) reads back as $now, expected $expected. Windows or security software may protect it." 'WARN' }
+    return New-ChangeResult -Change $Change -Result 'MISMATCH' -Now $now
 }
 
 function Remove-CreatedKeys {
     # Deepest first, and only keys that are empty again: anything added to them since is left alone.
-    foreach ($full in @($script:State.CreatedKeys | Sort-Object { $_.Length } -Descending)) {
-        try { $key = Open-RegKey -Full $full }
-        catch { Write-Log "Could not open the created key $full. $($_.Exception.Message)" 'WARN'; continue }
-        if (-not $key) { continue }
-        $empty = ($key.ValueCount -eq 0) -and ($key.SubKeyCount -eq 0)
-        $key.Close()
-        if (-not $empty) { Write-Log "Key kept, it holds data added after the run: $full"; continue }
-        $parts = Split-RegPath $full
-        $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($script:Hives[$parts[0].ToUpperInvariant()], [Microsoft.Win32.RegistryView]::Default)
-        try { $base.DeleteSubKey($parts[1], $false) }
-        catch { Write-Log "Could not remove the created key $full. $($_.Exception.Message)" 'WARN' }
-        finally { $base.Close() }
-    }
+    foreach ($full in @($script:State.CreatedKeys | Sort-Object { $_.Length } -Descending)) { Undo-CreatedKey -Full $full }
 }
 
 function Show-RegName { param([string]$Name) if ($Name -eq '') { '(default)' } else { $Name } }
@@ -2536,21 +2882,22 @@ function Set-RegValue {
     )
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
+    $change = $null
     try {
-        Save-CreatedKeys -Full $full
-        Save-RegSnapshot -Full $full -Name $Name
+        $events = @(New-RegChangeEvents -Full $full -Name $Name -After (Format-RegIntent -Value $Value -Kind $Type))
+        $change = $events[-1]
+        Add-JournalEvents $events
         try { Write-RegRaw -Full $full -Name $Name -Value $Value -Kind $Type }
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
             [void](Invoke-AsTI -PsCommand (Format-TiRegAdd -Full $full -Name $Name -Value $Value -Kind $Type))
-            if (-not (Test-RegValueNow -Full $full -Name $Name -Value $Value -Kind $Type)) {
-                Write-Log "Could not set $full\$(Show-RegName $Name), even as TrustedInstaller." 'WARN'
-            }
         }
+        Add-JournalEvents @(Complete-RegChange -Change $change -Full $full -Name $Name -Value $Value -Kind $Type)
     }
     catch {
         $script:Failures++
         Write-Log "Registry write failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
 }
 
@@ -2577,13 +2924,18 @@ function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
+    $change = $null
     try {
-        Save-RegSnapshot -Full $full -Name $Name
+        $events = @(New-RegChangeEvents -Full $full -Name $Name -After '<missing>' -SkipKeys)
+        $change = $events[-1]
+        Add-JournalEvents $events
         Remove-RegValueRaw -Full $full -Name $Name
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>')
     }
     catch {
         $script:Failures++
         Write-Log "Registry value removal failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
 }
 
@@ -2591,19 +2943,20 @@ function Remove-RegKey {
     param([Parameter(Mandatory)][string]$Path)
     $full = ConvertTo-FullRegPath $Path
     if (Test-DryRun "delete key $full (a backup is exported first)") { return }
+    $change = $null
     try {
         $probe = Open-RegKey -Full $full
         if (-not $probe) { return }
         $probe.Close()
         $dir = Join-Path $StateDir 'keys'
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
-        $file = Join-Path $dir (($full -replace '[\\/:*?"<>| {}]', '_') + '.reg')
-        $recorded = Test-RecordedFirst $script:State.KeyBackups { param($e) $e.Path -eq $full }
-        if (-not $recorded) {
-            & reg.exe export $full $file /y | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "Could not back up $full, so it was not deleted." }
-            $script:State.KeyBackups.Add([pscustomobject]@{ Path = $full; File = $file })
-        }
+        # docs/AUDIT.md A-02: every deletion gets its own export, also on a later run, because the key may hold entries
+        # added since the last one. -Revert imports them all, newest first, so the oldest (the original) wins.
+        $file = Join-Path $dir ('{0}-{1:yyyyMMdd-HHmmss-fff}.reg' -f ($full -replace '[\\/:*?"<>| {}]', '_'), (Get-Date))
+        & reg.exe export $full $file /y | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not back up $full, so it was not deleted." }
+        $change = [ordered]@{ Op = 'Change'; Kind = 'RegistryKey'; Target = $full; Before = $file; After = '<deleted>' }
+        Add-JournalEvents @([ordered]@{ Op = 'Add'; Section = 'KeyBackups'; Item = [pscustomobject]@{ Path = $full; File = $file } }, $change)
         $parts = Split-RegPath $full
         $hive = $script:Hives[$parts[0].ToUpperInvariant()]
         $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, [Microsoft.Win32.RegistryView]::Default)
@@ -2613,10 +2966,28 @@ function Remove-RegKey {
             [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $full) /f | Out-Null")
         }
         finally { $base.Close() }
+        $gone = $null -eq (Open-RegKey -Full $full)
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result $(if ($gone) { 'OK' } else { 'MISMATCH' }) -Now $(if ($gone) { '<deleted>' } else { 'still present' }))
+        if (-not $gone) { Write-Log "MISMATCH: the key $full is still present after deleting it." 'WARN' }
     }
     catch {
         $script:Failures++
         Write-Log "Registry key removal failed: $full. $($_.Exception.Message)" 'ERROR'
+        if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
+    }
+}
+
+function Restore-KeyBackups {
+    # Newest export first: where exports of the same key overlap, the oldest one, the original, is imported last and
+    # wins, while entries that only a later export holds come back too. reg.exe reports success on stderr, which
+    # Windows PowerShell 5.1 turns into an error record that stops the step even when redirected, so cmd.exe
+    # swallows the output and only the exit code counts.
+    $backups = @($script:State.KeyBackups)
+    [array]::Reverse($backups)
+    foreach ($k in $backups) {
+        if (-not (Test-Path -LiteralPath $k.File)) { Write-Log "Registry key backup $($k.File) is missing, so $($k.Path) cannot be restored from it." 'WARN'; continue }
+        $null = & cmd.exe /d /c "reg.exe import `"$($k.File)`" >nul 2>&1"
+        if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File) (reg.exe exit $LASTEXITCODE)" 'WARN' }
     }
 }
 
@@ -2735,6 +3106,7 @@ function Get-RegGroupOption {
         'Disable background apps global' { return 'PrivacyDenials' }
         'Disable fault tolerant heap' { return 'FaultTolerantHeap' }
         'Disable delivery optimization' { return 'SvcDeliveryOpt' }
+        'Turn on hardware accelerated GPU scheduling' { return 'HardwareGpuScheduling' }
         default { return 'Registry' }
     }
 }
@@ -2754,11 +3126,41 @@ function Show-RegGroups {
     }
 }
 
+function Test-HagsDriverSupport {
+    # Hardware accelerated GPU scheduling needs a WDDM 2.7 driver (DirectX blog, June 2020). The first field of a
+    # display driver's version is the WDDM version it is built for (27 = WDDM 2.7, 31 = WDDM 3.1); the Microsoft Basic
+    # Display Adapter reports 10.x. One capable adapter is enough, so hybrid graphics laptops qualify.
+    param([string[]]$DriverVersions = @())
+    foreach ($v in $DriverVersions) {
+        $m = [regex]::Match([string]$v, '^(\d+)\.')
+        if ($m.Success -and [int]$m.Groups[1].Value -ge 27) { return $true }
+    }
+    return $false
+}
+
+function Get-GatedRegOptions {
+    # Upstream registry options that this machine cannot use, with the reason. Their values are not written, and the
+    # health check notes them instead of judging them.
+    $gated = @{}
+    if ($Opt['HardwareGpuScheduling']) {
+        $versions = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.DriverVersion } | Where-Object { $_ })
+        if (-not (Test-HagsDriverSupport -DriverVersions $versions)) {
+            $found = 'none'; if ($versions.Count -gt 0) { $found = $versions -join ', ' }
+            $gated['HardwareGpuScheduling'] = "no display driver is WDDM 2.7 or later (driver versions found: $found)"
+        }
+    }
+    return $gated
+}
+
 function Import-UpstreamRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $applied = 0; $byOption = 0; $byGroup = 0
+    $gated = Get-GatedRegOptions
+    foreach ($g in $gated.Keys) { Write-Log "$g skipped on this PC: $($gated[$g])." 'WARN' }
     foreach ($op in $ops) {
-        if (-not $Opt[(Get-RegOpOption $op)]) { $byOption++; continue }
+        $script:JournalOption = Get-RegOpOption $op
+        if (-not $Opt[$script:JournalOption]) { $byOption++; continue }
+        if ($gated.ContainsKey($script:JournalOption)) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
@@ -2798,32 +3200,85 @@ function Set-HostsBlock {
     $text = Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $Name
     if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
     $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
+    if (-not (Test-RecordedFirst $script:State.Hosts { param($e) $e -eq $Name })) { Add-StateRecord -Section 'Hosts' -Item $Name }
     Write-HostsFile -Text ($text + $block)
-    if (-not (Test-RecordedFirst $script:State.Hosts { param($e) $e -eq $Name })) { $script:State.Hosts.Add($Name) }
     Write-Log "Hosts file: blocked $($Domains.Count) domain(s) ($Name)." 'OK'
 }
 #endregion
 
 #region Software: packages, debloat, NVIDIA ----------------------------------------------
+function ConvertFrom-DmtfDate {
+    # System Restore stores times as DMTF text (yyyyMMddHHmmss.ffffff+UUU, UUU = minutes from UTC). Local time, or $null.
+    param($Value)
+    if ($Value -is [DateTime]) { return $Value }
+    $m = [regex]::Match([string]$Value, '^(\d{14})\.\d{6}([+-])(\d{3})$')
+    if (-not $m.Success) { return $null }
+    $clock = [DateTime]::ParseExact($m.Groups[1].Value, 'yyyyMMddHHmmss', [Globalization.CultureInfo]::InvariantCulture)
+    $offset = [TimeSpan]::FromMinutes([int]$m.Groups[3].Value)
+    if ($m.Groups[2].Value -eq '-') { $offset = $offset.Negate() }
+    return ([DateTimeOffset]::new($clock, $offset)).LocalDateTime
+}
+
+function Get-RestorePoints {
+    # Through CIM, which works in Windows PowerShell 5.1 and PowerShell 7 alike (Get-ComputerRestorePoint is 5.1 only).
+    return @(Get-CimInstance -Namespace 'root/default' -ClassName 'SystemRestore' -ErrorAction SilentlyContinue)
+}
+
+function Test-RestorePointSince {
+    param([DateTime]$Since, [object[]]$Points = @())
+    foreach ($p in $Points) {
+        $made = ConvertFrom-DmtfDate $p.CreationTime
+        if ($made -and $made -ge $Since.AddSeconds(-2)) { return $true }
+    }
+    return $false
+}
+
+function Invoke-Checkpoint {
+    # Asks Windows for a restore point and returns what it said when it refused: the error, or the warning Windows
+    # gives when one was made in the last 24 hours. Empty when it said nothing.
+    $said = $null
+    try { Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop -WarningAction SilentlyContinue -WarningVariable said }
+    catch { return $_.Exception.Message }
+    return ((@($said) | ForEach-Object { "$_" }) -join ' ').Trim()
+}
+
 function New-SafetyRestorePoint {
-    try {
-        Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-        Write-Log 'Restore point created.' 'OK'
-        return
+    # docs/AUDIT.md A-07: a restore point counts only when System Restore lists one made since this step started, so a
+    # refusal that arrives as a warning (one per 24 hours) is not mistaken for success. Returns Created and Reason.
+    $start = Get-Date
+    $reason = Invoke-Checkpoint
+    if (Test-RestorePointSince -Since $start -Points (Get-RestorePoints)) {
+        Write-Log 'Restore point created (System Restore lists it).' 'OK'
+        return [pscustomobject]@{ Created = $true; Reason = '' }
     }
-    catch { $reason = $_.Exception.Message }
-    if (-not $Opt['EnableSystemRestore']) {
-        Write-Log "Restore point not created (System Protection may be off, or one was made in the last 24 hours). Continuing. Run with -Enable EnableSystemRestore to turn System Protection on for $env:SystemDrive and retry. $reason" 'WARN'
-        return
+    if (-not $reason) { $reason = 'Checkpoint-Computer reported nothing, but System Restore lists no restore point made since the run started.' }
+    if ($Opt['EnableSystemRestore']) {
+        Write-Log "Restore point not created. Windows said: $reason Turning System Protection on for $env:SystemDrive and trying again (EnableSystemRestore)."
+        try {
+            # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
+            Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
+            Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
+        }
+        catch { $reason = "$reason Turning System Protection on failed: $($_.Exception.Message)" }
+        $retry = Invoke-Checkpoint
+        if (Test-RestorePointSince -Since $start -Points (Get-RestorePoints)) {
+            Write-Log 'Restore point created after turning System Protection on (-Revert does not turn it off again).' 'OK'
+            return [pscustomobject]@{ Created = $true; Reason = '' }
+        }
+        if ($retry) { $reason = $retry }
     }
-    try {
-        # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
-        Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
-        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
-        Checkpoint-Computer -Description 'Before FocusedTweaks' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-        Write-Log 'Restore point created after turning System Protection on (-Revert does not turn it off again).' 'OK'
-    }
-    catch { Write-Log "Restore point still not created. The System Restore or Volume Shadow Copy service may be disabled on this machine. $($_.Exception.Message)" 'WARN' }
+    $hint = " Run with -Enable EnableSystemRestore to turn System Protection on for $env:SystemDrive and allow more than one restore point a day."
+    if ($Opt['EnableSystemRestore']) { $hint = ' The System Restore or Volume Shadow Copy service may be disabled on this machine.' }
+    Write-Log "Restore point NOT created. Windows said: $reason$hint" 'WARN'
+    return [pscustomobject]@{ Created = $false; Reason = $reason }
+}
+
+function Confirm-NoRestorePoint {
+    # A run that turns off mitigations and deletes tasks should not start without a way back unless the user agrees.
+    param([string]$Reason)
+    if ($Force) { Write-Log "Continuing without a restore point because of -Force. Reason it failed: $Reason" 'WARN'; return $true }
+    $answer = Read-Host "No restore point was created ($Reason). -Revert still undoes what this script records. Type YES to continue without one"
+    return ($answer -ceq 'YES')
 }
 
 function Install-RuntimePackages {
@@ -2854,7 +3309,7 @@ function Remove-BloatApps {
         if (Test-DryRun "remove app $($pkg.Name)") { continue }
         try {
             Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
-            $script:State.Removed.Add($pkg.Name); $removed++
+            Add-StateRecord -Section 'Removed' -Item $pkg.Name; $removed++
             Write-Log "Removed app: $($pkg.Name)" 'OK'
         }
         catch { Write-Log "Could not remove $($pkg.Name). $($_.Exception.Message)" 'WARN' }
@@ -2965,7 +3420,7 @@ function Save-NvidiaDrs {
     $files = @(Get-ChildItem -LiteralPath $NvidiaDrsDir -Filter 'nvdrsdb*.bin' -File -ErrorAction SilentlyContinue)
     if ($files.Count -eq 0) { throw "No NVIDIA settings database found in $NvidiaDrsDir. Is the NVIDIA driver installed?" }
     foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $backup -Force }
-    $script:State.NvidiaDrs = $true
+    Set-StateValue -Name 'NvidiaDrs' -Value $true
 }
 
 function Import-NvidiaSettings {
@@ -3059,12 +3514,15 @@ function Set-ServiceStart {
 }
 
 function Disable-ServiceGroups {
-    $enabled = @()
     foreach ($g in $ServiceGroups.Keys) {
-        if ($Opt[$g]) { $enabled += $ServiceGroups[$g] }
-        else { Write-Log "Services kept (option $g is off): $($ServiceGroups[$g] -join ', ')" }
+        if (-not $Opt[$g]) { Write-Log "Services kept (option $g is off): $($ServiceGroups[$g] -join ', ')" }
     }
-    foreach ($name in ($enabled | Select-Object -Unique)) { Set-ServiceStart -Name $name -Mode Disabled }
+    $done = @()
+    foreach ($g in $ServiceGroups.Keys) {
+        if (-not $Opt[$g]) { continue }
+        $script:JournalOption = $g
+        foreach ($name in $ServiceGroups[$g]) { if ($done -notcontains $name) { Set-ServiceStart -Name $name -Mode Disabled; $done += $name } }
+    }
 }
 
 function Get-TaskRecord {
@@ -3077,25 +3535,30 @@ function Save-TaskState {
     # original WasEnabled; a task disabled by one run and deleted by a later one must still be restorable from XML.
     param($Task, [string]$Action, [string]$XmlFile = $null)
     $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
-    if (-not $e) {
-        $script:State.Tasks.Add([pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = ($Task.State -ne 'Disabled'); XmlFile = $XmlFile })
-        return 'new'
-    }
-    if ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') {
-        $e.Action = 'Deleted'
-        $e.XmlFile = $XmlFile
-        return 'upgraded'
-    }
-    return 'kept'
+    $mode = 'kept'
+    if (-not $e) { $mode = 'new' }
+    elseif ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') { $mode = 'upgraded' }
+    if ($mode -eq 'kept') { return 'kept' }
+    $wasEnabled = ($Task.State -ne 'Disabled')
+    if ($e) { $wasEnabled = [bool]$e.WasEnabled }
+    $record = [pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = $wasEnabled; XmlFile = $XmlFile }
+    Add-JournalEvents @([ordered]@{ Op = 'Task'; Mode = $mode; Record = $record })
+    return $mode
 }
 
 function Undo-TaskRecord {
     # A delete that failed must not leave a record claiming the task was removed.
     param($Task, [string]$Outcome)
-    $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
-    if (-not $e) { return }
-    if ($Outcome -eq 'new') { [void]$script:State.Tasks.Remove($e) }
-    elseif ($Outcome -eq 'upgraded') { $e.Action = 'Disabled'; $e.XmlFile = $null }
+    if ($Outcome -notin 'new', 'upgraded') { return }
+    Add-JournalEvents @([ordered]@{ Op = 'TaskUndo'; Path = $Task.TaskPath; Name = $Task.TaskName; Outcome = $Outcome })
+}
+
+function New-TaskChange {
+    # The journal line announcing one task change. Before is what a rollback of the step registers or enables again:
+    # the task as it is right now, from the export that holds it.
+    param($Task, [string]$Action, [string]$XmlFile = $null)
+    $before = [pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = ($Task.State -ne 'Disabled'); XmlFile = $XmlFile }
+    return [ordered]@{ Op = 'Change'; Kind = 'Task'; Target = "$($Task.TaskPath)$($Task.TaskName)"; Before = $before; After = $Action }
 }
 
 function Disable-TaskRecorded {
@@ -3104,16 +3567,23 @@ function Disable-TaskRecorded {
     if ($Task.State -eq 'Disabled') { return }
     if (Test-DryRun "disable task $full") { return }
     [void](Save-TaskState -Task $Task -Action 'Disabled')
+    $change = New-TaskChange -Task $Task -Action 'Disabled'
+    Add-JournalEvents @($change)
     try { Disable-ScheduledTask -InputObject $Task -ErrorAction Stop | Out-Null }
     catch {
         # Through cmd.exe: schtasks reports failure on stderr, which stops the step under 'Stop' in PowerShell 5.1.
         $null = & cmd.exe /d /c "schtasks.exe /Change /TN `"$full`" /Disable >nul 2>&1"
-        if ($LASTEXITCODE -eq 0) { return }
-        # Tasks that belong to SYSTEM, such as the Update Orchestrator tasks UsoSvc registers again, need SYSTEM.
-        [void](Invoke-AsTI -PsCommand "Disable-ScheduledTask -TaskPath $(ConvertTo-PsLiteral $Task.TaskPath) -TaskName $(ConvertTo-PsLiteral $Task.TaskName) | Out-Null")
-        $now = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
-        if ($now -and $now.State -ne 'Disabled') { Write-Log "Could not disable task $full, not even as TrustedInstaller." 'WARN' }
+        if ($LASTEXITCODE -ne 0) {
+            # Tasks that belong to SYSTEM, such as the Update Orchestrator tasks UsoSvc registers again, need SYSTEM.
+            [void](Invoke-AsTI -PsCommand "Disable-ScheduledTask -TaskPath $(ConvertTo-PsLiteral $Task.TaskPath) -TaskName $(ConvertTo-PsLiteral $Task.TaskName) | Out-Null")
+        }
     }
+    $now = Get-ScheduledTask -TaskPath $Task.TaskPath -TaskName $Task.TaskName -ErrorAction SilentlyContinue
+    if ($now -and $now.State -ne 'Disabled') {
+        Write-Log "Could not disable task $full, not even as TrustedInstaller." 'WARN'
+        Add-JournalEvents @(New-ChangeResult -Change $change -Result 'MISMATCH' -Now ([string]$now.State))
+    }
+    else { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now 'Disabled') }
 }
 
 function Disable-TelemetryTasks {
@@ -3143,6 +3613,7 @@ function Remove-AllScheduledTasks {
         if ($seen % 40 -eq 0) { Write-Log "Scheduled tasks: $seen of $($tasks.Count) processed, still working." }
         $file = Join-Path $dir (($full -replace '[\\/:*?"<>| ]', '_') + '.xml')
         $outcome = $null
+        $change = $null
         try {
             # The first export is the original. A later run may meet a copy that Windows registered again (UsoSvc
             # after the cache cleanup) and the script then disabled; exporting that would overwrite the original.
@@ -3152,12 +3623,17 @@ function Remove-AllScheduledTasks {
                 Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
                 $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
             }
+            else { $file = [string]$prior.XmlFile }
+            $change = New-TaskChange -Task $t -Action 'Deleted' -XmlFile $file
+            Add-JournalEvents @($change)
             Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop
+            Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now 'Deleted')
             $deleted++
         }
         catch {
             $failed++
             if ($outcome) { Undo-TaskRecord -Task $t -Outcome $outcome }
+            if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
             Write-Log "Task $full not deleted: $($_.Exception.Message)"
         }
     }
@@ -3258,6 +3734,7 @@ function Restore-ProtectedTasks {
 #region Telemetry, updates, vendor blocks -------------------------------------------------
 function Invoke-TelemetryTweaks {
     if ($Opt['TelemetryPolicy']) {
+        $script:JournalOption = 'TelemetryPolicy'
         Set-TweakList $TelemetryRegs
         foreach ($s in $TelemetryServices) { Set-ServiceStart -Name $s -Mode Disabled }
         # Stop every logger under the DiagTrack autologger.
@@ -3268,15 +3745,16 @@ function Invoke-TelemetryTweaks {
             finally { $k.Close() }
         }
     }
-    if ($Opt['BiometricsPolicy']) { Set-TweakList $BiometricsRegs }
+    if ($Opt['BiometricsPolicy']) { $script:JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
     if ($Opt['Cdp']) {
+        $script:JournalOption = 'Cdp'
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
         $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
         if ((Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
             Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($Opt['TelemetryHosts']) { Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
+    if ($Opt['TelemetryHosts']) { $script:JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
 }
 
 function Set-UpdatePolicies {
@@ -3286,13 +3764,15 @@ function Set-UpdatePolicies {
     $wu = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
     $ux = 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
 
-    if ($Opt['DriverExclusion']) { Set-TweakList $DriverExclusionRegs }
+    if ($Opt['DriverExclusion']) { $script:JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) {
+        $script:JournalOption = 'SecurityUpdatesOnly'
         Set-TweakList $SecurityUpdatesRegs
         Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
         Write-Log 'Update policy: long deferrals set and update classifications excluded (upstream behaviour).' 'WARN'
     }
     if ($Opt['PauseUpdates']) {
+        $script:JournalOption = 'PauseUpdates'
         $fmt = 'yyyy-MM-ddTHH:mm:ssZ'
         $inv = [System.Globalization.CultureInfo]::InvariantCulture
         $now = [DateTime]::UtcNow
@@ -3308,7 +3788,7 @@ function Set-UpdatePolicies {
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
-        if ($Opt['PauseStopsUpdateTasks']) { Disable-UpdateTasks }
+        if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
         if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays). Security patches are delayed for that period." 'WARN' }
     }
 }
@@ -3376,9 +3856,9 @@ function Set-PerformancePowerPlan {
     }
     if (-not $script:State.Power) {
         $previous = if ($active -and $active -ne $guid -and -not (@(Get-TweakedPlanGuids) -contains $active)) { $active } else { $BalancedGuid }
-        $script:State.Power = [pscustomobject]@{ Previous = $previous; Custom = $guid }
+        Set-StateValue -Name 'Power' -Value ([pscustomobject]@{ Previous = $previous; Custom = $guid })
     }
-    else { $script:State.Power.Custom = $guid }
+    else { Set-StateValue -Name 'Power' -Value ([pscustomobject]@{ Previous = $script:State.Power.Previous; Custom = $guid }) }
     foreach ($s in $spec.Settings) { Set-PlanValue -Guid $guid -Sub $s[0] -Setting $s[1] -Value $s[2] }
     powercfg /setactive $guid | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'powercfg /setactive failed.' }
@@ -3404,12 +3884,12 @@ function Set-PowerModeOverlay {
         # A missing value means Windows' default.
         $source = Get-PowerSource
         $prev = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$($source)PowerScheme"
-        $script:State.PowerOverlay = $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
-        $script:State.PowerOverlaySource = $source
+        Set-StateValue -Name 'PowerOverlay' -Value $(if ($prev.Existed -and $prev.Value) { [string]$prev.Value } else { '00000000-0000-0000-0000-000000000000' })
+        Set-StateValue -Name 'PowerOverlaySource' -Value $source
     }
     powercfg /OverlaySetActive $overlay | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Log 'Power mode overlays are not available on this Windows build.' 'WARN'; return }
-    $script:State.PowerOverlaySet = $overlay   # what the health check compares against
+    Set-StateValue -Name 'PowerOverlaySet' -Value $overlay   # what the health check compares against
     Write-Log "Power mode set ($PowerMode)." 'OK'
 }
 
@@ -3449,7 +3929,7 @@ function Disable-Hibernation {
     if (Test-DryRun 'turn hibernation off (this also removes Fast Startup)') { return }
     if ($null -eq $script:State.Hibernate) {
         $p = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
-        $script:State.Hibernate = [bool]($p -and $p.PSObject.Properties['HibernateEnabled'] -and $p.HibernateEnabled -eq 1)
+        Set-StateValue -Name 'Hibernate' -Value ([bool]($p -and $p.PSObject.Properties['HibernateEnabled'] -and $p.HibernateEnabled -eq 1))
     }
     powercfg /hibernate off | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'powercfg /hibernate off failed.' }
@@ -3511,11 +3991,19 @@ function Set-MsiMode {
     }
 }
 
+# docs/AUDIT.md B-05: below this much RAM, compression avoids page file reads under load, so it stays on.
+$MemoryCompressionMinGB = 32
+
+function Test-MemoryCompressionTarget {
+    param([double]$RamGB)
+    return $RamGB -ge $MemoryCompressionMinGB
+}
+
 function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
-    if ($ram -le 8) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs more than 8 GB)."; return }
+    if (-not (Test-MemoryCompressionTarget -RamGB $ram)) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs $MemoryCompressionMinGB GB or more)."; return }
     if (Test-DryRun 'disable memory compression') { return }
-    if ($null -eq $script:State.MemCompress) { $script:State.MemCompress = [bool](Get-MMAgent).MemoryCompression }
+    if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
     Write-Log 'Memory compression disabled (takes effect after a restart).' 'OK'
 }
@@ -3526,7 +4014,7 @@ function Disable-SleepStudy {
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
     # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
     if ($script:State.SleepStudy -eq $false) {
-        $script:State.SleepStudy = @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
+        Set-StateValue -Name 'SleepStudy' -Value @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' })
     }
     foreach ($log in $SleepStudyLogs) {
         & wevtutil.exe sl $log /e:false | Out-Null
@@ -3547,7 +4035,7 @@ function Get-MaxPasswordAge {
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
-    if ($script:State.PwAge -eq $false) { $script:State.PwAge = Get-MaxPasswordAge }
+    if ($script:State.PwAge -eq $false) { Set-StateValue -Name 'PwAge' -Value (Get-MaxPasswordAge) }
     & net.exe accounts /maxpwage:unlimited | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:unlimited failed ($LASTEXITCODE)." }
 }
@@ -3589,7 +4077,7 @@ function Reset-ConsentDatabase {
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     if (-not $script:State.ConsentDb) {
         foreach ($f in $files) { Copy-Item -LiteralPath $f.FullName -Destination $backup -Force }
-        $script:State.ConsentDb = $backup
+        Set-StateValue -Name 'ConsentDb' -Value $backup
     }
     Stop-Service -Name camsvc -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
@@ -3634,8 +4122,9 @@ function Clear-DesktopIcons {
             $target = Join-Path $StateDir ('desktop-backup\' + (($dir -replace '[\\/:*?"<>| ]', '_')))
             New-Item -ItemType Directory -Path $target -Force | Out-Null
             $to = Join-Path $target $item.Name
+            # Recorded first: Restore-DesktopIcons only moves back what really arrived in the backup folder.
+            Add-StateRecord -Section 'DesktopMoved' -Item ([pscustomobject]@{ From = $item.FullName; To = $to })
             Move-Item -LiteralPath $item.FullName -Destination $to -Force
-            $script:State.DesktopMoved.Add([pscustomobject]@{ From = $item.FullName; To = $to })
             $moved++
         }
     }
@@ -3665,7 +4154,7 @@ function Clear-StartPins {
     # Backed up once per run cycle, keyed on the state: a backup left by an earlier, reverted cycle is outdated.
     if (-not $script:State.StartLayout -and (Test-Path -LiteralPath $file)) {
         Copy-Item -LiteralPath $file -Destination $backup -Force
-        $script:State.StartLayout = $backup
+        Set-StateValue -Name 'StartLayout' -Value $backup
     }
     $bytes = [Convert]::FromBase64String(($EmptyStartLayout -join ''))
     # Same approach as upstream: stop the shell host, replace the layout file, let the Start menu reload.
@@ -3706,7 +4195,7 @@ function Disable-FeatureGroup {
     if ($on.Count -eq 0) { Write-Log "$Group`: none of $($FeatureGroups[$Group] -join ', ') is turned on."; return }
     foreach ($name in $on) {
         if (Test-DryRun "turn off the optional feature $name") { continue }
-        if (@($script:State.Features) -notcontains $name) { $script:State.Features.Add($name) }
+        if (@($script:State.Features) -notcontains $name) { Add-StateRecord -Section 'Features' -Item $name }
         try {
             Disable-WindowsOptionalFeature -Online -FeatureName $name -NoRestart -ErrorAction Stop | Out-Null
             Write-Log "Optional feature turned off: $name (finishes at the next restart)." 'OK'
@@ -3760,6 +4249,7 @@ function Set-DefenderState {
             throw 'Tamper Protection is on. Turn it off yourself in Windows Security (Virus and threat protection settings), then run again. This script does not try to bypass it.'
         }
         if (Test-DryRun 'disable Defender real time protection through policy and Set-MpPreference') { return }
+        Save-DefenderPrefs
         Set-RegValue -Path $root -Name 'DisableAntiSpyware' -Value 1
         foreach ($v in $rtpValues) { Set-RegValue -Path $rtp -Name $v -Value 1 }
         Set-MpPreference -DisableRealtimeMonitoring $true -DisableBehaviorMonitoring $true -DisableIOAVProtection $true -ErrorAction Stop
@@ -3767,12 +4257,37 @@ function Set-DefenderState {
     }
     else {
         if (Test-DryRun 'remove Defender policy blocks and enable real time protection') { return }
+        Save-DefenderPrefs
         Remove-RegValue -Path $root -Name 'DisableAntiSpyware'
         foreach ($v in $rtpValues) { Remove-RegValue -Path $rtp -Name $v }
         Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
         Write-Log 'Defender policy blocks removed and real time protection enabled.' 'OK'
     }
-    $script:State.Defender = $true
+}
+
+function Save-DefenderPrefs {
+    # docs/AUDIT.md A-17: the three preferences -Defender changes are recorded the first time, so -Revert puts back
+    # what was there instead of switching everything on.
+    if ($script:State.Defender -eq $true) { return }
+    $p = Get-MpPreference -ErrorAction Stop
+    Set-StateValue -Name 'DefenderPrefs' -Value ([pscustomobject]@{
+            DisableRealtimeMonitoring = [bool]$p.DisableRealtimeMonitoring
+            DisableBehaviorMonitoring = [bool]$p.DisableBehaviorMonitoring
+            DisableIOAVProtection     = [bool]$p.DisableIOAVProtection
+        })
+    Set-StateValue -Name 'Defender' -Value $true
+}
+
+function Restore-DefenderPrefs {
+    $prefs = $script:State.DefenderPrefs
+    if (-not $prefs) {
+        # State from v7.4 and older holds no preferences, only that -Defender was used.
+        Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
+        Write-Log 'Defender real time protection enabled (no recorded preferences: the state comes from an older version).' 'OK'
+        return
+    }
+    Set-MpPreference -DisableRealtimeMonitoring ([bool]$prefs.DisableRealtimeMonitoring) -DisableBehaviorMonitoring ([bool]$prefs.DisableBehaviorMonitoring) -DisableIOAVProtection ([bool]$prefs.DisableIOAVProtection) -ErrorAction Stop
+    Write-Log "Defender preferences restored as recorded: DisableRealtimeMonitoring $([bool]$prefs.DisableRealtimeMonitoring), DisableBehaviorMonitoring $([bool]$prefs.DisableBehaviorMonitoring), DisableIOAVProtection $([bool]$prefs.DisableIOAVProtection)." 'OK'
 }
 #endregion
 
@@ -3972,15 +4487,8 @@ function Get-BcdValue {
     return $null
 }
 
-function Disable-Dep {
-    if (Test-DryRun 'set the boot option nx to AlwaysOff (Data Execution Prevention off, Secure Boot must be off)') { return }
-    if (-not $script:State.Dep) { $script:State.Dep = [pscustomobject]@{ Previous = (Get-BcdValue 'nx') } }
-    $out = Invoke-Native bcdedit.exe @('/set', 'nx', 'AlwaysOff')
-    if ($LASTEXITCODE -ne 0) { throw "bcdedit could not set nx (Secure Boot must be off for this): $($out.Trim())" }
-    Write-Log 'Data Execution Prevention is switched off. Restart Windows to apply.' 'WARN'
-}
-
 function Restore-Dep {
+    # Kept for state files from v7.4 and older, whose runs could turn DEP off with the removed DepOff option.
     # The saved value comes from a file, so only values bcdedit accepts for nx are passed on.
     $previous = $script:State.Dep.Previous
     if ($previous -and @('OptIn', 'OptOut', 'AlwaysOn', 'AlwaysOff') -notcontains [string]$previous) { throw "Unexpected saved nx value '$previous', not restoring it." }
@@ -3990,13 +4498,29 @@ function Restore-Dep {
     Write-Log "Data Execution Prevention restored ($(if ($previous) { $previous } else { 'value removed' })). Restart Windows to apply." 'OK'
 }
 
+function Get-TimerSkipReason {
+    # docs/AUDIT.md B-03: the timer service stays on by default, but only where it pays. Windows 10 ignores the global
+    # flag, so the service would raise the resolution for itself only; on a battery machine the 0.5 ms tick keeps the
+    # CPU out of deep idle states all the time. -ForcePowerPlanOnLaptop overrides the battery rule, as for the power plan.
+    param([int]$Build, [bool]$HasBattery, [bool]$Force)
+    if ($Build -lt 22000) { return "Windows 10 (build $Build) honours timer requests per process only, so a service cannot set the timer for other programs" }
+    if ($HasBattery -and -not $Force) { return 'a battery was found, and a 0.5 ms timer held all the time drains it (use -ForcePowerPlanOnLaptop to install it anyway)' }
+    return $null
+}
+
+function Get-TimerSkipReasonHere {
+    return Get-TimerSkipReason -Build ([Environment]::OSVersion.Version.Build) -HasBattery ([bool](Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) -Force ([bool]$ForcePowerPlanOnLaptop)
+}
+
 function Install-TimerResolutionService {
     $dir = Join-Path $env:ProgramFiles 'FocusedTweaks'
     $exe = Join-Path $dir 'TimerResolution.exe'
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    $skip = Get-TimerSkipReasonHere
+    if ($skip) { Write-Log "Timer resolution service skipped: $skip." 'WARN'; return }
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
-    $script:State.TimerService = [pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe }
+    Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $existing = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Status -ne 'Stopped') { Stop-Service -Name $TimerServiceName -Force }
@@ -4035,30 +4559,53 @@ function Remove-TimerResolutionService {
 function Set-TweakListBatched {
     # For long lists (one entry per device). Values that need TrustedInstaller are written together in a few calls,
     # because each call restarts a service and takes seconds. A dry run prints one summary line, not every value.
+    # The journal gets one flushed write per registry key before its values change and one for their results, instead
+    # of two per value: device options touch thousands of values.
     param([string]$Label, [object[]]$Tweaks)
     if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
     $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
     $denied = [System.Collections.Generic.List[object]]::new()
-    foreach ($t in $Tweaks) {
-        $full = ConvertTo-FullRegPath $t.Path
-        try {
-            Save-CreatedKeys -Full $full
-            Save-RegSnapshot -Full $full -Name $t.Name
-            Write-RegRaw -Full $full -Name $t.Name -Value $t.Value -Kind $t.Type
+    $failed = 0
+    foreach ($group in @($Tweaks | Group-Object { ConvertTo-FullRegPath $_.Path })) {
+        $full = $group.Name
+        $events = [System.Collections.Generic.List[object]]::new()
+        $pending = [System.Collections.Generic.List[object]]::new()
+        foreach ($e in @(Get-MissingKeyEvents -Full $full)) { $events.Add($e) }
+        foreach ($t in $group.Group) {
+            $change = $null
+            foreach ($e in @(New-RegChangeEvents -Full $full -Name $t.Name -After (Format-RegIntent -Value $t.Value -Kind $t.Type) -SkipKeys)) { $events.Add($e); $change = $e }
+            $pending.Add([pscustomobject]@{ Full = $full; Tweak = $t; Change = $change })
         }
-        catch {
-            if (Test-AccessDenied $_) { $denied.Add([pscustomobject]@{ Full = $full; Tweak = $t }) }
-            else { $script:Failures++; Write-Log "Registry write failed: $full\$(Show-RegName $t.Name). $($_.Exception.Message)" 'ERROR' }
+        Add-JournalEvents $events.ToArray()
+        $results = [System.Collections.Generic.List[object]]::new()
+        foreach ($p in $pending) {
+            try {
+                Write-RegRaw -Full $full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type
+                $r = Complete-RegChange -Change $p.Change -Full $full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type -Quiet
+                if ($r.Result -ne 'OK') { $failed++ }
+                $results.Add($r)
+            }
+            catch {
+                if (Test-AccessDenied $_) { $denied.Add($p); continue }
+                $script:Failures++
+                Write-Log "Registry write failed: $full\$(Show-RegName $p.Tweak.Name). $($_.Exception.Message)" 'ERROR'
+                $results.Add((New-ChangeResult -Change $p.Change -Result 'FAILED' -Now $_.Exception.Message))
+            }
         }
+        if ($results.Count -gt 0) { Add-JournalEvents $results.ToArray() }
     }
     # About 30 commands keep the encoded command well below the service command line limit.
     for ($i = 0; $i -lt $denied.Count; $i += 30) {
         $chunk = @($denied[$i..([Math]::Min($i + 29, $denied.Count - 1))])
         [void](Invoke-AsTI -PsCommand (($chunk | ForEach-Object { Format-TiRegAdd -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type }) -join '; '))
     }
-    $failed = @($denied | Where-Object { -not (Test-RegValueNow -Full $_.Full -Name $_.Tweak.Name -Value $_.Tweak.Value -Kind $_.Tweak.Type) }).Count
-    if ($failed -gt 0) { Write-Log "$Label`: $failed of $($Tweaks.Count) value(s) could not be set, even as TrustedInstaller." 'WARN' }
+    if ($denied.Count -gt 0) {
+        $results = @(foreach ($p in $denied) { Complete-RegChange -Change $p.Change -Full $p.Full -Name $p.Tweak.Name -Value $p.Tweak.Value -Kind $p.Tweak.Type -Quiet })
+        $failed += @($results | Where-Object { $_.Result -ne 'OK' }).Count
+        Add-JournalEvents $results
+    }
+    if ($failed -gt 0) { Write-Log "$Label`: $failed of $($Tweaks.Count) value(s) did not read back as set (MISMATCH in the journal), even as TrustedInstaller." 'WARN' }
     Write-Log "$Label`: $($Tweaks.Count - $failed) value(s) set under $keys registry key(s). They apply after a restart." 'OK'
 }
 
@@ -4165,7 +4712,7 @@ function Set-IPv4Only {
     foreach ($b in $bindings) {
         if (Test-DryRun "turn off IPv6 on adapter '$($b.Name)' (the connection drops for a moment)") { continue }
         if (-not (Test-RecordedFirst $script:State.NetBindings { param($e) $e.Name -eq $b.Name })) {
-            $script:State.NetBindings.Add([pscustomobject]@{ Name = $b.Name; ComponentId = 'ms_tcpip6' })
+            Add-StateRecord -Section 'NetBindings' -Item ([pscustomobject]@{ Name = $b.Name; ComponentId = 'ms_tcpip6' })
         }
         Disable-NetAdapterBinding -Name $b.Name -ComponentID 'ms_tcpip6' -ErrorAction Stop
         Write-Log "IPv6 turned off on '$($b.Name)'." 'OK'
@@ -4212,7 +4759,7 @@ function Show-StartupReview {
     $file = Join-Path $StateDir ('startup-review-{0:yyyyMMdd-HHmmss}.txt' -f (Get-Date))
     $text = ($rows | Sort-Object Kind, Name | Format-Table Kind, Name, Command, Where -AutoSize -Wrap | Out-String -Width 220)
     Set-Content -LiteralPath $file -Value $text -Encoding UTF8
-    Write-Host $text
+    if (-not $Json) { Write-Host $text }
     Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by Packages) shows more detail."
 }
 
@@ -4229,51 +4776,217 @@ public static extern int NtQueryTimerResolution(out uint minimum, out uint maxim
     return [pscustomobject]@{ CurrentMs = [Math]::Round($now / 10000, 3); FinestMs = [Math]::Round($max / 10000, 3); CoarsestMs = [Math]::Round($min / 10000, 3) }
 }
 
-function Invoke-Benchmark {
-    # Measurements that the performance options are meant to change, saved as JSON and compared with the previous
-    # benchmark on this machine. Takes about 30 seconds. Changes nothing.
-    Write-Log 'Benchmark: measuring for about 30 seconds. Close other programs for steadier numbers.'
-    $m = [ordered]@{}
-    $boot = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents 1 -ErrorAction SilentlyContinue
-    $m['Boot time, last restart (s)'] = $(if ($boot) { [Math]::Round(([int](@(([xml]$boot.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text')) / 1000, 1) } else { $null })
-    $timer = Get-TimerResolution
-    $m['Timer resolution now (ms)'] = $timer.CurrentMs
-    $m['Timer resolution finest (ms)'] = $timer.FinestMs
-    $watch = [Diagnostics.Stopwatch]::new(); $sleeps = 200
-    $watch.Start(); for ($i = 0; $i -lt $sleeps; $i++) { [Threading.Thread]::Sleep(1) }; $watch.Stop()
-    $m['Sleep(1) actual (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds / $sleeps, 3)
-    $probe = Join-Path $env:SystemRoot 'System32\kernel32.dll'; $calls = 20000
-    $watch.Restart(); for ($i = 0; $i -lt $calls; $i++) { [void][IO.File]::Exists($probe) }; $watch.Stop()
-    $m['Kernel call cost, file check (us)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds * 1000 / $calls, 2)
-    $watch.Restart(); $x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x = ($x + $i) % 1000003 }; $watch.Stop()
-    $m['CPU loop, 3M steps (ms)'] = [Math]::Round($watch.Elapsed.TotalMilliseconds, 0)
-    # Processor counters through WMI: the class and property names are the same in every Windows language.
-    $samples = @(for ($i = 0; $i -lt 10; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
-    $m['DPC time (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentDPCTime -Average).Average), 2)
-    $m['Interrupt time, ISR (%)'] = [Math]::Round((($samples | Measure-Object -Property PercentInterruptTime -Average).Average), 2)
-    $m['DPCs queued per s'] = [Math]::Round((($samples | Measure-Object -Property DPCsQueuedPersec -Average).Average), 0)
-    $m['Interrupts per s'] = [Math]::Round((($samples | Measure-Object -Property InterruptsPersec -Average).Average), 0)
+function Get-Stats {
+    # Median, minimum, maximum and mean of a set of samples, so one noisy sample cannot pass for a result.
+    param([double[]]$Values)
+    $v = @($Values | Sort-Object)
+    if ($v.Count -eq 0) { return $null }
+    $mid = [int][Math]::Floor($v.Count / 2)
+    $median = if ($v.Count % 2) { $v[$mid] } else { ($v[$mid - 1] + $v[$mid]) / 2 }
+    $sum = 0.0; foreach ($x in $v) { $sum += $x }
+    return [ordered]@{ Median = [Math]::Round($median, 3); Min = [Math]::Round($v[0], 3); Max = [Math]::Round($v[-1], 3); Mean = [Math]::Round($sum / $v.Count, 3); Samples = $v.Count }
+}
+
+function Test-VirtualMachine {
+    param([string]$Manufacturer, [string]$Model)
+    return ("$Manufacturer $Model" -match 'VMware|VirtualBox|innotek|Virtual Machine|QEMU|KVM|Xen|Parallels|Bochs|BHYVE')
+}
+
+function Get-BenchmarkMachine {
+    # What must be the same for two benchmarks to be comparable.
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $cpu = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue)[0]
+    return [ordered]@{
+        CPU               = $(if ($cpu) { ([string]$cpu.Name).Trim() } else { 'unknown' })
+        LogicalProcessors = $(if ($cs) { [int]$cs.NumberOfLogicalProcessors } else { 0 })
+        RamGB             = $(if ($cs) { [Math]::Round([double]$cs.TotalPhysicalMemory / 1GB) } else { 0 })
+        VirtualMachine    = $(if ($cs) { [bool](Test-VirtualMachine -Manufacturer $cs.Manufacturer -Model $cs.Model) } else { $false })
+        PowerSource       = (Get-PowerSource)
+    }
+}
+
+function Get-ActivePlanName {
+    # powercfg prints '<label>: <GUID>  (<name>)' in the Windows language. The name can hold brackets itself
+    # ('Tweaked Performance (High)'), so take everything between the first bracket after the GUID and the last one.
+    param([string]$Text = ((powercfg /getactivescheme) | Out-String))
+    $m = [regex]::Match($Text.Trim(), '[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\s+\((.*)\)\s*$')
+    if ($m.Success) { return $m.Groups[2].Value }
+    return $Text.Trim()
+}
+
+# A benchmark whose CPU use during the idle window has a median above this was taken while Windows was busy
+# (updates, Store, indexing, startup work); its numbers include that work.
+$BenchmarkBusyPercent = 20
+
+function Test-BenchmarkBusy {
+    # The busy median of a saved or new benchmark, or $null when it was not busy (or the metric is missing).
+    param($Result)
+    $p = @($Result.Metrics.PSObject.Properties | Where-Object { $_.Name -like 'Idle CPU over*' })[0]
+    if (-not $p -or -not $p.Value) { return $null }
+    if ([double]$p.Value.Median -gt $BenchmarkBusyPercent) { return [double]$p.Value.Median }
+    return $null
+}
+
+function Get-BootTimesSinceBoot {
+    # Boot time events (Diagnostics-Performance event 100), newest first, but only when the newest one belongs to the
+    # current boot. Windows writes it a few minutes after sign in, and not at all while the Diagnostic Policy Service
+    # is disabled (SvcDiagnostics); older events would repeat the previous result as if it were new.
+    # Returns Current ($false when the newest event is older than the last boot) and Times in seconds.
+    param([int]$Max, [datetime]$LastBoot = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue).LastBootUpTime,
+        [object[]]$Events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Diagnostics-Performance/Operational'; Id = 100 } -MaxEvents $Max -ErrorAction SilentlyContinue))
+    $result = [pscustomobject]@{ Current = $true; Times = @() }
+    if ($Events.Count -eq 0) { return $result }
+    if ($Events[0].TimeCreated -lt $LastBoot) { $result.Current = $false; return $result }
+    $result.Times = @($Events | ForEach-Object { [double](@(([xml]$_.ToXml()).Event.EventData.Data | Where-Object { $_.Name -eq 'BootTime' })[0].'#text') / 1000 })
+    return $result
+}
+
+function Get-BenchmarkSettings {
+    # What the options change. Recorded with every benchmark and shown when it differs, but it does not block a
+    # comparison: comparing before and after a run is the point.
     $mm = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' -Name 'FeatureSettingsOverride'
     $mpo = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Dwm' -Name 'OverlayTestMode'
-    $context = [ordered]@{
+    $overlay = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes' -Name "ActiveOverlay$(Get-PowerSource)PowerScheme"
+    $overlayGuid = '00000000-0000-0000-0000-000000000000'
+    if ($overlay.Existed -and $overlay.Value) { $overlayGuid = ([string]$overlay.Value).ToLowerInvariant() }
+    $vbs = @(Get-CimInstance -Namespace 'root/Microsoft/Windows/DeviceGuard' -ClassName 'Win32_DeviceGuard' -ErrorAction SilentlyContinue)[0]
+    $vbsText = 'unknown'
+    if ($vbs) { $vbsText = switch ([int]$vbs.VirtualizationBasedSecurityStatus) { 0 { 'off' } 1 { 'enabled, not running' } 2 { 'running' } default { 'unknown' } } }
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $mode = $PowerOverlayNames[$overlayGuid]
+    if (-not $mode) { $mode = $overlayGuid }
+    return [ordered]@{
+        'Power plan'                   = Get-ActivePlanName
+        'Power mode'                   = $mode
+        'VBS (core isolation)'         = $vbsText
+        'Hypervisor present'           = $(if ($cs) { [bool]$cs.HypervisorPresent } else { $false })
         'Spectre/Meltdown mitigations' = $(if ($mm.Existed -and [int]$mm.Value -eq 3) { 'off' } else { 'on' })
         'Multiplane overlay'           = $(if ($mpo.Existed -and [int]$mpo.Value -eq 5) { 'off' } else { 'on' })
         'Timer service'                = $(if (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }) { 'running' } else { 'not running' })
-        'Power plan'                   = ((powercfg /getactivescheme) | Out-String).Trim() -replace '^.*\(([^)]*)\)\s*$', '$1'
     }
-    $previous = Get-ChildItem -Path (Join-Path $StateDir 'benchmark-*.json') -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
-    $before = if ($previous) { Get-Content -LiteralPath $previous.FullName -Raw | ConvertFrom-Json } else { $null }
-    $rows = foreach ($k in $m.Keys) {
-        $old = $null
-        if ($before -and $before.Metrics.PSObject.Properties[$k]) { $old = $before.Metrics.$k }
-        [pscustomobject]@{ Measurement = $k; Now = $m[$k]; Before = $old; Change = $(if ($null -ne $old -and $null -ne $m[$k] -and [double]$old -ne 0) { '{0:+0.0;-0.0;0}%' -f ((([double]$m[$k] - [double]$old) / [double]$old) * 100) } else { '' }) }
+}
+
+function Measure-MicroOnce {
+    # One repetition of the short measurements. They time a PowerShell loop, so they show changes in timer,
+    # scheduling and kernel call overhead, not application speed.
+    $watch = [Diagnostics.Stopwatch]::new(); $sleeps = 100
+    $watch.Start(); for ($i = 0; $i -lt $sleeps; $i++) { [Threading.Thread]::Sleep(1) }; $watch.Stop()
+    $sleep = $watch.Elapsed.TotalMilliseconds / $sleeps
+    $probe = Join-Path $env:SystemRoot 'System32\kernel32.dll'; $calls = 20000
+    $watch.Restart(); for ($i = 0; $i -lt $calls; $i++) { [void][IO.File]::Exists($probe) }; $watch.Stop()
+    $kernel = $watch.Elapsed.TotalMilliseconds * 1000 / $calls
+    $watch.Restart(); $x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x = ($x + $i) % 1000003 }; $watch.Stop()
+    return @($sleep, $kernel, $watch.Elapsed.TotalMilliseconds)
+}
+
+function Get-BenchmarkComparison {
+    # Compares two benchmark results. Refuses when the machine context differs (another CPU, RAM size, power source,
+    # VM or not), because then the numbers say nothing about the options. Settings that differ are listed.
+    param([Parameter(Mandatory)]$Now, [Parameter(Mandatory)]$Before)
+    $result = [pscustomobject]@{ Refused = $false; Reason = ''; Rows = @(); SettingChanges = @() }
+    if (-not $Before.PSObject.Properties['Format'] -or [int]$Before.Format -lt 2) {
+        $result.Refused = $true; $result.Reason = 'it uses the old format (one sample per measurement, no machine context)'; return $result
     }
-    Write-Host ($rows | Format-Table -AutoSize | Out-String)
-    Write-Host ($context.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
-    if ($before) { Write-Log "Compared with the benchmark of $($before.When). Lower is better for every measurement." }
+    $diff = @(foreach ($p in $Now.Machine.PSObject.Properties) {
+            $old = $Before.Machine.PSObject.Properties[$p.Name]
+            if (-not $old -or [string]$old.Value -ne [string]$p.Value) { '{0}: {1} -> {2}' -f $p.Name, $(if ($old) { $old.Value } else { '?' }), $p.Value }
+        })
+    if ($diff.Count -gt 0) { $result.Refused = $true; $result.Reason = "the machine context differs ($($diff -join '; '))"; return $result }
+    $result.SettingChanges = @(foreach ($p in $Now.Settings.PSObject.Properties) {
+            $old = $Before.Settings.PSObject.Properties[$p.Name]
+            if ($old -and [string]$old.Value -ne [string]$p.Value) { '{0}: {1} -> {2}' -f $p.Name, $old.Value, $p.Value }
+        })
+    $result.Rows = @(foreach ($p in $Now.Metrics.PSObject.Properties) {
+            $n = $p.Value; $o = $null
+            if ($Before.Metrics.PSObject.Properties[$p.Name]) { $o = $Before.Metrics.($p.Name) }
+            if ($null -eq $n -or $null -eq $o) { continue }
+            # Invariant culture: the log reads the same on every system, whatever its decimal separator.
+            $inv = [Globalization.CultureInfo]::InvariantCulture
+            $change = ''
+            if ([double]$o.Median -ne 0) { $change = [string]::Format($inv, '{0:+0.0;-0.0;0}%', (([double]$n.Median - [double]$o.Median) / [double]$o.Median) * 100) }
+            $overlap = ([double]$n.Min -le [double]$o.Max) -and ([double]$o.Min -le [double]$n.Max)
+            [pscustomobject]@{ Measurement = $p.Name; Now = [string]::Format($inv, '{0} [{1}..{2}]', [double]$n.Median, [double]$n.Min, [double]$n.Max); Before = [string]::Format($inv, '{0} [{1}..{2}]', [double]$o.Median, [double]$o.Min, [double]$o.Max); Change = $change; Note = $(if ($overlap) { 'within noise (ranges overlap)' } else { '' }) }
+        })
+    return $result
+}
+
+function Invoke-Benchmark {
+    # docs/AUDIT.md B-01: repeated measurements with median and range, the idle footprint over a fixed window, and the
+    # context that decides whether two benchmarks can be compared. Changes nothing.
+    $machine = Get-BenchmarkMachine
+    Write-Log "Benchmark: $BenchmarkRuns repetition(s), then $BenchmarkIdleSeconds s of idle sampling. Close other programs and leave the PC alone."
+    if ($machine.VirtualMachine) { Write-Log 'This is a virtual machine: the hypervisor decides timers and interrupts here, so these numbers check that options took effect and are not performance evidence.' 'WARN' }
+    if ($machine.PowerSource -eq 'Dc') { Write-Log 'Running on battery: compare only with benchmarks also taken on battery.' 'WARN' }
+    $settings = Get-BenchmarkSettings
+    $timer = Get-TimerResolution
+    $micro = @(for ($r = 1; $r -le $BenchmarkRuns; $r++) { , (Measure-MicroOnce) })
+    $process = @(Get-Process -ErrorAction SilentlyContinue).Count
+    $services = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' }).Count
+    $memory = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Memory -ErrorAction SilentlyContinue
+    # Processor counters through WMI: the class and property names are the same in every Windows language.
+    $idle = @(for ($i = 0; $i -lt $BenchmarkIdleSeconds; $i++) { Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name = '_Total'"; Start-Sleep -Seconds 1 })
+    $bootInfo = Get-BootTimesSinceBoot -Max $BenchmarkRuns
+    $boots = @($bootInfo.Times)
+    if (-not $bootInfo.Current) {
+        Write-Log 'Boot time not measured: Windows has not recorded this boot yet (it does so a few minutes after sign in, and never while the Diagnostic Policy Service is disabled by SvcDiagnostics).' 'WARN'
+    }
+    $m = [ordered]@{}
+    $m['Timer resolution now (ms)'] = Get-Stats @($timer.CurrentMs)
+    $m['Sleep(1) actual (ms)'] = Get-Stats @($micro | ForEach-Object { $_[0] })
+    $m['Kernel call cost, file check (us)'] = Get-Stats @($micro | ForEach-Object { $_[1] })
+    $m['CPU loop, 3M steps (ms)'] = Get-Stats @($micro | ForEach-Object { $_[2] })
+    $m["Idle CPU over $BenchmarkIdleSeconds s (%)"] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentProcessorTime })
+    # Time share of the CPU spent in DPCs and interrupts, one sample per second. This is not their latency.
+    $m['DPC time share (%)'] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentDPCTime })
+    $m['Interrupt (ISR) time share (%)'] = Get-Stats @($idle | ForEach-Object { [double]$_.PercentInterruptTime })
+    $m['DPCs queued per s'] = Get-Stats @($idle | ForEach-Object { [double]$_.DPCsQueuedPersec })
+    $m['Interrupts per s'] = Get-Stats @($idle | ForEach-Object { [double]$_.InterruptsPersec })
+    $m['Processes at idle'] = Get-Stats @($process)
+    $m['Running services'] = Get-Stats @($services)
+    $m['Committed memory (MB)'] = $(if ($memory) { Get-Stats @([double]$memory.CommittedBytes / 1MB) } else { $null })
+    $m["Boot time, last $($boots.Count) restart(s) (s)"] = $(if ($boots.Count -gt 0) { Get-Stats $boots } else { $null })
+    if ($boots.Count -eq 1) { Write-Log 'Only one boot time is recorded, so the boot time is a single sample.' 'WARN' }
+    $now = [pscustomobject]@{
+        Format = 2; When = (Get-Date).ToString('o'); Runs = $BenchmarkRuns; IdleSeconds = $BenchmarkIdleSeconds
+        ValidForPerformance = (-not $machine.VirtualMachine); Machine = [pscustomobject]$machine; Settings = [pscustomobject]$settings
+        Metrics = [pscustomobject]$m
+    }
+    # Through JSON once, so the run is compared in the same shape as a saved one.
+    $now = ConvertTo-Json -InputObject $now -Depth 5 | ConvertFrom-Json
+    $busy = Test-BenchmarkBusy $now
+    if ($null -ne $busy) { Write-Log "Windows was busy during the idle window (median CPU use $busy %, above $BenchmarkBusyPercent %), so these numbers include background work. Wait until updates and startup work are done, then run the benchmark again." 'WARN' }
+    $baselineFile = $null
+    if ($BenchmarkBaseline) { $baselineFile = Join-Path $StateDir "benchmark-baseline-$BenchmarkBaseline.json" }
+    $before = $null; $beforeName = ''
+    if ($baselineFile -and (Test-Path -LiteralPath $baselineFile)) { $before = Get-Content -LiteralPath $baselineFile -Raw | ConvertFrom-Json; $beforeName = "baseline '$BenchmarkBaseline'" }
+    elseif (-not $baselineFile) {
+        $previous = Get-ChildItem -Path (Join-Path $StateDir 'benchmark-2*.json') -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 1
+        if ($previous) { $before = Get-Content -LiteralPath $previous.FullName -Raw | ConvertFrom-Json; $beforeName = "the benchmark of $($previous.Name -replace '^benchmark-|\.json$', '')" }
+    }
+    $table = @(foreach ($p in $now.Metrics.PSObject.Properties) { if ($p.Value) { [pscustomobject]@{ Measurement = $p.Name; Median = $p.Value.Median; Min = $p.Value.Min; Max = $p.Value.Max; Samples = $p.Value.Samples } } })
+    if (-not $Json) {
+        Write-Host ($table | Format-Table -AutoSize | Out-String)
+        Write-Host ($settings.GetEnumerator() | ForEach-Object { '{0,-30} {1}' -f $_.Key, $_.Value } | Out-String)
+    }
+    if ($before) {
+        $cmp = Get-BenchmarkComparison -Now $now -Before $before
+        if ($cmp.Refused) { Write-Log "Not compared with $beforeName`: $($cmp.Reason). Compare only runs on the same machine and power source." 'WARN' }
+        else {
+            if (-not $Json) { Write-Host ($cmp.Rows | Format-Table -AutoSize | Out-String) }
+            Write-Log "Compared with $beforeName (median [min..max]; lower is better for every measurement; 'within noise' means the ranges overlap)."
+            foreach ($c in $cmp.SettingChanges) { Write-Log "  Setting changed since then: $c" }
+            $busyBefore = Test-BenchmarkBusy $before
+            if ($null -ne $busyBefore) { Write-Log "This comparison is not reliable: Windows was busy during $beforeName (median CPU use $busyBefore %), so the differences include that background work, not only the options." 'WARN' }
+            elseif ($null -ne $busy) { Write-Log 'This comparison is not reliable: Windows was busy during this benchmark (see above).' 'WARN' }
+        }
+    }
+    elseif ($baselineFile) {
+        ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $baselineFile -Encoding UTF8
+        Write-Log "Saved as baseline '$BenchmarkBaseline'. Run -Benchmark -BenchmarkBaseline $BenchmarkBaseline again after a run and a restart to compare with it." 'OK'
+    }
     else { Write-Log 'First benchmark on this machine. Run it again after a run and a restart to compare.' }
     $file = Join-Path $StateDir ('benchmark-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
-    ConvertTo-Json -InputObject ([pscustomobject]@{ When = (Get-Date).ToString('o'); Metrics = [pscustomobject]$m; Context = [pscustomobject]$context }) -Depth 4 | Set-Content -LiteralPath $file -Encoding UTF8
+    ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
     Write-Log "Benchmark saved to $file" 'OK'
 }
 #endregion
@@ -4291,7 +5004,7 @@ function Write-Health {
     $script:HealthItems.Add([pscustomobject]@{ Status = $Status; Area = $Area; Message = $Message })
     $colour = switch ($Status) { 'PASS' { 'Green' } 'WARN' { 'Yellow' } 'FAIL' { 'Red' } default { 'Gray' } }
     $line = '{0:HH:mm:ss} [{1}] {2,-9} {3}' -f (Get-Date), $Status, $Area, $Message
-    Write-Host $line -ForegroundColor $colour
+    if (-not $Json) { Write-Host $line -ForegroundColor $colour }
     Add-Content -Path $LogFile -Value $line
 }
 
@@ -4432,9 +5145,12 @@ function Test-HealthRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $later = Get-LaterOverrideKeys
     $checked = 0; $overridden = 0; $bad = [System.Collections.Generic.List[string]]::new(); $runEntries = 0
+    $gated = Get-GatedRegOptions
+    foreach ($g in $gated.Keys) { Write-Health 'INFO' 'Registry' "$g is not applied on this PC: $($gated[$g])." }
     foreach ($op in $ops) {
         $optName = Get-RegOpOption $op
         if (-not $Opt[$optName]) { continue }
+        if ($gated.ContainsKey($optName)) { continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { continue }
         $full = ConvertTo-FullRegPath $op.Path
         if ($op.Action -ne 'DeleteKey' -and $later.Contains("$full|$($op.Name)")) { $overridden++; continue }
@@ -4443,7 +5159,7 @@ function Test-HealthRegistry {
             'Set' {
                 $snap = Get-RegSnapshot -Full $full -Name $op.Name
                 if (-not (Test-RegMatchesOp -Snap $snap -Op $op)) {
-                    if ($WindowsRewrittenValues -contains "$full|$($op.Name)") {
+                    if (Test-WindowsRewritten -Path $full -Name $op.Name) {
                         Write-Health 'INFO' 'Registry' "$full\$(Show-RegName $op.Name) is $(Format-RegValueShort $snap): Windows resets this value itself."
                     }
                     else { $bad.Add(('[{0}] {1}\{2} is {3}' -f $op.Group, $full, (Show-RegName $op.Name), (Format-RegValueShort $snap))) }
@@ -4488,7 +5204,7 @@ function Test-HealthRegistry {
     }
     if ($Opt['DefenderQuiet']) { Test-HealthTweakTable -Label 'Quiet Defender policy' -Tweaks $DefenderQuietRegs }
     if ($Opt['SpectreMeltdownOff']) { Test-HealthTweakTable -Label 'Spectre and Meltdown mitigations off' -Tweaks $MitigationRegs }
-    if ($Opt['TimerResolution']) { Test-HealthTweakTable -Label 'Global timer resolution requests' -Tweaks $TimerGlobalRegs }
+    if ($Opt['TimerResolution'] -and -not (Get-TimerSkipReasonHere)) { Test-HealthTweakTable -Label 'Global timer resolution requests' -Tweaks $TimerGlobalRegs }
     if ($Opt['NetAdapterPower'] -or $Opt['NetAdapterEee']) {
         $keywords = @(); if ($Opt['NetAdapterPower']) { $keywords += $NetPowerKeywords }; if ($Opt['NetAdapterEee']) { $keywords += $NetEeeKeywords }
         $net = @(Get-NetAdapterTweaks -Keywords $keywords -AllowOff:([bool]$Opt['NetAdapterPower']))
@@ -4658,7 +5374,7 @@ function Test-HealthSystem {
     }
     if ($Opt['MemoryCompression']) {
         $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
-        if ($ram -gt 8) {
+        if (Test-MemoryCompressionTarget -RamGB $ram) {
             if (-not (Get-MMAgent).MemoryCompression) { Write-Health 'PASS' 'System' 'Memory compression is off.' }
             else { Write-Health 'INFO' 'System' 'Memory compression is still on. It changes after a restart.' }
         }
@@ -4757,11 +5473,6 @@ function Test-HealthSystem {
         if ($qa.Count -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $env:windir 'System32\quickassist.exe'))) { Write-Health 'PASS' 'System' 'Quick Assist is removed.' }
         else { Write-Health 'WARN' 'System' 'Quick Assist is still present. A restart may finish the removal.' }
     }
-    if ($Opt['DepOff']) {
-        $nx = Get-BcdValue 'nx'
-        if ($nx -eq 'AlwaysOff') { Write-Health 'PASS' 'System' 'Data Execution Prevention is off in the boot configuration (nx AlwaysOff).' }
-        else { Write-Health 'WARN' 'System' "Data Execution Prevention is not off (nx is $(if ($nx) { $nx } else { 'not set' })). Secure Boot must be off for bcdedit to accept the change." }
-    }
     if ($Opt['IPv4Only']) {
         $v6 = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object { Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue } | Where-Object { $_.Enabled })
         if ($v6.Count -eq 0) { Write-Health 'PASS' 'System' 'IPv6 is off on every physical network adapter.' }
@@ -4771,16 +5482,16 @@ function Test-HealthSystem {
         if ((Get-ServiceStartNow 'WSearch') -eq 4) { Write-Health 'PASS' 'System' 'Windows Search indexing is disabled.' }
         else { Write-Health 'WARN' 'System' 'Windows Search indexing was meant to be disabled, but the WSearch service is not.' }
     }
-    if ($Opt['TimerResolution']) {
+    $timerSkip = $null
+    if ($Opt['TimerResolution']) { $timerSkip = Get-TimerSkipReasonHere }
+    if ($timerSkip) { Write-Health 'INFO' 'System' "Timer resolution service not installed on this PC: $timerSkip." }
+    elseif ($Opt['TimerResolution']) {
         $svc = Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue
         if ($svc -and $svc.Status -eq 'Running') { Write-Health 'PASS' 'System' "Timer resolution service '$TimerServiceName' is running." }
         elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }
         else { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is not installed." }
     }
-    $pending = (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
-    (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
-    ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
-    if ($pending -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
+    if ((Test-RebootPending) -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
 }
 
 function Test-HealthEvents {
@@ -4825,6 +5536,19 @@ function Test-HealthAppLaunch {
     }
 }
 
+function Test-HealthEdition {
+    # The registry checks above only prove a value is set. This says which policy values the edition does not honour.
+    $edition = Get-EditionId
+    $gaps = @(Get-EditionReport -Edition $edition)
+    $notApplicable = @($gaps | Where-Object { $_.Verdict -eq 'not applicable' })
+    foreach ($gap in $notApplicable) {
+        Write-Health 'INFO' 'Edition' "$($gap.Path)\$($gap.Name) is not applicable on this edition ($edition): it is honoured on $($gap.Honoured) only, so Windows ignores it even though the registry value is set."
+    }
+    $unknown = $gaps.Count - $notApplicable.Count
+    if ($unknown -gt 0) { Write-Health 'INFO' 'Edition' "$unknown policy value(s) have no confirmed effect on this edition ($edition). A matching registry value does not prove that Windows applies them." }
+    if ($gaps.Count -eq 0) { Write-Health 'PASS' 'Edition' "Every policy value the options write is honoured on this edition ($edition)." }
+}
+
 function Restore-SavedRunSettings {
     # Standalone checks judge the state against the options used for the last run.
     $run = $script:State.Run
@@ -4862,6 +5586,7 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
+    Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }
     Invoke-HealthArea 'Tasks' { Test-HealthTasks }
     Invoke-HealthArea 'Updates' { Test-HealthUpdates }
@@ -4891,14 +5616,14 @@ function Test-RevertResult {
         $was = if ($e.Existed) { '{0} ({1})' -f (@($e.Value) -join ','), $e.Kind } else { '<missing>' }
         $is = if ($now.Existed) { '{0} ({1})' -f (@($now.Value) -join ','), $now.Kind } else { '<missing>' }
         if ($was -eq $is) { continue }
-        if ($WindowsRewrittenValues -contains "$($e.Path)|$($e.Name)") {
+        if (Test-WindowsRewritten -Path $e.Path -Name $e.Name) {
             $rewritten++
             Add-Content -Path $LogFile -Value "          revert check: [Note] $($e.Path)\$(Show-RegName $e.Name) was $was, is $is (Windows recomputes this value)"
             continue
         }
         $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Registry'; Message = "$($e.Path)\$(Show-RegName $e.Name) was $was, is $is" })
     }
-    if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) Windows recomputes itself (accent colours) differ, as expected." }
+    if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) that Windows sets itself (accent colours, Start view, Game Bar, USB root hub idle) differ, as expected." }
     $badReg = $items.Count
     foreach ($t in @($script:State.Tasks)) {
         $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
@@ -4908,6 +5633,10 @@ function Test-RevertResult {
         }
         # Disabled by the run and still disabled, although it was enabled before.
         if ($t.WasEnabled -and $now.State -eq 'Disabled') {
+            if (Test-NameMatch "$($t.Path)$($t.Name)" $WindowsManagedTasks) {
+                Add-Content -Path $LogFile -Value "          revert check: [Note] $($t.Path)$($t.Name) is back but disabled again (UsoSvc manages this task itself)"
+                continue
+            }
             $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task still disabled: $($t.Path)$($t.Name)" })
         }
     }
@@ -4933,6 +5662,159 @@ function Test-RevertResult {
 #endregion
 
 #region Orchestration ---------------------------------------------------------------------
+# docs/AUDIT.md C-2 and A-08: checks run before a run, each with a name that -SkipCheck accepts.
+$PreflightChecks = @('PendingReboot', 'WindowsUpdate', 'PowerSource', 'Managed', 'Edition', 'TamperProtection', 'SystemProtection')
+
+function Test-RebootPending {
+    return (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or
+    (Test-Path -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or
+    ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
+}
+
+# Enrolment entries Windows creates itself on every PC, managed or not (seen with EnrollmentState 1 on an unmanaged
+# Windows 11 VM, build 26200, 11 Nov 2026). Only other providers, such as Intune's 'MS DM Server', mean real MDM.
+$BuiltInMdmProviders = @('Local Authority', 'Cloud Authority', 'Deploy Authority')
+
+function Test-MdmProvider {
+    param([string]$ProviderId)
+    return [bool]($ProviderId -and $BuiltInMdmProviders -notcontains $ProviderId)
+}
+
+function Get-ManagedFacts {
+    # Signs that someone else manages this PC: a domain, Microsoft Entra ID, an MDM enrolment, or Group Policy objects
+    # from a domain (their DSPath is an LDAP path; the local policy's is 'LocalGPO').
+    $facts = [ordered]@{ PartOfDomain = $false; Domain = ''; EntraJoined = $false; MdmProviders = @(); DomainGpos = 0 }
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($cs) { $facts.PartOfDomain = [bool]$cs.PartOfDomain; $facts.Domain = [string]$cs.Domain }
+    $join = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo'
+    if ($join) { try { $facts.EntraJoined = $join.SubKeyCount -gt 0 } finally { $join.Close() } }
+    $enrolments = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Enrollments'
+    if ($enrolments) {
+        try {
+            foreach ($n in $enrolments.GetSubKeyNames()) {
+                $k = $enrolments.OpenSubKey($n)
+                if (-not $k) { continue }
+                try {
+                    $provider = [string]$k.GetValue('ProviderID', '')
+                    $state = $k.GetValue('EnrollmentState', $null)
+                    if ((Test-MdmProvider $provider) -and $null -ne $state -and [int]$state -eq 1) { $facts.MdmProviders += $provider }
+                }
+                finally { $k.Close() }
+            }
+        }
+        finally { $enrolments.Close() }
+    }
+    $history = Open-RegKey -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\History'
+    if ($history) {
+        try {
+            foreach ($extension in $history.GetSubKeyNames()) {
+                $e = $history.OpenSubKey($extension)
+                if (-not $e) { continue }
+                try {
+                    foreach ($gpo in $e.GetSubKeyNames()) {
+                        $g = $e.OpenSubKey($gpo)
+                        if (-not $g) { continue }
+                        try { if ([string]$g.GetValue('DSPath', '') -match '^(LDAP://)?cn=') { $facts.DomainGpos++ } }
+                        finally { $g.Close() }
+                    }
+                }
+                finally { $e.Close() }
+            }
+        }
+        finally { $history.Close() }
+    }
+    return [pscustomobject]$facts
+}
+
+function Get-ManagedReasons {
+    param($Facts)
+    if ($Facts.PartOfDomain) { "joined to the Active Directory domain $($Facts.Domain)" }
+    if ($Facts.EntraJoined) { 'joined to Microsoft Entra ID' }
+    foreach ($p in @($Facts.MdmProviders)) { "enrolled in device management (MDM provider $p)" }
+    if ($Facts.DomainGpos -gt 0) { "$($Facts.DomainGpos) Group Policy object setting(s) from a domain are applied" }
+}
+
+function Get-PreflightFacts {
+    $tamperChecked = [bool]($Opt['DefenderQuiet'] -or $Defender -eq 'Disable')
+    $tamper = $null
+    if ($tamperChecked) {
+        try { $tamper = [bool](Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected } catch { $tamper = $null }
+    }
+    $gaps = @(Get-EditionReport)
+    $ignored = @($gaps | Where-Object { $_.Verdict -eq 'not applicable' }).Count
+    $latest = @(Get-RestorePoints | ForEach-Object { ConvertFrom-DmtfDate $_.CreationTime } | Where-Object { $_ } | Sort-Object -Descending) | Select-Object -First 1
+    $srPolicy = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore' -Name 'DisableSR'
+    return [pscustomobject]@{
+        RebootPending      = [bool](Test-RebootPending)
+        Servicing          = [bool](Get-Process -Name 'TiWorker' -ErrorAction SilentlyContinue)
+        HasBattery         = [bool](Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)
+        OnBattery          = ((Get-PowerSource) -eq 'Dc')
+        Managed            = Get-ManagedFacts
+        Edition            = Get-EditionId
+        EditionIgnored     = $ignored
+        EditionUnknown     = $gaps.Count - $ignored
+        TamperChecked      = $tamperChecked
+        TamperProtected    = $tamper
+        LatestRestorePoint = $latest
+        SystemRestoreOff   = [bool]($srPolicy.Existed -and [int]$srPolicy.Value -eq 1)
+        SkipRestorePoint   = [bool]$SkipRestorePoint
+    }
+}
+
+function Get-PreflightResults {
+    # One result per check: PASS, INFO, WARN or BLOCK, with the reason it fired. Only Managed blocks; -AllowManaged
+    # turns that into a warning, and -SkipCheck turns any check into SKIPPED.
+    param([Parameter(Mandatory)]$Facts, [string[]]$Skip = @(), [switch]$AllowManaged, [DateTime]$Now = (Get-Date))
+    foreach ($name in $Skip) {
+        if (-not ($PreflightChecks | Where-Object { $_ -ieq $name })) { throw "Unknown check '$name' for -SkipCheck. Valid: $($PreflightChecks -join ', ')." }
+    }
+    $new = { param($check, $status, $message) [pscustomobject]@{ Check = $check; Status = $status; Message = $message } }
+    $results = @(
+        if ($Facts.RebootPending) { & $new 'PendingReboot' 'WARN' 'A restart is pending (servicing, Windows Update or a file rename). Restart first: Windows can overwrite values changed now, and the health check would read the state before the restart.' }
+        else { & $new 'PendingReboot' 'PASS' 'No restart is pending.' }
+        if ($Facts.Servicing) { & $new 'WindowsUpdate' 'WARN' 'Windows servicing is installing something right now (TiWorker is running). Wait until Windows Update is done: it can reset or lock values this run changes.' }
+        else { & $new 'WindowsUpdate' 'PASS' 'Windows servicing is idle.' }
+        if ($Facts.OnBattery) { & $new 'PowerSource' 'WARN' 'Running on battery. The power plan and device power saving steps are skipped on battery machines, and a benchmark taken now is not comparable with one on AC power.' }
+        elseif ($Facts.HasBattery) { & $new 'PowerSource' 'INFO' 'Battery present, running on AC power.' }
+        else { & $new 'PowerSource' 'PASS' 'No battery (desktop).' }
+        $reasons = @(Get-ManagedReasons -Facts $Facts.Managed)
+        if ($reasons.Count -eq 0) { & $new 'Managed' 'PASS' 'Not joined to a domain or Entra ID, not enrolled in MDM, no domain Group Policy.' }
+        elseif ($AllowManaged) { & $new 'Managed' 'WARN' "This PC is managed: $($reasons -join '; '). Allowed by -AllowManaged: its policies can undo or fight these changes, and SvcOther disables Netlogon, which domain sign in needs." }
+        else { & $new 'Managed' 'BLOCK' "This PC is managed: $($reasons -join '; '). Its policies can undo or fight these changes, and SvcOther disables Netlogon, which domain sign in needs. Run it on a PC you manage yourself, or pass -AllowManaged to run anyway." }
+        $editionText = "Edition $($Facts.Edition): $($Facts.EditionIgnored) policy value(s) of this run are not applicable on this edition, so Windows ignores them; for $($Facts.EditionUnknown) more the effect on this edition is not confirmed. The plan and the health check name them."
+        if ($Facts.EditionIgnored -gt 0) { & $new 'Edition' 'WARN' $editionText }
+        elseif ($Facts.EditionUnknown -gt 0) { & $new 'Edition' 'INFO' $editionText }
+        else { & $new 'Edition' 'PASS' "Edition $($Facts.Edition) honours every policy value of this run." }
+        if (-not $Facts.TamperChecked) { & $new 'TamperProtection' 'INFO' 'No Defender option of this run depends on Tamper Protection.' }
+        elseif ($null -eq $Facts.TamperProtected) { & $new 'TamperProtection' 'INFO' 'Defender status is not available, so Tamper Protection was not checked.' }
+        elseif ($Facts.TamperProtected) { & $new 'TamperProtection' 'WARN' 'Tamper Protection is on, so Defender may ignore or undo the Defender settings of this run. The run asks you to turn it off first.' }
+        else { & $new 'TamperProtection' 'PASS' 'Tamper Protection is off.' }
+        if ($Facts.SkipRestorePoint) { & $new 'SystemProtection' 'INFO' 'No restore point will be made (-SkipRestorePoint).' }
+        elseif ($Facts.SystemRestoreOff) { & $new 'SystemProtection' 'WARN' 'System Restore is turned off by policy (DisableSR 1), so no restore point can be made.' }
+        elseif ($Facts.LatestRestorePoint -and $Facts.LatestRestorePoint -gt $Now.AddHours(-24)) { & $new 'SystemProtection' 'WARN' "The newest restore point is from $($Facts.LatestRestorePoint.ToString('yyyy-MM-dd HH:mm')), less than 24 hours ago, so Windows will probably refuse a new one. -Enable EnableSystemRestore allows it." }
+        elseif ($Facts.LatestRestorePoint) { & $new 'SystemProtection' 'PASS' "The newest restore point is from $($Facts.LatestRestorePoint.ToString('yyyy-MM-dd HH:mm'))." }
+        else { & $new 'SystemProtection' 'INFO' 'No restore point exists yet. If System Protection is off for the system drive, -Enable EnableSystemRestore turns it on.' }
+    )
+    foreach ($r in $results) {
+        if ($Skip | Where-Object { $_ -ieq $r.Check }) { $r.Message = "Skipped by -SkipCheck $($r.Check). It said: [$($r.Status)] $($r.Message)"; $r.Status = 'SKIPPED' }
+    }
+    return $results
+}
+
+function Invoke-Preflight {
+    # Logs every check with the reason it fired. Returns $false when a check blocks a real run; a dry run goes on.
+    $script:PreflightResults = @(Get-PreflightResults -Facts (Get-PreflightFacts) -Skip $SkipCheck -AllowManaged:$AllowManaged)
+    foreach ($p in $script:PreflightResults) {
+        $level = switch ($p.Status) { 'WARN' { 'WARN' } 'BLOCK' { 'ERROR' } default { 'INFO' } }
+        Write-Log "Pre flight $($p.Check) [$($p.Status)]: $($p.Message)" $level
+    }
+    $blocks = @($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' })
+    if ($blocks.Count -eq 0) { return $true }
+    if ($script:DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
+    Write-Log "Run refused by the pre flight check(s) $(@($blocks | ForEach-Object { $_.Check }) -join ', '). Nothing was changed. Skip a check by name with -SkipCheck." 'ERROR'
+    return $false
+}
+
 function Get-UserMismatch {
     # Per user settings go to the account running the script. When a standard user elevates with another account, that
     # is the admin account, not the person at the desktop. Returns a warning in that case, otherwise $null.
@@ -4949,12 +5831,89 @@ function Get-UserMismatch {
     return "Per user settings (mouse, desktop, Start pins, notifications, End task, user Temp) will go to $($me.Name), but the desktop belongs to $($names -join ', '). Sign in as that account and run it elevated there, unless this is what you want."
 }
 
+function Get-Windows10Notice {
+    # Windows 10 gets security updates only through Extended Security Updates, which Microsoft's end of support page
+    # (microsoft.com/windows/end-of-support, checked 9 Nov 2026) says run until 12 October 2027. Returns $null on Windows 11.
+    param([int]$Build = [Environment]::OSVersion.Version.Build)
+    if ($Build -ge 22000) { return $null }
+    return 'Windows 10 detected. It receives security updates only through Extended Security Updates (ESU), until 12 October 2027. The PauseUpdates and SecurityUpdatesOnly options delay those updates too.'
+}
+
+function Get-EditionId {
+    $p = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
+    if ($p -and $p.PSObject.Properties['EditionID']) { return [string]$p.EditionID }
+    return ''
+}
+
+function Get-EditionVerdict {
+    # 'applies', 'not applicable' or 'unknown' for one registry value on one edition, plus the editions that honour it.
+    param([string]$Edition, [string]$Full, [string]$Name, $Value)
+    $result = { param($verdict, $label) [pscustomobject]@{ Verdict = $verdict; Honoured = $label } }
+    if ($Full -notlike '*\Policies\*') { return & $result 'applies' '' }
+    foreach ($rule in $EditionRules) {
+        if ($rule.Names -notcontains $Name) { continue }
+        if ($rule.ContainsKey('Value') -and [string]$Value -ne [string]$rule.Value) { continue }
+        if (Test-NameMatch $Edition $rule.Honoured) { return & $result 'applies' $rule.Label }
+        if (Test-NameMatch $Edition $rule.Ignored) { return & $result 'not applicable' $rule.Label }
+        return & $result 'unknown' $rule.Label
+    }
+    if (Test-NameMatch $Edition $EditionFullPolicy) { return & $result 'applies' '' }
+    return & $result 'unknown' ''
+}
+
+function Get-PolicyTweaks {
+    # Every value under a Policies key that the chosen options write, as full path, name and value.
+    $seen = @{}
+    $add = {
+        param($path, $name, $value)
+        $full = ConvertTo-FullRegPath $path
+        if ($full -like '*\Policies\*') { $seen["$full|$name"] = [pscustomobject]@{ Path = $full; Name = $name; Value = $value } }
+    }
+    $ops = ConvertFrom-RegText -Text $UpstreamRegText
+    foreach ($op in $ops) {
+        if ($op.Action -ne 'Set' -or -not $Opt[(Get-RegOpOption $op)] -or (Test-NameMatch $op.Group $SkipRegGroup)) { continue }
+        & $add $op.Path $op.Name $op.Value
+    }
+    $tables = [ordered]@{
+        TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
+        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = $PauseRegs; DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+    }
+    foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
+    if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
+    return @($seen.Values | Sort-Object Path, Name)
+}
+
+function Get-EditionReport {
+    # The policy values of this run that the edition ignores ('not applicable') or may ignore ('unknown').
+    param([string]$Edition = (Get-EditionId))
+    foreach ($t in @(Get-PolicyTweaks)) {
+        $v = Get-EditionVerdict -Edition $Edition -Full $t.Path -Name $t.Name -Value $t.Value
+        if ($v.Verdict -ne 'applies') { [pscustomobject]@{ Path = $t.Path; Name = $t.Name; Verdict = $v.Verdict; Honoured = $v.Honoured } }
+    }
+}
+
+function Get-SecurityTradeoffs {
+    # docs/AUDIT.md B-02: these stay on by default for speed; the plan says plainly what each one weakens.
+    $weakens = [ordered]@{
+        SpectreMeltdownOff = 'SpectreMeltdownOff weakens the CPU side channel protection: programs and scripts in web pages can read kernel and other processes'' memory through Spectre variant 2 and Meltdown on CPUs without the hardware fix.'
+        CoreIsolation      = 'CoreIsolation weakens kernel protection: without memory integrity (HVCI) and Credential Guard, a malicious or vulnerable driver can change kernel code, and stolen administrator rights reach stored credentials more easily.'
+        Uac                = 'Uac weakens the boundary between you and administrator: every program you start runs with full administrator rights, with no prompt, so malware does too.'
+    }
+    foreach ($k in $weakens.Keys) { if ($Opt[$k]) { $weakens[$k] } }
+}
+
 function Show-Plan {
     Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
+    $edition = Get-EditionId
+    $editionGaps = @(Get-EditionReport -Edition $edition)
+    $notApplicable = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' })
+    Write-Log "  Edition: $edition. $($notApplicable.Count) policy value(s) not applicable on this edition, $($editionGaps.Count - $notApplicable.Count) with an unconfirmed effect on it."
+    foreach ($gap in $notApplicable) { Write-Log "    Not applicable on this edition: $($gap.Path)\$($gap.Name) (honoured on $($gap.Honoured) only). The value is still written." }
     $on = @($OptionInfo.Keys | Where-Object { $Opt[$_] })
     $off = @($OptionInfo.Keys | Where-Object { -not $Opt[$_] })
     Write-Log "  Options on : $($on -join ', ')"
     Write-Log "  Options off: $($off -join ', ')"
+    foreach ($line in @(Get-SecurityTradeoffs)) { Write-Log "  Security trade-off: $line" 'WARN' }
     Write-Log "  Tasks: $TaskMode | Defender: $Defender | Power profile: $PowerProfile | Power mode: $PowerMode | Pause days: $PauseDays"
     if ($WantNvidia) { Write-Log "  NVIDIA: $(if ($NvidiaInstaller) { $NvidiaInstaller } else { 'download ' + $(if ($NvidiaVersion) { $NvidiaVersion } else { 'latest' }) })" }
     if ($ProfilePath) { Write-Log "  Profile: $ProfilePath (command line parameters win over it)" }
@@ -4967,9 +5926,9 @@ function Confirm-Run {
     Write-Host ''
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
-    if ($TaskMode -eq 'Delete') { $notes += 'All scheduled tasks will be deleted (backups are kept).' }
+    if ($TaskMode -eq 'Delete') { $notes += 'Scheduled tasks will be deleted (backups are kept), except time sync, SSD retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks.' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
-    if ($Opt['SpectreMeltdownOff'] -or $Opt['DepOff']) { $notes += 'CPU and memory security mitigations will be turned off.' }
+    if ($Opt['SpectreMeltdownOff']) { $notes += 'CPU security mitigations will be turned off.' }
     if ($Opt['WriteCacheFlushOff']) { $notes += 'Disk write cache flushing will be turned off (a power cut can lose data).' }
     if ($Opt['FastShutdown']) { $notes += 'Hung apps will be closed at shutdown without asking.' }
     if ($script:UserMismatch) { $notes += 'Per user settings go to another account than the one at the desktop (see the warning above).' }
@@ -4992,79 +5951,86 @@ function Invoke-Apply {
     $mPower = if ($PowerProfile -ne 'Off') { $PowerProfile } elseif ($prev -and $prev.PowerProfile) { $prev.PowerProfile } else { 'Off' }
     $mDays = if ($Opt['PauseUpdates'] -or -not ($prev -and $prev.PauseDays)) { $PauseDays } else { [int]$prev.PauseDays }
     $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
-    $script:State.Run = [pscustomobject]@{
+    Set-StateValue -Name 'Run' -Value ([pscustomobject]@{
         When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
-    }
+    })
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
-    $edition = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name EditionID -ErrorAction SilentlyContinue
-    if ($edition -and $edition.PSObject.Properties['EditionID'] -and $edition.EditionID -eq 'Core') {
-        Write-Log 'Windows Home detected. Several policies (telemetry level, update deferral) may be ignored on this edition.' 'WARN'
+    $windows10 = Get-Windows10Notice
+    if ($windows10) { Write-Log $windows10 'WARN' }
+    if (-not $SkipRestorePoint -and -not $script:DryRun) {
+        $script:RestorePoint = $null
+        Invoke-Step 'Restore point' { $script:RestorePoint = New-SafetyRestorePoint }
+        $why = 'the restore point step failed'
+        if ($script:RestorePoint) { $why = $script:RestorePoint.Reason }
+        if (-not ($script:RestorePoint -and $script:RestorePoint.Created) -and -not (Confirm-NoRestorePoint -Reason $why)) {
+            Write-Log 'Cancelled before any tweak: no restore point, and continuing without one was not confirmed.' 'WARN'
+            Save-State
+            Exit-Run 2 'No restore point, and continuing without one was not confirmed.'
+        }
     }
-    if (-not $SkipRestorePoint -and -not $script:DryRun) { Invoke-Step 'Restore point' { New-SafetyRestorePoint } }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
 
-    if ($Opt['Packages']) { Invoke-Step 'Packages' { Install-RuntimePackages } }
+    if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
-    if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
-    if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
-    if ($Opt['Debloat']) { Invoke-Step 'App debloat' { Remove-BloatApps } }
-    if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' { Reset-ConsentDatabase } }
-    if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' { Remove-QuickAssist } }
-    foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" { Disable-FeatureGroup -Group $g } } }
+    if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
+    if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
+    if ($Opt['Debloat']) { Invoke-Step 'App debloat' -Option 'Debloat' { Remove-BloatApps } }
+    if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
+    if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
+    foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.
     $regOps = ConvertFrom-RegText -Text $UpstreamRegText   # returned as one list object, so unroll it from a variable
     $regOwners = @($regOps | ForEach-Object { Get-RegOpOption $_ } | Select-Object -Unique)
     if (@($regOwners | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Registry tweaks' { Import-UpstreamRegistry } }
-    if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' { Set-TweakList $LastAccessRegs } }
-    if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
+    if ($Opt['Registry']) { Invoke-Step 'Last access time off (current Windows format)' -Option 'Registry' { Set-TweakList $LastAccessRegs } }
+    if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' -Option 'Uac' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
     if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
-    if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" { Invoke-TaskMode } }
-    if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' { Set-RazerAsusBlock } }
+    if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" -Option 'TaskMode' { Invoke-TaskMode } }
+    if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' -Option 'RazerAsusHosts' { Set-RazerAsusBlock } }
     if ($Opt['DriverExclusion'] -or $Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) { Invoke-Step 'Windows Update policy' { Set-UpdatePolicies } }
-    if ($PowerProfile -ne 'Off') { Invoke-Step "Power plan ($PowerProfile)" { Set-PerformancePowerPlan } }
-    if ($PowerMode -ne 'Keep') { Invoke-Step "Power mode ($PowerMode)" { Set-PowerModeOverlay } }
-    if ($Opt['DisableHibernate']) { Invoke-Step 'Disable hibernation' { Disable-Hibernation } }
-    if ($Opt['MouseAccel']) { Invoke-Step 'Mouse acceleration' { Disable-MouseAcceleration } }
-    if ($Opt['MsiMode']) { Invoke-Step 'MSI mode' { Set-MsiMode } }
-    if ($Opt['MemoryCompression']) { Invoke-Step 'Memory compression' { Disable-MemoryCompression } }
-    if ($Opt['SleepStudy']) { Invoke-Step 'Sleep Study logs' { Disable-SleepStudy } }
-    if ($Opt['PasswordExpiry']) { Invoke-Step 'Password expiry' { Set-PasswordExpiry } }
-    if ($Opt['FaultTolerantHeap']) { Invoke-Step 'Fault tolerant heap' { Reset-FaultTolerantHeap } }
-    if ($Opt['NotificationSettings']) { Invoke-Step 'App notification settings' { Disable-NotificationSettings } }
-    if ($Defender -eq 'Keep') { Write-Log 'Microsoft Defender left untouched.' } else { Invoke-Step "Defender ($Defender)" { Set-DefenderState -Mode $Defender } }
-    if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' { Set-DefenderQuiet } }
-    if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
-    if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
-    if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' { Disable-SpectreMeltdownMitigations } }
-    if ($Opt['DepOff']) { Invoke-Step 'Data Execution Prevention' { Disable-Dep } }
-    if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' { Install-TimerResolutionService } }
-    if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' { Set-DevicePowerSaving } }
-    if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }
-    if ($Opt['WriteCacheFlushOff']) { Invoke-Step 'Write cache buffer flushing' { Set-TweakListBatched -Label 'Write cache buffer flushing off' -Tweaks @(Get-WriteCacheTweaks) } }
-    if ($Opt['MpoOff']) { Invoke-Step 'Multiplane overlay' { Set-TweakList $MpoRegs } }
-    if ($Opt['FastShutdown']) { Invoke-Step 'Faster shutdown' { Set-TweakList $FastShutdownRegs } }
-    if ($Opt['BlockFeatureUpgrades']) { Invoke-Step 'Feature upgrade block' { Set-FeatureUpgradeBlock } }
-    if ($Opt['SearchIndexingOff']) { Invoke-Step 'Search indexing' { Set-ServiceStart -Name 'WSearch' -Mode Disabled } }
-    if ($Opt['TimeServerPool']) { Invoke-Step 'Time server' { Set-TimeServer } }
-    if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' { Set-TweakList $MenuKillRegs } }
-    if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' { Set-TweakList $MenuRestartExplorerRegs } }
-    if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' { Set-TweakList $MenuTakeOwnershipRegs } }
-    if ($Opt['MenuRunAsAdmin']) { Invoke-Step 'Run as administrator menu' { Set-TweakList $MenuRunAsAdminRegs } }
+    if ($PowerProfile -ne 'Off') { Invoke-Step "Power plan ($PowerProfile)" -Option 'PowerProfile' { Set-PerformancePowerPlan } }
+    if ($PowerMode -ne 'Keep') { Invoke-Step "Power mode ($PowerMode)" -Option 'PowerMode' { Set-PowerModeOverlay } }
+    if ($Opt['DisableHibernate']) { Invoke-Step 'Disable hibernation' -Option 'DisableHibernate' { Disable-Hibernation } }
+    if ($Opt['MouseAccel']) { Invoke-Step 'Mouse acceleration' -Option 'MouseAccel' { Disable-MouseAcceleration } }
+    if ($Opt['MsiMode']) { Invoke-Step 'MSI mode' -Option 'MsiMode' { Set-MsiMode } }
+    if ($Opt['MemoryCompression']) { Invoke-Step 'Memory compression' -Option 'MemoryCompression' { Disable-MemoryCompression } }
+    if ($Opt['SleepStudy']) { Invoke-Step 'Sleep Study logs' -Option 'SleepStudy' { Disable-SleepStudy } }
+    if ($Opt['PasswordExpiry']) { Invoke-Step 'Password expiry' -Option 'PasswordExpiry' { Set-PasswordExpiry } }
+    if ($Opt['FaultTolerantHeap']) { Invoke-Step 'Fault tolerant heap' -Option 'FaultTolerantHeap' { Reset-FaultTolerantHeap } }
+    if ($Opt['NotificationSettings']) { Invoke-Step 'App notification settings' -Option 'NotificationSettings' { Disable-NotificationSettings } }
+    if ($Defender -eq 'Keep') { Write-Log 'Microsoft Defender left untouched.' } else { Invoke-Step "Defender ($Defender)" -Option 'Defender' { Set-DefenderState -Mode $Defender } }
+    if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' -Option 'DefenderQuiet' { Set-DefenderQuiet } }
+    if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' -Option 'NetAdapterPower' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
+    if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' -Option 'NetAdapterEee' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
+    if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' -Option 'SpectreMeltdownOff' { Disable-SpectreMeltdownMitigations } }
+    if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' -Option 'TimerResolution' { Install-TimerResolutionService } }
+    if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' -Option 'DevicePowerSaving' { Set-DevicePowerSaving } }
+    if ($Opt['DeviceWakeOff']) { Invoke-Step 'Device wake' -Option 'DeviceWakeOff' { Set-TweakListBatched -Label 'Device wake off' -Tweaks @(Get-DeviceTweaks -Wake) } }
+    if ($Opt['WriteCacheFlushOff']) { Invoke-Step 'Write cache buffer flushing' -Option 'WriteCacheFlushOff' { Set-TweakListBatched -Label 'Write cache buffer flushing off' -Tweaks @(Get-WriteCacheTweaks) } }
+    if ($Opt['MpoOff']) { Invoke-Step 'Multiplane overlay' -Option 'MpoOff' { Set-TweakList $MpoRegs } }
+    if ($Opt['FastShutdown']) { Invoke-Step 'Faster shutdown' -Option 'FastShutdown' { Set-TweakList $FastShutdownRegs } }
+    if ($Opt['BlockFeatureUpgrades']) { Invoke-Step 'Feature upgrade block' -Option 'BlockFeatureUpgrades' { Set-FeatureUpgradeBlock } }
+    if ($Opt['SearchIndexingOff']) { Invoke-Step 'Search indexing' -Option 'SearchIndexingOff' { Set-ServiceStart -Name 'WSearch' -Mode Disabled } }
+    if ($Opt['TimeServerPool']) { Invoke-Step 'Time server' -Option 'TimeServerPool' { Set-TimeServer } }
+    if ($Opt['MenuKillNotResponding']) { Invoke-Step 'Kill not responding menu' -Option 'MenuKillNotResponding' { Set-TweakList $MenuKillRegs } }
+    if ($Opt['MenuRestartExplorer']) { Invoke-Step 'Restart Explorer menu' -Option 'MenuRestartExplorer' { Set-TweakList $MenuRestartExplorerRegs } }
+    if ($Opt['MenuTakeOwnership']) { Invoke-Step 'Take ownership menu' -Option 'MenuTakeOwnership' { Set-TweakList $MenuTakeOwnershipRegs } }
+    if ($Opt['MenuRunAsAdmin']) { Invoke-Step 'Run as administrator menu' -Option 'MenuRunAsAdmin' { Set-TweakList $MenuRunAsAdminRegs } }
     $menus = @($MenuBlocks.Keys | Where-Object { $Opt[$_] })
     if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
-    if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' { Set-TweakList $LockScreenRegs } }
-    if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' { Set-NvmeNativeDriver } }
-    if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' { Set-IPv4Only } }
-    if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' { Clear-DesktopIcons } }
-    if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' { Clear-StartPins } }
-    if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' { Clear-TempFiles } }
+    if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' -Option 'LockScreenOff' { Set-TweakList $LockScreenRegs } }
+    if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' -Option 'NvmeNativeDriver' { Set-NvmeNativeDriver } }
+    if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' -Option 'IPv4Only' { Set-IPv4Only } }
+    if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' -Option 'ClearDesktopIcons' { Clear-DesktopIcons } }
+    if ($Opt['ClearStartPins']) { Invoke-Step 'Clear Start menu pins' -Option 'ClearStartPins' { Clear-StartPins } }
+    if ($Opt['TempCleanup']) { Invoke-Step 'Temp cleanup' -Option 'TempCleanup' { Clear-TempFiles } }
     if ($Opt['UpdateCacheCleanup']) {
-        Invoke-Step 'Update cache cleanup' { Clear-UpdateDownloadCache }
+        Invoke-Step 'Update cache cleanup' -Option 'UpdateCacheCleanup' { Clear-UpdateDownloadCache }
         # Starting UsoSvc again registers its Schedule Scan tasks anew, so the pause would show active tasks.
-        if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' { Disable-UpdateTasks } }
+        if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' -Option 'PauseStopsUpdateTasks' { Disable-UpdateTasks } }
     }
     if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
     if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) {
@@ -5090,16 +6056,7 @@ function Invoke-Revert {
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
-    Invoke-Step 'Restore deleted registry keys' {
-        foreach ($k in $script:State.KeyBackups) {
-            # reg.exe reports success on stderr. Windows PowerShell 5.1 turns that into an error record, which stops
-            # the step under 'Stop' even when redirected, so cmd.exe swallows the output and only the exit code counts.
-            if (Test-Path -LiteralPath $k.File) {
-                $null = & cmd.exe /d /c "reg.exe import `"$($k.File)`" >nul 2>&1"
-                if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $($k.File) (reg.exe exit $LASTEXITCODE)" 'WARN' }
-            }
-        }
-    }
+    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {
         foreach ($name in $script:State.Hosts) {
             Write-HostsFile -Text (Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $name)
@@ -5143,10 +6100,7 @@ function Invoke-Revert {
         }
     }
     if ($script:State.Defender -eq $true) {
-        Invoke-Step 'Re-enable Defender real time protection' {
-            Set-MpPreference -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop
-            Write-Log 'Defender real time protection enabled.' 'OK'
-        }
+        Invoke-Step 'Restore Defender preferences' { Restore-DefenderPrefs }
     }
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
@@ -5161,6 +6115,10 @@ function Invoke-Revert {
     Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
+    # The journal belongs to the cycle just reverted; the next run starts a new one.
+    if (Test-Path -LiteralPath $JournalFile) { Move-Item -LiteralPath $JournalFile -Destination ($archive -replace 'state\.reverted-', 'journal.reverted-' -replace '\.json$', '.jsonl') -Force }
+    # The .bak belongs to the cycle just reverted; a later run must never fall back to it.
+    Remove-Item -LiteralPath "$StateFile.bak" -Force -ErrorAction SilentlyContinue
     Write-Log "State archived to $archive"
 }
 #endregion
@@ -5168,36 +6126,41 @@ function Invoke-Revert {
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
 Initialize-StateDir
-Import-State
+# An unreadable state file ends every mode here with one clear line, before anything is changed.
+try { Import-State }
+catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
-if ($Benchmark) { Invoke-Benchmark; exit 0 }
-if ($StartupReview) { Show-StartupReview; exit 0 }
+if ($Benchmark) { Invoke-Benchmark; Exit-Run 0 }
+if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
     Invoke-HealthCheck
-    exit ([int]($script:Health.FAIL -gt 0))
+    Exit-Run ([int]($script:Health.FAIL -gt 0))
 }
 if ($RestoreTask.Count -gt 0) {
     if ($Revert -or $DryRun) { throw '-RestoreTask cannot be combined with -Revert or -DryRun.' }
     Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
-    exit ([int]($script:Failures -gt 0))
+    Exit-Run ([int]($script:Failures -gt 0))
 }
 if ($Revert) { Invoke-Revert }
 else {
+    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
     if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
     }
     Show-Plan
-    if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; exit 2 }
+    if (-not (Invoke-Preflight)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
+    if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; Exit-Run 2 'The run was not confirmed.' }
     Invoke-Apply
     Save-State
 }
 
-if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; exit 0 }
+if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
 if ($script:Failures -gt 0) { Write-Log "Finished with $($script:Failures) failure(s) and $($script:Warnings) warning(s). Review the log: $LogFile" 'WARN' }
 else { Write-Log "Finished without errors ($($script:Warnings) warning(s)). Log: $LogFile" 'OK' }
+if (-not $Revert -and (Test-Path -LiteralPath $JournalFile)) { Write-Log "Every change with its option, value before, value after and result (OK, MISMATCH, FAILED): $JournalFile" }
 Write-Log 'Restart Windows so service, policy and power changes take full effect.'
-exit ([int]($script:Failures -gt 0))
+Exit-Run ([int]($script:Failures -gt 0))
 #endregion

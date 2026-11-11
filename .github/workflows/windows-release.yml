@@ -16,8 +16,13 @@ jobs:
   release:
     needs: build
     runs-on: windows-latest
+    # id-token and attestations: the build provenance attestation is signed with the workflow's OIDC identity.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: FocusedTweaks
           path: dist
@@ -32,6 +37,15 @@ jobs:
           # The zip carries the profiles the README and the battery hint point to.
           Compress-Archive -Path FocusedTweaks.ps1, NOTICE.md, README.md, profiles -DestinationPath FocusedTweaks.zip
 
+      # A signed statement, stored by GitHub, that these files were built by this workflow from this commit.
+      # Unlike the SHA256 file, it cannot be replaced by someone who can only change the release.
+      - name: Build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/FocusedTweaks.ps1
+            dist/FocusedTweaks.zip
+
       - name: Publish
         shell: pwsh
         working-directory: dist
@@ -44,6 +58,8 @@ jobs:
           SHA256 of FocusedTweaks.ps1: ``$env:SHA256``
 
           Check it before running: ``(Get-FileHash .\FocusedTweaks.ps1).Hash`` must match (case does not matter).
+          That only detects a damaged download. To check that the files were built by this repository's release
+          workflow: ``gh attestation verify FocusedTweaks.ps1 --repo $env:GITHUB_REPOSITORY``.
           Read the README and do a ``-DryRun`` first.
           "@
           gh release create $env:GITHUB_REF_NAME FocusedTweaks.zip FocusedTweaks.ps1 FocusedTweaks.ps1.sha256 NOTICE.md `

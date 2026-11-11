@@ -7,13 +7,19 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
 1. Download `FocusedTweaks.zip` from the repo's Releases page and unzip it. It holds the script, the profiles and
    the licence notices. Check the script against `FocusedTweaks.ps1.sha256` from the same release:
-   `(Get-FileHash .\FocusedTweaks.ps1).Hash` must match (case does not matter).
+   `(Get-FileHash .\FocusedTweaks.ps1).Hash` must match (case does not matter). That detects a damaged download,
+   but it does not protect against a compromised release: whoever can replace the script can replace the hash
+   file too. To check that the script was built by this repository's release workflow from its source, verify
+   its build provenance with the GitHub CLI (releases built after the provenance step was added):
+
+       gh attestation verify .\FocusedTweaks.ps1 --repo WhyN0t101/optimizations_tools
+
 2. Open Windows PowerShell (5.1) in that folder. The script asks for administrator rights itself.
 
        Set-ExecutionPolicy -Scope Process Bypass
 
 3. Pick a profile, or none for the maximum performance defaults:
-   `profiles\desktop-max.json` (desktop, all out), `profiles\laptop.json` (keeps security and battery life),
+   `profiles\desktop-max.json` (the defaults, plus the Best power mode for a desktop), `profiles\laptop.json` (keeps security, battery life and Windows Update),
    `profiles\privacy.json` (privacy first: keeps UAC, mitigations, core isolation, Windows Update, driver updates
    and the Defender and update tasks; Defender stays on with cloud sample submission off).
 4. See what it would do, then do it, then restart:
@@ -25,7 +31,7 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
        .\FocusedTweaks.ps1 -HealthCheck
        .\FocusedTweaks.ps1 -Revert
-       .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Time Synchronization\*'
+       .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Application Experience\*'
 
 App removal, installed software and the temp cleanup cannot be undone; everything else can.
 
@@ -34,14 +40,34 @@ App removal, installed software and the temp cleanup cannot be undone; everythin
     .\FocusedTweaks.ps1 -ListOptions
     .\FocusedTweaks.ps1 -HealthCheck -HealthCheckLaunch
 
-Lists such as `-Enable A,B` only work from the prompt like this. `powershell -File .\FocusedTweaks.ps1 -Enable A,B`
-passes `A,B` as one name and fails with "Unknown option".
+Before every run the script checks for a pending restart, Windows Update at work, battery power, the Windows
+edition, Tamper Protection and System Protection, and says why each warning fired. It refuses a PC that someone else
+manages (domain, Microsoft Entra ID, MDM or domain Group Policy) unless you pass `-AllowManaged`; skip any check by
+name with `-SkipCheck`, for example `-SkipCheck PendingReboot`.
+
+For unattended use, run it from an elevated PowerShell with `-Json -Force`: the console then gets one JSON object
+(exit code, reason, pre flight results, health results and the paths of the log and the change journal) and nothing
+else; the log file still gets every line. Exit codes, with or without `-Json`:
+
+| Code | Meaning |
+|---|---|
+| 0 | Finished without errors (or a dry run, `-Benchmark`, `-StartupReview`) |
+| 1 | Some changes failed, or the health check reported a failure |
+| 2 | Cancelled: not confirmed, no restore point and not confirmed, or `-Json` without `-Force` |
+| 3 | Refused by a pre flight check, or `-Json` without administrator rights |
+| 4 | The saved state cannot be read (nothing was changed) |
 
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 
-Two modes change nothing: `-Benchmark` measures timer resolution, latency (DPC and ISR), kernel call cost and boot
-time and compares with the previous benchmark; `-StartupReview` lists everything that starts with Windows.
+Two modes change nothing: `-Benchmark` and `-StartupReview`, which lists everything that starts with Windows.
+`-Benchmark` repeats each short measurement (timer, `Sleep(1)`, kernel call cost, a CPU loop) `-BenchmarkRuns` times
+(5) and reports median, minimum and maximum; it then samples the idle PC for `-BenchmarkIdleSeconds` (60): CPU use,
+the share of CPU time spent in DPCs and interrupts (a time share, not their latency), processes, running services
+and committed memory, plus the last boot times. It compares with the previous benchmark, or with a named one kept with
+`-BenchmarkBaseline before`, and refuses when the machine context differs (CPU, RAM, power source, virtual machine);
+settings the options change, such as VBS or the power plan, are listed instead. Results from a virtual machine are
+marked as not valid for performance.
 
 `tools\Explain-Processes.ps1` explains what is running and why, and changes nothing: the services inside each
 svchost, which vendor each process belongs to, which app started each WebView, and Keep / Manual / Remove advice
@@ -56,11 +82,15 @@ data comes from the copy in `upstream/zoicware/`, checked against pinned SHA256 
 The defaults aim for maximum performance: Spectre and Meltdown mitigations off, core isolation off, the
 timer resolution service on, non-essential services off, apps removed. Things are removed or left alone,
 never half done. A few things are always left alone because removing them gains no speed or costs it:
-SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. Use a profile to relax the defaults
-per machine; `profiles/laptop.json` keeps the mitigations, core isolation and UAC and skips the timer service
+SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. `TaskMode Delete` also keeps the Defender,
+System Restore, certificate and browser update tasks, so protection and updates keep running. Use a profile to relax the defaults
+per machine; `profiles/laptop.json` keeps the mitigations, core isolation, UAC, the power mode and Windows Update
+(no pause, no update restriction) and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.
 
-Every option, with its default and whether `-Revert` undoes it, is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
+Every option, with its default, whether `-Revert` undoes it and what evidence backs it (Documented with a link to
+the vendor page, Folklore, or n/a for options that are not about speed), is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
+The evidence column is information only: options are chosen for speed, less bloat, less telemetry and smoothness.
 That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
 
 Third party licence notices are in `NOTICE.md`.

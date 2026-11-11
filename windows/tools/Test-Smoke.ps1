@@ -46,7 +46,9 @@ $OutDir = (Resolve-Path -LiteralPath $OutDir).Path
 $stages = @(
     @{ Name = 'Dry-Defaults'; Args = "-DryRun -Force -SkipRestorePoint" }
     @{ Name = 'Dry-Laptop'; Args = "-DryRun -Force -SkipRestorePoint -ProfilePath '$LaptopProfile'" }
-    @{ Name = 'Apply'; Args = '-Force -SkipRestorePoint -Skip Packages,HealthCheckAfter' }
+    # -AllowManaged: whether the hosted runner image is domain or Entra joined is not under our control, and it is thrown
+    # away afterwards, so the pre flight block for managed PCs must not fail the smoke test.
+    @{ Name = 'Apply'; Args = '-Force -SkipRestorePoint -AllowManaged -Skip Packages,HealthCheckAfter' }
     @{ Name = 'Health'; Args = '-HealthCheck' }
     # Read only, so it can run between the others; this only proves it runs cleanly as administrator.
     @{ Name = 'Explain'; Script = (Join-Path (Split-Path $PSCommandPath -Parent) 'Explain-Processes.ps1'); Args = '' }

@@ -12,13 +12,15 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
   Never edit those files.
 - CI (`.github/workflows/windows-build.yml`) builds on every push, fails if the committed `FocusedTweaks.ps1` or
   `docs/OPTIONS.md` differ from the build, and runs `Test-Parse` under 5.1 and 7. Pushing a `v*` tag runs
-  `windows-release.yml`, which publishes the built script, its SHA256 and NOTICE.md as a GitHub release.
+  `windows-release.yml`, which publishes the built script, its SHA256 and NOTICE.md as a GitHub release, with a
+  build provenance attestation. Actions are pinned by commit SHA with the tag in a comment (`Test-Parse` checks it).
 - `windows-smoke.yml` runs the script for real on a throwaway Windows Server 2025 runner through
   `tools/Test-Smoke.ps1` (dry runs, apply, health check, revert) and uploads the results as `smoke-results`.
   Test-Smoke refuses to run outside GitHub Actions. Server lacks Store apps, Quick Assist and restore points,
   so read Server-only failures with that in mind; the VM test is still the full Windows 11 check.
 - `tests/Test-Parse.ps1` is a static check that needs no admin rights and changes nothing. Run it with both `pwsh` and
-  `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links.
+  `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links, and tests
+  the journal rules in a scratch key under `HKCU\Software\FocusedTweaksTest-<id>`; both are removed again.
 - `profiles/example.json` shows the format for `-ProfilePath`.
 - Windows only. The script elevates itself.
 
@@ -28,7 +30,9 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 2. A new option also needs a place in `OPTION_GROUPS` in `tools/build.py` (the build fails otherwise), and an entry in
    `NOT_REVERTED` if `-Revert` cannot undo it. The build writes `docs/OPTIONS.md` from it; never edit that file by hand.
 3. Every change that alters the system must (a) go through `Test-DryRun`, (b) record the original state so `-Revert` works,
-   (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`.
+   (c) have a line in the health check, and (d) sit behind an option in `$OptionInfo`. Record state only through the
+   journal helpers (`Set-RegValue`, `Remove-RegValue`, `Remove-RegKey`, `Set-StateValue`, `Add-StateRecord`, the task
+   helpers), before the change; never assign `$script:State` directly. `Test-Parse` checks this.
 4. Stay compatible with Windows PowerShell 5.1: no ternary operator, no `??`, no `&&`. The script uses `Set-StrictMode -Version Latest`.
 5. A hashtable entry name can shadow a property: never name a `$script:State` entry `Keys`, `Values` or `Count`.
 6. Output encoding is UTF-8 with BOM, CRLF line endings, ASCII only. `build.py` writes this. `.gitattributes` keeps it.
