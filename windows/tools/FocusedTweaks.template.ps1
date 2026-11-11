@@ -4095,6 +4095,15 @@ function Test-RebootPending {
     ($null -ne (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue))
 }
 
+# Enrolment entries Windows creates itself on every PC, managed or not (seen with EnrollmentState 1 on an unmanaged
+# Windows 11 VM, build 26200, 11 Nov 2026). Only other providers, such as Intune's 'MS DM Server', mean real MDM.
+$BuiltInMdmProviders = @('Local Authority', 'Cloud Authority', 'Deploy Authority')
+
+function Test-MdmProvider {
+    param([string]$ProviderId)
+    return [bool]($ProviderId -and $BuiltInMdmProviders -notcontains $ProviderId)
+}
+
 function Get-ManagedFacts {
     # Signs that someone else manages this PC: a domain, Microsoft Entra ID, an MDM enrolment, or Group Policy objects
     # from a domain (their DSPath is an LDAP path; the local policy's is 'LocalGPO').
@@ -4112,7 +4121,7 @@ function Get-ManagedFacts {
                 try {
                     $provider = [string]$k.GetValue('ProviderID', '')
                     $state = $k.GetValue('EnrollmentState', $null)
-                    if ($provider -and $null -ne $state -and [int]$state -eq 1) { $facts.MdmProviders += $provider }
+                    if ((Test-MdmProvider $provider) -and $null -ne $state -and [int]$state -eq 1) { $facts.MdmProviders += $provider }
                 }
                 finally { $k.Close() }
             }

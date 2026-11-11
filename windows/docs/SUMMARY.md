@@ -217,6 +217,9 @@ Fixes from `docs/AUDIT.md` (branch `audit-fixes`, after v7.4). None of these has
   SHA256 file only detects a damaged download. Every action in the three workflows is pinned to the commit of its
   release tag, with the tag in a comment. The CI check that fails on a stale generated script is unchanged.
   No Authenticode signing (not approved).
+- VM test of 11 Nov 2026: the pre flight check refused the unmanaged Windows 11 VM as MDM enrolled, because
+  Windows creates 'Local Authority', 'Cloud Authority' and 'Deploy Authority' enrolments itself. Those providers no
+  longer count as MDM.
 
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
