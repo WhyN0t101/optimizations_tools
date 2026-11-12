@@ -292,6 +292,15 @@ have not run in the VM yet):
   names options it cannot undo alone. The run record stops expecting the undone options; a later full `-Revert`
   still restores every original.
 - `Test-Smoke.ps1` runs `-Reapply` after the health check.
+- Code review of everything since v7.6 (12 Nov 2026), fixed with tests: `-Reapply` reported drift that was not drift
+  on every run (Quick Assist logged before checking it was still there, the Connected Devices Platform cache that
+  Windows refills, and the Update Orchestrator tasks Windows registers at every start were deleted again), so it never
+  said "nothing drifted"; the drift hint in `-HealthCheck` counted daily Defender definitions and Store app updates as
+  Windows updates; `-Reapply` silently ignored `-Only` and could be combined with `-FrameBenchmark` or
+  `-StartupReview`; a failed `-Benchmark` or `-FrameBenchmark` ended in a stack trace with no `-Json` result; a game
+  name with a space did not reach PresentMon as one argument; a startup entry was logged as removed even when the
+  removal failed. Known limit, documented: `-Reapply` removes again an app, OneDrive or Edge that the first run
+  removed, also when you reinstalled it yourself.
 - `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
   writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
 

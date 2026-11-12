@@ -180,7 +180,9 @@ apps. `-HealthCheck` says when an update installed after your run. Then:
     .\FocusedTweaks.ps1 -Reapply
 
 The first lists what drifted, the second puts back only that. It never touches startup entries, Start pins, desktop
-shortcuts, app permissions or software you installed since, and it waits while an update is still installing.
+shortcuts, app permissions or software you installed since, and it waits while an update is still installing. It
+does remove again an app, OneDrive or Edge that the first run removed and that is back, because it cannot tell
+whether Windows or you reinstalled it: if you did, add `-Skip Debloat` (or `RemoveOneDrive`, `RemoveEdge`).
 
 **A new NVIDIA driver.** Install only the driver and the profile again, nothing else:
 

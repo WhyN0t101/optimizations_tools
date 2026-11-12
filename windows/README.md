@@ -89,7 +89,9 @@ and pauses (frames over 1 s) are left out. It refuses to run in a virtual machin
 changed: first it lists each drifted item, then asks before changing them (`-Reapply -DryRun` only lists). It uses the
 options of the earlier run, not new ones, and leaves alone what would undo your later choices (startup entries,
 Start pins, desktop shortcuts, app permissions, installed software) or only runs once (cleanup). It removes only apps
-and tasks the earlier run removed that came back. A pending restart or Windows Update at work blocks it. Everything it
+and tasks the earlier run removed that came back. It cannot tell an app Windows reinstalled from one you reinstalled
+yourself: if you brought one back on purpose (an app, OneDrive, Edge), add `-Skip Debloat`, `-Skip RemoveOneDrive` or
+`-Skip RemoveEdge`, or check the list in the first pass before typing YES. A pending restart or Windows Update at work blocks it. Everything it
 changes is journaled, so `-Revert` still restores the state before your first run. `-HealthCheck` says when an
 update installed since your run and something looks changed.
 

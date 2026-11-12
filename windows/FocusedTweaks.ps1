@@ -3252,7 +3252,7 @@ function Remove-StartupEntries {
     $kept = @($names | Where-Object { Test-StartupKept $_ })
     foreach ($n in @($names | Where-Object { -not (Test-StartupKept $_) })) {
         Remove-RegValue -Path $full -Name $n
-        if (-not $script:DryRun) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
+        if (-not $script:DryRun -and -not (Get-RegSnapshot -Full $full -Name $n).Existed) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
     }
     if ($kept.Count -gt 0) { Write-Log "Startup entries kept in $full`: $($kept -join ', ')" }
 }
@@ -3764,6 +3764,7 @@ function Remove-AllScheduledTasks {
         if (Test-NameMatch $full $TaskKeep) { continue }
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
         if ($script:Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
+        if ($script:Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -3907,7 +3908,7 @@ function Invoke-TelemetryTweaks {
         $script:JournalOption = 'Cdp'
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
         $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
-        if ((Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
+        if (-not $script:Reapply -and (Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
             Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -4384,7 +4385,14 @@ function Restore-Features {
     }
 }
 
+function Test-QuickAssistPresent {
+    if (@(Get-AppxPackage -AllUsers -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*QuickAssist*' }).Count -gt 0) { return $true }
+    return Test-Path -LiteralPath (Join-Path $env:windir 'System32\quickassist.exe')
+}
+
 function Remove-QuickAssist {
+    # -Reapply: Quick Assist that is still gone is not drift.
+    if ($script:Reapply -and -not (Test-QuickAssistPresent)) { return }
     if (Test-DryRun 'remove Quick Assist (Windows capability, package and app)') { return }
     $removed = 0
     foreach ($cap in @(Get-WindowsCapability -Online | Where-Object { $_.Name -like 'App.Support.QuickAssist~~~~*' -and $_.State -eq 'Installed' })) {
@@ -5392,7 +5400,7 @@ function Get-DisplayContext {
 
 function Invoke-PresentMonCapture {
     param([string]$Exe, [string]$Process, [int]$Seconds, [string]$Csv)
-    $pmArgs = @('--process_name', $Process, '--output_file', "`"$Csv`"", '--timed', $Seconds, '--terminate_after_timed',
+    $pmArgs = @('--process_name', "`"$Process`"", '--output_file', "`"$Csv`"", '--timed', $Seconds, '--terminate_after_timed',
         '--session_name', $PresentMonSession, '--stop_existing_session', '--no_console_stats', '--v2_metrics')
     $proc = Start-Process -FilePath $Exe -ArgumentList $pmArgs -PassThru -WindowStyle Hidden
     $null = $proc.Handle   # keeps the exit code readable after the process ends
@@ -6689,11 +6697,22 @@ function Invoke-Reapply {
     Save-State
 }
 
+# Updates that are not Windows itself: Defender definitions (daily) and platform, the malicious software removal tool.
+$UpdateKbsNotWindows = @('KB2267602', 'KB4052623', 'KB890830')
+
+function Test-WindowsUpdateMessage {
+    # True for the installation event of a Windows update (it names a KB); Store apps and the KBs above do not count.
+    param([string]$Message)
+    $kbs = @([regex]::Matches($Message, 'KB\d{6,8}') | ForEach-Object { $_.Value.ToUpperInvariant() })
+    if ($kbs.Count -eq 0) { return $false }
+    return @($kbs | Where-Object { $UpdateKbsNotWindows -notcontains $_ }).Count -gt 0
+}
+
 function Get-LastUpdateInstall {
-    # When Windows Update last installed something, from its own event (19, installation successful), or $null.
-    $e = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WindowsUpdateClient'; Id = 19 } -MaxEvents 1 -ErrorAction SilentlyContinue)
-    if ($e.Count -eq 0) { return $null }
-    return $e[0].TimeCreated
+    # When Windows Update last installed a Windows update, from its own event (19, installation successful), or $null.
+    $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WindowsUpdateClient'; Id = 19 } -MaxEvents 300 -ErrorAction SilentlyContinue)
+    foreach ($e in $events) { if (Test-WindowsUpdateMessage $e.Message) { return $e.TimeCreated } }
+    return $null
 }
 
 function Test-HealthDrift {
@@ -6701,7 +6720,7 @@ function Test-HealthDrift {
     if (-not $script:AppliedAt) { return }
     $last = Get-LastUpdateInstall
     if (-not $last -or $last -le $script:AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
-    $msg = "Windows Update installed something on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($script:AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
+    $msg = "Windows Update installed a Windows update on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($script:AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
     if ($script:Health.WARN -gt 0 -or $script:Health.FAIL -gt 0) { Write-Health 'WARN' 'Drift' "$msg Updates can set tweaks back; run -Reapply -DryRun to list what changed, then -Reapply to put it back." }
     else { Write-Health 'INFO' 'Drift' "$msg Nothing above looks changed by it." }
 }
@@ -6879,15 +6898,22 @@ function Invoke-Revert {
 
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
-if ($Reapply -and ($Revert -or $HealthCheck -or $Benchmark -or $RestoreTask.Count -gt 0)) { throw '-Reapply cannot be combined with -Revert, -HealthCheck, -Benchmark or -RestoreTask.' }
+if ($Reapply -and ($Revert -or $HealthCheck -or $Benchmark -or $FrameBenchmark -or $StartupReview -or $RestoreTask.Count -gt 0)) { throw '-Reapply cannot be combined with -Revert, -HealthCheck, -Benchmark, -FrameBenchmark, -StartupReview or -RestoreTask.' }
+if ($Reapply -and $Only.Count -gt 0) { throw '-Reapply uses the options of the earlier run. Leave some out with -Skip; -Only does not apply here.' }
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
 try { Import-State }
 catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
-if ($Benchmark) { Invoke-Benchmark; Exit-Run 0 }
-if ($FrameBenchmark) { Invoke-FrameBenchmark; Exit-Run ([int]($script:Failures -gt 0)) }
+if ($Benchmark) {
+    try { Invoke-Benchmark } catch { Write-Log "Benchmark stopped: $($_.Exception.Message)" 'ERROR'; Exit-Run 1 $_.Exception.Message }
+    Exit-Run 0
+}
+if ($FrameBenchmark) {
+    try { Invoke-FrameBenchmark } catch { Write-Log "Frame benchmark stopped: $($_.Exception.Message)" 'ERROR'; Exit-Run 1 $_.Exception.Message }
+    Exit-Run ([int]($script:Failures -gt 0))
+}
 if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
