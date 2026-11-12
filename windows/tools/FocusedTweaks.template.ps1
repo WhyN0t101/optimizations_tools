@@ -89,6 +89,7 @@ param(
     [ValidateSet('Delete', 'Disable', 'None')][string]$TaskMode = 'Delete',
     [ValidateSet('Disable', 'Delete')][string]$ServiceMode = 'Disable',
     [string[]]$TaskKeep = @(),
+    [string[]]$StartupKeep = @(),
     [ValidateSet('Keep', 'Disable', 'Enable')][string]$Defender = 'Keep',
     [ValidateSet('Off', 'Medium', 'High')][string]$PowerProfile = 'High',
     [ValidateSet('Keep', 'Balanced', 'Best')][string]$PowerMode = 'Keep',
@@ -161,7 +162,7 @@ $OptionInfo = [ordered]@{
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more)', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
-    RunKeys               = @($true, 'Delete the HKCU and HKLM Run keys once, clearing every startup entry', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys')
+    RunKeys               = @($true, 'Delete the startup entries in the HKCU and HKLM Run keys, except those named with -StartupKeep and Windows Security (-StartupReview lists the names)', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys')
     PrivacyDenials        = @($true, 'Deny app access to camera, location, radios, files and more, and reset the consent database', 'n/a', '')
     CoreIsolation         = @($true, 'Disable core isolation (VBS, HVCI, Credential Guard). Faster, but kernel memory loses its hypervisor protection', 'Documented', 'https://support.microsoft.com/en-us/windows/security/windows-security/device-security-in-the-windows-security-app')
     HideLockOption        = @($false, 'Hide Lock in the Start power menu. Off, you excluded it', 'n/a', '')
@@ -184,6 +185,7 @@ $OptionInfo = [ordered]@{
     SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)', 'Folklore', '')
     SvcBackground         = @($true, 'Disable background helpers: Mail and Calendar sync, Program Compatibility Assistant, link tracking, app inventory, IP Helper (IPv6 tunnels; WSL localhost forwarding uses it), file sharing from this PC (Server) and clipboard history (Win+V)', 'Folklore', '')
     SvcAggressive         = @($false, 'Also disable push notifications (no toasts; Store and Teams alerts stop), data usage (its Settings page and metered settings stop working) and Shell Hardware Detection (no AutoPlay; scanners and camera import through WIA stop). Off: each costs a visible feature', 'Folklore', '')
+    VendorServices        = @($false, 'Laptops: disable Lenovo Vantage and its installer, and presence sensing (Lenovo, ELAN, Intel); set Lenovo standby, camera effects installer and Intel reporting, tuning telemetry and graphics panel services to Manual. Keeps thermal, power, Fn key, audio and display services. On in laptop.json', 'Folklore', '')
     SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time', 'Folklore', '')
     SvcBiometrics         = @($true, 'Disable the Windows Biometric Service', 'Folklore', '')
     SvcSmartCard          = @($true, 'Disable smart card services', 'Folklore', '')
@@ -212,6 +214,7 @@ $OptionInfo = [ordered]@{
     EdgeBackground        = @($true, 'Stop Edge running in the background: no startup boost, no background apps once it is closed (policy; Edge then says it is managed)', 'Documented', 'https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies#startupboostenabled')
     LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
     HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
+    WindowsAIOff          = @($true, 'Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), and the Edge sidebar with Copilot hidden (policy)', 'n/a', 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)', 'n/a', '')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
@@ -265,7 +268,7 @@ function Import-RunProfile {
     if (-not $ProfilePath) { return }
     if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) { throw "Profile not found: $ProfilePath" }
     $data = Get-Content -LiteralPath $ProfilePath -Raw | ConvertFrom-Json
-    $lists = 'Enable', 'Skip', 'Only', 'SkipRegGroup', 'TaskKeep'
+    $lists = 'Enable', 'Skip', 'Only', 'SkipRegGroup', 'TaskKeep', 'StartupKeep'
     $choices = @{ TaskMode = @('Delete', 'Disable', 'None'); ServiceMode = @('Disable', 'Delete'); Defender = @('Keep', 'Disable', 'Enable'); PowerProfile = @('Off', 'Medium', 'High'); PowerMode = @('Keep', 'Balanced', 'Best') }
     foreach ($prop in $data.PSObject.Properties) {
         $name = $prop.Name
@@ -325,7 +328,8 @@ if ($ListOptions) {
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -ServiceMode Disable|Delete (default Disable),'
     Write-Host '-Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
-    Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
+    Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>,'
+    Write-Host '-StartupKeep <startup entry name wildcards> (RunKeys keeps those; -StartupReview lists the names).'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
     Write-Host 'Frame times of a game (FPS, 1 % lows, stutter) with PresentMon: -FrameBenchmark -FrameProcess game.exe [-FrameLabel name].'
@@ -424,6 +428,15 @@ $KeepApps = @(
 )
 
 # Never deleted by TaskMode Delete, whatever the profile says: no speed gain, real breakage.
+# VendorServices, from the advice in tools/Explain-Processes.ps1 (checked on a ThinkPad X1 Carbon, Nov 2026). Thermal,
+# power, Fn key, audio, HDCP and display colour services are never touched: laptops misbehave without them.
+$VendorServicesDisable = @('LenovoVantageService', 'ImControllerService', 'SmartSense', 'EPDService', 'IntelCstService')
+$VendorServicesManual = @('LenovoSmartStandby', 'LvfInstallService', 'WMIRegistrationService', 'dptftcs', 'IntelGraphicsSoftwareService')
+
+# Startup entries RunKeys never deletes: the Windows Security tray icon (its alerts), and the VMware Tools user
+# process, without which a VM loses copy and paste, resizing and guest operations.
+$StartupKeepBuiltIn = @('SecurityHealth', 'VMware User Process')
+
 $TaskKeepBuiltIn = @(
     '\Microsoft\Windows\Time Synchronization\*'
     '\Microsoft\Windows\Defrag\*'
@@ -635,6 +648,16 @@ $EdgeBackgroundRegs = @(
 # updates by hand in Settings still works, and Defender definitions still arrive.
 $NoAutoUpdateRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 1 'DWord'
+)
+
+# Windows AI per user. The WindowsAI policy CSP (Microsoft Learn, checked 12 Nov 2026) lists TurnOffWindowsCopilot as a
+# user policy only, and DisableAIDataAnalysis and DisableClickToDo for device and user; the upstream group writes them
+# under HKLM only. HubsSidebarEnabled 0 hides the Edge sidebar, where Copilot lives.
+$WindowsAIRegs = @(
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsCopilot' 'TurnOffWindowsCopilot' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0 'DWord'
 )
 
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
@@ -1701,6 +1724,27 @@ function Get-GatedRegOptions {
     return $gated
 }
 
+function Test-StartupKept {
+    param([string]$Name)
+    return (Test-NameMatch $Name $StartupKeepBuiltIn) -or (Test-NameMatch $Name $StartupKeep)
+}
+
+function Remove-StartupEntries {
+    # RunKeys: every value of a Run key goes, except the kept ones. Each removal is journaled with its value, so
+    # -Revert puts back exactly what was there, and entries added later are never touched by -Revert.
+    param([Parameter(Mandatory)][string]$Path)
+    $full = ConvertTo-FullRegPath $Path
+    $key = Open-RegKey -Full $full
+    if (-not $key) { return }
+    try { $names = @($key.GetValueNames() | Where-Object { $_ }) } finally { $key.Close() }
+    $kept = @($names | Where-Object { Test-StartupKept $_ })
+    foreach ($n in @($names | Where-Object { -not (Test-StartupKept $_) })) {
+        Remove-RegValue -Path $full -Name $n
+        if (-not $script:DryRun) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
+    }
+    if ($kept.Count -gt 0) { Write-Log "Startup entries kept in $full`: $($kept -join ', ')" }
+}
+
 function Import-UpstreamRegistry {
     $ops = ConvertFrom-RegText -Text $UpstreamRegText
     $applied = 0; $byOption = 0; $byGroup = 0
@@ -1714,7 +1758,10 @@ function Import-UpstreamRegistry {
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
             'DeleteValue' { Remove-RegValue -Path $op.Path -Name $op.Name }
-            'DeleteKey' { Remove-RegKey -Path $op.Path }
+            'DeleteKey' {
+                # The Run keys lose their entries one by one, so -StartupKeep can spare some and -Revert restores each.
+                if ($script:JournalOption -eq 'RunKeys') { Remove-StartupEntries -Path $op.Path } else { Remove-RegKey -Path $op.Path }
+            }
         }
         $applied++
     }
@@ -2090,6 +2137,18 @@ function Test-ServiceKeyDeletedByRun {
     param([string]$Name)
     $path = "$ServicesRoot\$Name"
     return @($script:State.KeyBackups | Where-Object { $_.Path -ieq $path }).Count -gt 0
+}
+
+function Set-VendorServices {
+    $present = 0
+    foreach ($pair in @(@($VendorServicesDisable, 'Disabled'), @($VendorServicesManual, 'Manual'))) {
+        foreach ($name in $pair[0]) {
+            if (-not (Get-Service -Name $name -ErrorAction SilentlyContinue)) { continue }
+            $present++
+            Set-ServiceStart -Name $name -Mode $pair[1]
+        }
+    }
+    if ($present -eq 0) { Write-Log 'Vendor services: none of the Lenovo and Intel services this option handles is installed.' }
 }
 
 function Disable-ServiceGroups {
@@ -4014,6 +4073,21 @@ function Test-HealthServices {
         }
         else { Write-Health 'FAIL' 'Services' "$g`: disabled although you asked to keep them: $($wrong -join ', ')." }
     }
+    if ($Opt['VendorServices']) {
+        $wrongVendor = @()
+        $seenVendor = 0
+        foreach ($pair in @(@($VendorServicesDisable, 4), @($VendorServicesManual, 3))) {
+            foreach ($name in $pair[0]) {
+                $start = Get-ServiceStartNow $name
+                if ($null -eq $start) { continue }
+                $seenVendor++
+                if ($start -ne $pair[1]) { $wrongVendor += $name }
+            }
+        }
+        if ($seenVendor -eq 0) { Write-Health 'INFO' 'Services' 'VendorServices: none of its Lenovo and Intel services is installed.' }
+        elseif ($wrongVendor.Count -eq 0) { Write-Health 'PASS' 'Services' "VendorServices: all $seenVendor installed vendor service(s) are set as intended." }
+        else { Write-Health 'WARN' 'Services' "VendorServices: not as intended: $($wrongVendor -join ', '). A vendor update may have reset them; -Reapply sets them again." }
+    }
     $core = @('BITS', 'CryptSvc', 'Winmgmt', 'StorSvc', 'AppXSvc', 'ClipSVC', 'InstallService', 'LicenseManager', 'BFE', 'mpssvc', 'Dnscache', 'NlaSvc', 'wuauserv', 'UsoSvc', 'WaaSMedicSvc')
     if ($Defender -ne 'Disable') { $core += 'WinDefend' }
     $disabledCore = @($core | Where-Object { (Get-ServiceStartNow $_) -eq 4 })
@@ -4124,7 +4198,8 @@ function Test-HealthRegistry {
             'DeleteKey' {
                 $k = Open-RegKey -Full $full
                 if ($k) {
-                    $n = @($k.GetValueNames()).Count
+                    # For the Run keys only the entries RunKeys would remove count; kept ones are meant to be there.
+                    $n = @($k.GetValueNames() | Where-Object { $_ -and -not (Test-StartupKept $_) }).Count
                     $k.Close()
                     if ($optName -eq 'RunKeys') { $runEntries += $n } else { $bad.Add("[$($op.Group)] $full still exists") }
                 }
@@ -4138,7 +4213,7 @@ function Test-HealthRegistry {
     }
     if ($overridden -gt 0) { Write-Health 'INFO' 'Registry' "$overridden upstream registry item(s) are set again by a later step (telemetry, update or mouse options) and are verified there." }
     if ($Opt['RunKeys']) {
-        if ($runEntries -eq 0) { Write-Health 'PASS' 'Registry' 'Startup Run keys are clear.' }
+        if ($runEntries -eq 0) { Write-Health 'PASS' 'Registry' 'Startup Run keys hold only the entries you keep.' }
         else { Write-Health 'INFO' 'Registry' "$runEntries startup entr(ies) were added to the Run keys since the cleanup. This is expected after installing software." }
     }
     if ($Opt['TelemetryPolicy']) { Test-HealthTweakTable -Label 'Telemetry policy' -Tweaks $TelemetryRegs }
@@ -4198,6 +4273,7 @@ function Test-HealthRegistry {
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
+    if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
     if ($Opt['NvmeNativeDriver']) { Test-HealthTweakTable -Label 'Native NVMe driver' -Tweaks $NvmeRegs }
 }
 
@@ -4853,7 +4929,7 @@ function Get-PolicyTweaks {
     $tables = [ordered]@{
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
         SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
-        EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs
+        EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs; WindowsAIOff = $WindowsAIRegs
     }
     foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
     if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
@@ -4966,6 +5042,7 @@ function Invoke-ApplySteps {
     if ($Opt['RemoveOneDrive']) { Invoke-Step 'Remove OneDrive' -Option 'RemoveOneDrive' { Remove-OneDrive } }
     if ($Opt['RemoveEdge']) { Invoke-Step 'Remove Edge' -Option 'RemoveEdge' { Remove-Edge } }
     if ($Opt['EdgeBackground']) { Invoke-Step 'Edge in the background' -Option 'EdgeBackground' { Set-TweakList $EdgeBackgroundRegs } }
+    if ($Opt['WindowsAIOff']) { Invoke-Step 'Copilot and Windows AI' -Option 'WindowsAIOff' { Set-TweakList $WindowsAIRegs } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.
@@ -4976,6 +5053,7 @@ function Invoke-ApplySteps {
     if ($Opt['Uac']) { Invoke-Step 'LUA file virtualization' -Option 'Uac' { Set-ServiceStart -Name 'luafv' -Mode Disabled } }
     if ($Opt['TelemetryPolicy'] -or $Opt['BiometricsPolicy'] -or $Opt['Cdp'] -or $Opt['TelemetryHosts']) { Invoke-Step 'Telemetry' { Invoke-TelemetryTweaks } }
     if (@($ServiceGroups.Keys | Where-Object { $Opt[$_] }).Count -gt 0) { Invoke-Step 'Service groups' { Disable-ServiceGroups } }
+    if ($Opt['VendorServices']) { Invoke-Step 'Vendor services' -Option 'VendorServices' { Set-VendorServices } }
     if ($TaskMode -ne 'None') { Invoke-Step "Scheduled tasks ($TaskMode)" -Option 'TaskMode' { Invoke-TaskMode } }
     if ($Opt['RazerAsusHosts']) { Invoke-Step 'Razer and ASUS hosts block' -Option 'RazerAsusHosts' { Set-RazerAsusBlock } }
     if ($Opt['DriverExclusion'] -or $Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) { Invoke-Step 'Windows Update policy' { Set-UpdatePolicies } }
@@ -5116,6 +5194,95 @@ function Test-HealthDrift {
     else { Write-Health 'INFO' 'Drift' "$msg Nothing above looks changed by it." }
 }
 
+# -Revert -Only: what the journal can undo per option. Registry values and keys, service start values and tasks carry
+# the option that changed them; these other options keep their own records and are undone here as well.
+$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features' }
+
+function Get-OptionChanges {
+    # From journal lines: the registry values, key exports and tasks that the named options changed. A value another
+    # option changed as well is left out and listed as shared: undoing it would undo that option too.
+    param([string[]]$Options, [object[]]$Lines)
+    $owners = @{}
+    $byTarget = [ordered]@{}
+    foreach ($e in @($Lines | Where-Object { $_.Op -eq 'Change' -and $_.PSObject.Properties['Option'] -and $_.Option })) {
+        $id = "$($e.Kind)|$($e.Target)"
+        if (-not $owners.ContainsKey($id)) { $owners[$id] = @() }
+        if ($owners[$id] -notcontains $e.Option) { $owners[$id] += $e.Option }
+        if (($Options -contains $e.Option) -and -not $byTarget.Contains($id)) { $byTarget[$id] = $e }
+    }
+    $result = [pscustomobject]@{ Registry = @(); Keys = @(); Tasks = @(); Shared = @() }
+    foreach ($id in $byTarget.Keys) {
+        $e = $byTarget[$id]
+        $others = @($owners[$id] | Where-Object { $Options -notcontains $_ })
+        if ($others.Count -gt 0) { $result.Shared += "$($e.Target) (also set by $($others -join ', '))"; continue }
+        switch ($e.Kind) {
+            'Registry' { $result.Registry += [pscustomobject]@{ Path = $e.Before.Path; Name = $e.Before.Name } }
+            'RegistryKey' { $result.Keys += [string]$e.Before }
+            'Task' { $result.Tasks += $e.Before }
+        }
+    }
+    return $result
+}
+
+function Invoke-RevertOptions {
+    # Undoes only the named options, from the journal of the current cycle, and keeps everything else as it is.
+    param([string[]]$Names)
+    if (-not (Test-Path -LiteralPath $JournalFile)) { Write-Log "No change journal at $JournalFile, so single options cannot be undone. Use -Revert without -Only." 'WARN'; return }
+    $options = @(foreach ($n in @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+            $m = @($OptionInfo.Keys | Where-Object { $_ -ieq $n })
+            if ($m.Count -eq 0) { throw "Unknown option '$n'. Run with -ListOptions to see the valid names." }
+            $m[0]
+        })
+    $lines = @(foreach ($text in [IO.File]::ReadAllLines($JournalFile)) { if ($text.Trim()) { try { $text | ConvertFrom-Json } catch { } } })
+    $sel = Get-OptionChanges -Options $options -Lines $lines
+    Write-Log "Undoing only: $($options -join ', ') ($($sel.Registry.Count) registry value(s), $($sel.Keys.Count) deleted key(s), $($sel.Tasks.Count) task(s))."
+    Invoke-Step "Revert options ($($options -join ', '))" {
+        foreach ($r in $sel.Registry) {
+            $orig = @($script:State.Registry | Where-Object { $_.Path -ieq $r.Path -and $_.Name -eq $r.Name } | Select-Object -First 1)
+            if ($orig.Count -gt 0) { Restore-RegValue -Entry $orig[0] }
+        }
+        foreach ($f in $sel.Keys) {
+            if (-not (Test-Path -LiteralPath $f)) { Write-Log "Registry key backup $f is missing." 'WARN'; continue }
+            $null = & cmd.exe /d /c "reg.exe import `"$f`" >nul 2>&1"
+            if ($LASTEXITCODE -ne 0) { Write-Log "Could not import $f (reg.exe exit $LASTEXITCODE)" 'WARN' }
+        }
+        if ($sel.Tasks.Count -gt 0) { Restore-Tasks -Tasks $sel.Tasks }
+        foreach ($o in $options) {
+            switch ($RevertOnlyExtra[$o]) {
+                'Hosts' {
+                    $name = if ($o -eq 'TelemetryHosts') { 'telemetry' } else { 'razer-asus' }
+                    Write-HostsFile -Text (Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $name)
+                    Write-Log "Hosts block removed: $name" 'OK'
+                }
+                'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
+                'Features' {
+                    foreach ($f in @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })) {
+                        try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "Optional feature turned back on: $f (finishes at the next restart)." 'OK' }
+                        catch { Write-Log "Could not turn the optional feature $f back on. $($_.Exception.Message)" 'WARN' }
+                    }
+                }
+            }
+        }
+    }
+    foreach ($s in $sel.Shared) { Write-Log "Kept, because another option you did not name set it too: $s" 'WARN' }
+    $untracked = @($options | Where-Object { -not $RevertOnlyExtra.ContainsKey($_) -and $NotRevertedAlone -contains $_ })
+    if ($untracked.Count -gt 0) { Write-Log "Not undone on their own (only the full -Revert, or nothing, undoes them): $($untracked -join ', ')." 'WARN' }
+    # The health check must stop expecting what was undone; a later full -Revert still has every original.
+    if ($script:State.Run) {
+        $run = $script:State.Run
+        foreach ($o in $options) { if ($run.Options.PSObject.Properties[$o]) { $run.Options.$o = $false } }
+        Set-StateValue -Name 'Run' -Value $run
+    }
+    Save-State
+    Write-Log 'Restart Windows so the restored services and policies take effect.'
+}
+
+# Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
+# like. -Revert -Only says so instead of pretending.
+$NotRevertedAlone = @('Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+    'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
+    'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
+
 function Invoke-Revert {
     if (-not (Test-Path -LiteralPath $StateFile)) { Write-Log "No state file at $StateFile. Nothing to revert." 'WARN'; return }
     Write-Log 'Reverting recorded changes.'
@@ -5220,7 +5387,11 @@ if ($RestoreTask.Count -gt 0) {
     Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
     Exit-Run ([int]($script:Failures -gt 0))
 }
-if ($Revert) { Invoke-Revert }
+if ($Revert -and $Only.Count -gt 0) {
+    # -Only with -Revert names what to undo, not what to apply.
+    Invoke-RevertOptions -Names $Only
+}
+elseif ($Revert) { Invoke-Revert }
 elseif ($Reapply) {
     if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     Invoke-Reapply

@@ -32,6 +32,7 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
        .\FocusedTweaks.ps1 -HealthCheck
        .\FocusedTweaks.ps1 -Revert
        .\FocusedTweaks.ps1 -RestoreTask '\Microsoft\Windows\Application Experience\*'
+       .\FocusedTweaks.ps1 -Revert -Only SvcBackground,RunKeys
 
 App removal, installed software and the temp cleanup cannot be undone; everything else can.
 
@@ -107,7 +108,16 @@ uninstalled unless an account is signed in to it, and Edge no longer starts at s
 once closed. Service groups are disabled by default; `-ServiceMode Delete` (or `"ServiceMode": "Delete"` in a
 profile) deletes those services instead, after exporting each one so `-Revert` brings it back. Opt in:
 `SvcAggressive` (push notifications, data usage, AutoPlay) and `RemoveEdge` (the Edge browser, keeping WebView2;
-only where Windows allows it, which means a device region in the EEA, and never while Edge is the default browser). Use a profile to relax the defaults
+only where Windows allows it, which means a device region in the EEA, and never while Edge is the default browser).
+`RunKeys` removes startup entries one by one: name the ones to keep with `-StartupKeep` (or `"StartupKeep"` in a
+profile; `-StartupReview` lists the names), and Windows Security always stays. `WindowsAIOff` also sets the Copilot,
+Recall snapshot and Click to Do policies for your account, where Microsoft documents them, and hides the Edge
+sidebar. `VendorServices` (on in the laptop profile) disables Lenovo Vantage and presence sensing services and sets
+other Lenovo and Intel helpers to Manual, never thermal, power, Fn key, audio or display services.
+
+`-Revert -Only A,B` undoes just those options from the change journal (registry values, deleted keys, services,
+tasks, hosts blocks, optional features, the timer service) and keeps the rest. A value another option set too is
+kept and named. Options whose changes cannot be undone alone (app removal, power plan, cleanup) are named as well. Use a profile to relax the defaults
 per machine; `profiles/laptop.json` keeps the mitigations, core isolation, UAC, the power mode and Windows Update
 (no pause, no update restriction) and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.

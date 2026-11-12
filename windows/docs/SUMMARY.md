@@ -277,6 +277,21 @@ have not run in the VM yet):
   region is not faked. Refused while Edge is the default browser; warns when Edge opens PDF files. WebView2 and
   Microsoft Edge Update are never touched (WebView2 updates through it, and its tasks stay on the keep list).
   `-Reapply` removes Edge again when an update brought it back. Not tested in the VM yet.
+- `RunKeys` now removes the Run key entries one by one through the journal instead of deleting the keys:
+  `-StartupKeep` (also in profiles) spares entries by name, Windows Security and the VMware Tools user process are
+  always kept, and `-Revert` restores each removed entry with its value.
+- `VendorServices` (off; on in `laptop.json`): disables Lenovo Vantage, its installer and the Lenovo, ELAN and Intel
+  presence sensing services, and sets Lenovo standby, the camera effects installer and Intel reporting, tuning
+  telemetry and graphics panel services to Manual. Thermal, power, Fn key, audio, HDCP and display services are on a
+  never list that a test checks.
+- `WindowsAIOff` (on): the WindowsAI policy CSP lists `TurnOffWindowsCopilot` as a user policy and
+  `DisableAIDataAnalysis` and `DisableClickToDo` for user and device; the upstream group sets them only under HKLM,
+  so they are now also set per user. `HubsSidebarEnabled 0` hides the Edge sidebar with Copilot.
+- `-Revert -Only A,B`: undoes single options from the change journal (registry values, key exports, tasks, plus the
+  hosts blocks, optional features and timer service of those options), keeps values another option also set, and
+  names options it cannot undo alone. The run record stops expecting the undone options; a later full `-Revert`
+  still restores every original.
+- `Test-Smoke.ps1` runs `-Reapply` after the health check.
 - `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
   writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
 
