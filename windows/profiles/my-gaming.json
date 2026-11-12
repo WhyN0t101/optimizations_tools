@@ -1,0 +1,13 @@
+{
+  "Enable": ["SvcAggressive", "DisableHibernate", "DeviceWakeOff", "LockScreenOff", "NvidiaReBar"],
+  "Skip": ["CoreIsolation", "SvcDeliveryOpt"],
+  "ServiceMode": "Delete",
+  "TaskMode": "Delete",
+  "TaskKeep": ["\\Microsoft\\XblGameSave\\*"],
+  "Defender": "Keep",
+  "PowerProfile": "High",
+  "PowerMode": "Best",
+  "PauseDays": 365,
+  "SkipRegGroup": [],
+  "StartupKeep": []
+}
