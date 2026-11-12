@@ -256,6 +256,27 @@ have not run in the VM yet):
   Work tasks back on at every start (seen in the VM on 11 Nov 2026), so disabling them never held; with the policy
   they do nothing, and the health check notes them instead of warning. Check for updates in Settings still works,
   and Defender definitions still arrive.
+- `SvcAggressive` (off): push notifications (`WpnService`, `WpnUserService`), data usage (`DusmSvc`) and AutoPlay
+  (`ShellHWDetection`; scanners and camera import through WIA depend on it).
+- `-Reapply`: puts back what a Windows update undid. The apply steps run again in two passes; every primitive (registry
+  values and keys, services, hosts blocks, tasks, apps, features, hibernation, memory compression, Sleep Study,
+  password age, time server, timer service) skips what is still as the run left it, so the first pass lists only the
+  drift and the second fixes just that, through the journal. It uses the options saved with the run (new options
+  stay off and are listed), leaves alone what would undo later choices or runs once (`$ReapplyLeavesAlone`), removes
+  only apps and tasks the run removed, keeps the pause dates, and is blocked by a pending restart or servicing at
+  work. The run now also records `ServiceMode`. `-HealthCheck` adds a Drift area that points at `-Reapply` when an
+  update installed after the run and something warns.
+- `-FrameBenchmark`: frame times of a game through Intel PresentMon 2.6.0 (MIT), downloaded into the state folder and
+  checked against its pinned SHA256 before every use. Warm-up recording, then `-FrameRuns` recordings; average, 99th
+  and 99.9th percentile frame time, spread, stutters per minute (frames over twice the median) and frames not shown,
+  from the busiest swap chain with 2 s trimmed at both ends and pauses over 1 s left out. Compared with the last run
+  of the same process and `-FrameLabel`, refused when GPU, resolution, refresh rate or the machine differ. Warns on a
+  capped frame rate and on frame generation. Not run on real hardware yet.
+- `RemoveEdge` (off): runs Edge's own uninstaller (signed by Microsoft, under Program Files). Windows completes it
+  only where Edge may be uninstalled (device region in the EEA); elsewhere Edge is kept and the log says why, the
+  region is not faked. Refused while Edge is the default browser; warns when Edge opens PDF files. WebView2 and
+  Microsoft Edge Update are never touched (WebView2 updates through it, and its tasks stay on the keep list).
+  `-Reapply` removes Edge again when an update brought it back. Not tested in the VM yet.
 - `Test-InVm.ps1` saves an `Explain-Processes` snapshot at every benchmark (`processes.txt`, `processes.json`) and
   writes `processes-compare.txt`, the first benchmark against the last: what the run removed and what still runs.
 

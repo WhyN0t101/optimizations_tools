@@ -32,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Get-Stats', 'Test-VirtualMachine', 'Get-BenchmarkComparison', 'Get-ActivePlanName', 'Test-BenchmarkBusy', 'Get-BootTimesSinceBoot', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Get-Stats', 'Test-VirtualMachine', 'Get-BenchmarkComparison', 'Get-ActivePlanName', 'Test-BenchmarkBusy', 'Get-BootTimesSinceBoot', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-RegValueIs', 'Set-ReapplyOptions', 'Get-Percentile', 'Read-PresentMonCsv', 'Get-FrameStats', 'Get-EdgeState', 'Get-EdgeRemovalBlock', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$BenchmarkBusyPercent', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$PresentMonVersion', '$PresentMonSha256', '$PresentMonUrl', '$FramePauseMs', '$FrameTrimSeconds', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$BenchmarkBusyPercent', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 
@@ -50,6 +50,7 @@ $conflicts = @(); foreach ($g in $ServiceGroups.Keys) { if (-not $OptionInfo.Con
 Check 'Every service group has an option' ($conflicts.Count -eq 0) ($conflicts -join ', ')
 $updFn = ($fns | Where-Object { $_.Name -eq 'Set-UpdatePolicies' } | Select-Object -First 1).Extent.Text
 Check 'PauseUpdates: automatic update checks go off by policy (NoAutoUpdate 1), so update tasks Windows turns back on are a note, not a warning' ((@($NoAutoUpdateRegs).Count -eq 1 -and $NoAutoUpdateRegs[0].Name -eq 'NoAutoUpdate' -and [int]$NoAutoUpdateRegs[0].Value -eq 1 -and $NoAutoUpdateRegs[0].Path -like '*\Policies\Microsoft\Windows\WindowsUpdate\AU') -and $updFn -match 'Set-TweakList \$NoAutoUpdateRegs' -and $text -match "Test-HealthTweakTable -Label 'Automatic update checks off' -Tweaks \`$NoAutoUpdateRegs" -and $text -match "Write-Health 'INFO' 'Tasks' .+With automatic updates off \(NoAutoUpdate\)")
+Check 'SvcAggressive is off by default and holds notifications, data usage and AutoPlay' (-not $OptionInfo['SvcAggressive'][0] -and ((@($ServiceGroups['SvcAggressive']) | Sort-Object) -join ',') -eq 'DusmSvc,ShellHWDetection,WpnService,WpnUserService')
 Check 'SvcBackground is on by default and holds the seven background helpers the owner chose' ($OptionInfo['SvcBackground'][0] -and ((@($ServiceGroups['SvcBackground']) | Sort-Object) -join ',') -eq 'cbdhsvc,InventorySvc,iphlpsvc,LanmanServer,OneSyncSvc,PcaSvc,TrkWks')
 Check 'Bluetooth, printing and radio services are kept by default' (-not $OptionInfo['SvcBluetooth'][0] -and -not $OptionInfo['SvcPrinting'][0] -and -not $OptionInfo['SvcRadio'][0])
 Check 'Delivery Optimization and core isolation are disabled by default (maximum performance)' ($OptionInfo['SvcDeliveryOpt'][0] -and $OptionInfo['CoreIsolation'][0])
@@ -369,6 +370,25 @@ try {
     Check 'ServiceMode Delete: -Revert brings the deleted service keys back' ([int](Get-RegSnapshot -Full "$ServicesRoot\FakeSvc" -Name 'Start').Value -eq 3 -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c"))
     $ServicesRoot = $realServicesRoot
 
+    # -Reapply: primitives skip what is already as the run set it, so the first pass counts only drifted items.
+    Reset-TestState
+    Write-RegRaw -Full $scratch -Name 'R' -Value 3 -Kind 'DWord'
+    $script:Reapply = $true; $script:DryRun = $true; $script:DryRunCount = 0
+    Set-RegValue -Path $scratch -Name 'R' -Value 3
+    Remove-RegValue -Path $scratch -Name 'NotThere'
+    Remove-RegKey -Path "$scratch\NoSuchKey"
+    $sameCount = $script:DryRunCount
+    Set-RegValue -Path $scratch -Name 'R' -Value 4
+    Set-RegValue -Path $scratch -Name 'R' -Value '3' -Type String
+    $script:Reapply = $false; $script:DryRun = $false
+    Check 'Reapply: values already as the run set them, and values or keys already gone, are not drift; a changed value or type is' ($sameCount -eq 0 -and $script:DryRunCount -eq 2 -and [int](Get-RegSnapshot -Full $scratch -Name 'R').Value -eq 3)
+    $savedRun = [pscustomobject]@{ Options = [pscustomobject]@{ RunKeys = $true; SvcOther = $true; SvcExtra = $true; Debloat = $false; ClearStartPins = $true } }
+    $sel = Set-ReapplyOptions -Run $savedRun -SkipNames @('SvcExtra')
+    Check 'Reapply: only options of the earlier run, minus the ones it leaves alone and -Skip; options it did not have stay off and are listed' ($Opt['SvcOther'] -and -not $Opt['SvcExtra'] -and -not $Opt['RunKeys'] -and -not $Opt['ClearStartPins'] -and -not $Opt['Debloat'] -and -not $Opt['TimerResolution'] -and (@($sel.LeftAlone) -join ',') -eq 'RunKeys,ClearStartPins' -and @($sel.New) -contains 'TimerResolution' -and @($sel.New) -notcontains 'SvcOther')
+    $preFn = ($fns | Where-Object { $_.Name -eq 'Invoke-Preflight' } | Select-Object -First 1).Extent.Text
+    Check 'Reapply: a pending restart or servicing at work blocks it, and it keeps the pause dates of the run' ($preFn -match "\`$p\.Check -in 'PendingReboot', 'WindowsUpdate' -and \`$p\.Status -eq 'WARN'\) \{ \`$p\.Status = 'BLOCK'" -and $text -match '(?s)if \(-not \$script:Reapply\) \{\s+foreach \(\$n in .PauseUpdatesStartTime')
+    foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
+
     # RemoveOneDrive: installs and uninstallers are found per user and per machine; with an account signed in it is
     # gone or kept, never half: nothing changes, not even the policy, and the log says why.
     $odTemp = Join-Path ([IO.Path]::GetTempPath()) ('ft-od-' + [guid]::NewGuid().ToString('N'))
@@ -381,6 +401,18 @@ try {
     $userArgs = @($mine | Where-Object { $_.Path -like "$lad*" } | ForEach-Object { $_.Arguments -join ' ' })
     Check 'RemoveOneDrive: a per user install is found; the uninstaller runs elevated only from Program Files (with /allusers), never from the user writable %LOCALAPPDATA%' (@($od.Installed).Count -eq 1 -and $mine.Count -eq 1 -and $machineArgs[0] -eq '/uninstall /allusers' -and $userArgs.Count -eq 0 -and @($od.Uninstallers | Where-Object { $_.Path -like "$lad*" }).Count -eq 0)
     Remove-Item -LiteralPath $odTemp -Recurse -Force
+
+    # RemoveEdge: the newest uninstaller under Program Files is used, WebView2 is seen separately, and Edge stays while
+    # it is the default browser or no browser was chosen.
+    $edgeTemp = Join-Path ([IO.Path]::GetTempPath()) ('ft-edge-' + [guid]::NewGuid().ToString('N'))
+    $app = Join-Path $edgeTemp 'Microsoft\Edge\Application'
+    New-Item -ItemType Directory -Force -Path (Join-Path $app '120.0.1\Installer'), (Join-Path $app '121.0.2\Installer'), (Join-Path $edgeTemp 'Microsoft\EdgeWebView\Application') | Out-Null
+    foreach ($f in (Join-Path $app 'msedge.exe'), (Join-Path $app '120.0.1\Installer\setup.exe'), (Join-Path $app '121.0.2\Installer\setup.exe')) { Set-Content -LiteralPath $f -Value '' }
+    $es = Get-EdgeState -ProgramDirs @($edgeTemp, '')
+    Check 'RemoveEdge: Edge, its newest uninstaller (under Program Files) and the WebView2 runtime are found' ($es.Installed -and @($es.Setups)[0] -like '*121.0.2\Installer\setup.exe' -and $es.WebView2)
+    Remove-Item -LiteralPath $edgeTemp -Recurse -Force
+    Check 'RemoveEdge: kept while Edge is the default browser or none was chosen; removed when another browser is the default' ((Get-EdgeRemovalBlock -HttpsHandler 'MSEdgeHTM' -HttpHandler 'FirefoxURL-308046B0AF4A39CB') -and (Get-EdgeRemovalBlock -HttpsHandler '' -HttpHandler '') -and $null -eq (Get-EdgeRemovalBlock -HttpsHandler 'FirefoxURL-308046B0AF4A39CB' -HttpHandler 'FirefoxURL-308046B0AF4A39CB'))
+    Check 'RemoveEdge: WebView2 and Edge Update are never touched, and the region is never faked' ($text -notmatch 'EdgeWebView[^\r\n]*(Remove-Item|--uninstall)' -and $text -notmatch 'IntegratedServicesRegionPolicySet' -and $text -match "Stop-Process -Name msedge -Force" -and $text -notmatch 'Stop-Process -Name msedgewebview2')
     & {
         function Get-OneDriveState { [pscustomobject]@{ Installed = @('C:\x\OneDrive.exe'); Uninstallers = @(); SignedIn = @('Personal') } }
         function Set-TweakList { $script:odPolicy = $true }
@@ -532,6 +564,25 @@ $battery = Get-BenchmarkComparison -Now (New-TestBench -Power 'Dc') -Before (New
 Check 'Benchmark: a different power source (or CPU, RAM, VM) refuses the comparison and says why' ($battery.Refused -and $battery.Reason -match 'PowerSource: Ac -> Dc' -and @($battery.Rows).Count -eq 0)
 $oldFormat = Get-BenchmarkComparison -Now (New-TestBench) -Before ([pscustomobject]@{ Metrics = [pscustomobject]@{ 'Sleep(1) actual (ms)' = 15.9 } })
 Check 'Benchmark: a v7.4 benchmark (one sample, no context) is not compared' ($oldFormat.Refused -and $oldFormat.Reason -match 'old format')
+
+# -FrameBenchmark: a synthetic PresentMon 2.6 CSV. Chain A is the game (10 ms frames, a 30 ms stutter every 50th,
+# one 1.5 s pause, five frames not shown, three generated); chain B is an overlay with fewer frames.
+$pmLines = [System.Collections.Generic.List[string]]::new()
+$pmLines.Add('Application,ProcessID,SwapChainAddress,PresentRuntime,PresentMode,FrameType,DisplayedTime,MsBetweenPresents')
+for ($i = 0; $i -lt 1200; $i++) {
+    $ms = '10.000000'; if ($i % 50 -eq 25) { $ms = '30.000000' }; if ($i -eq 600) { $ms = '1500.000000' }
+    $shown = '10.000000'; if ($i -ge 700 -and $i -le 704) { $shown = 'NA' }
+    $type = 'Application'; if ($i -ge 650 -and $i -le 652) { $type = 'Intel_XEFG' }
+    $pmLines.Add("game.exe,100,0xA,DXGI,Hardware: Independent Flip,$type,$shown,$ms")
+    if ($i % 20 -eq 0) { $pmLines.Add('overlay.exe,200,0xB,DXGI,Composed: Flip,Application,16.000000,16.000000') }
+}
+$pmLines.Add('game.exe,100,0xA,DXGI,Hardware: Independent Flip,Application,NA,NA')
+$pmFrames = @(Read-PresentMonCsv -Lines $pmLines.ToArray())
+$fs = Get-FrameStats -Frames $pmFrames
+Check 'FrameBenchmark: the busiest swap chain is read, numbers in invariant culture, NA lines skipped' ($pmFrames.Count -eq 1200 -and @($pmFrames | Where-Object { $_.Dropped }).Count -eq 5)
+Check 'FrameBenchmark: the 1 % low is the 99th percentile frame time, pauses and trimmed edges are left out' ($fs.P99Ms -eq 30 -and $fs.Pauses -eq 1 -and $fs.AvgMs -gt 10 -and $fs.AvgMs -lt 11 -and $fs.StuttersPerMin -gt 0 -and $fs.DroppedPct -gt 0 -and $fs.PresentMode -eq 'Hardware: Independent Flip' -and $fs.GeneratedFrames -eq 3 -and $fs.Frames -lt 1199)
+Check 'FrameBenchmark: too few frames give no result, a CSV without frame times is refused' ($null -eq (Get-FrameStats -Frames @($pmFrames | Select-Object -First 20)) -and $(try { [void](Read-PresentMonCsv -Lines @('Application,ProcessID,SwapChainAddress', 'x,1,0xA')); $false } catch { $_.Exception.Message -match "no 'MsBetweenPresents' column" }))
+Check 'FrameBenchmark: PresentMon is one pinned release checked by SHA256 before every use, from an administrators only folder' ($PresentMonSha256 -match '^[0-9A-F]{64}$' -and $PresentMonUrl -like "*/v$PresentMonVersion/PresentMon-$PresentMonVersion-x64.exe" -and $text -match '(?s)function Get-PresentMon \{\s+\$dir = Join-Path \$StateDir .tools.' -and $text -match "Checked every time, not only after the download")
 
 # VM test of 11 Nov 2026: the first benchmark ran at 92.5 % CPU, the plan name was printed raw, and the boot time
 # repeated the boot before the run.

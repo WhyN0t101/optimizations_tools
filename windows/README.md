@@ -51,7 +51,7 @@ else; the log file still gets every line. Exit codes, with or without `-Json`:
 
 | Code | Meaning |
 |---|---|
-| 0 | Finished without errors (or a dry run, `-Benchmark`, `-StartupReview`) |
+| 0 | Finished without errors (or a dry run, `-Benchmark`, `-FrameBenchmark`, `-StartupReview`, or `-Reapply` with nothing drifted) |
 | 1 | Some changes failed, or the health check reported a failure |
 | 2 | Cancelled: not confirmed, no restore point and not confirmed, or `-Json` without `-Force` |
 | 3 | Refused by a pre flight check, or `-Json` without administrator rights |
@@ -68,6 +68,25 @@ and committed memory, plus the last boot times. It compares with the previous be
 `-BenchmarkBaseline before`, and refuses when the machine context differs (CPU, RAM, power source, virtual machine);
 settings the options change, such as VBS or the power plan, are listed instead. Results from a virtual machine are
 marked as not valid for performance.
+
+`-FrameBenchmark -FrameProcess game.exe` measures how smooth a game runs. Start the game, go to a scene you can
+repeat (a built-in benchmark is best), then run it: after a 15 second warm-up it records `-FrameRuns` (3) times
+`-FrameSeconds` (60) with [Intel PresentMon](https://github.com/GameTechDev/PresentMon) and reports average FPS, 1 %
+and 0.1 % lows (the 99th and 99.9th percentile frame time), frame time spread, stutters per minute and frames never
+shown. PresentMon only reads the Windows graphics event trace, so nothing is injected into the game. One pinned
+release is downloaded into the state folder and checked against its SHA256 before every use. Give runs with the same
+game settings the same `-FrameLabel` (for example `1440p-high`): a run is compared with the last one of the same game
+and label, and refused when the GPU, resolution, refresh rate, CPU, RAM or power source differ. It warns when V-Sync
+or a frame limiter caps the frame rate, and counts only rendered frames when frame generation is on. Loading screens
+and pauses (frames over 1 s) are left out. It refuses to run in a virtual machine.
+
+`-Reapply` puts back what a Windows update undid. It runs the steps of your last run again, but touches only what
+changed: first it lists each drifted item, then asks before changing them (`-Reapply -DryRun` only lists). It uses the
+options of the earlier run, not new ones, and leaves alone what would undo your later choices (startup entries,
+Start pins, desktop shortcuts, app permissions, installed software) or only runs once (cleanup). It removes only apps
+and tasks the earlier run removed that came back. A pending restart or Windows Update at work blocks it. Everything it
+changes is journaled, so `-Revert` still restores the state before your first run. `-HealthCheck` says when an
+update installed since your run and something looks changed.
 
 `tools\Explain-Processes.ps1` explains what is running and why, and changes nothing: the services inside each
 svchost, which vendor each process belongs to, which app started each WebView, and Keep / Manual / Remove advice
@@ -86,7 +105,9 @@ SSD retrim, time sync, TPM and BitLocker tasks, and display scaling. `TaskMode D
 System Restore, certificate and browser update tasks, so protection and updates keep running. OneDrive is
 uninstalled unless an account is signed in to it, and Edge no longer starts at sign in or stays in the background
 once closed. Service groups are disabled by default; `-ServiceMode Delete` (or `"ServiceMode": "Delete"` in a
-profile) deletes those services instead, after exporting each one so `-Revert` brings it back. Use a profile to relax the defaults
+profile) deletes those services instead, after exporting each one so `-Revert` brings it back. Opt in:
+`SvcAggressive` (push notifications, data usage, AutoPlay) and `RemoveEdge` (the Edge browser, keeping WebView2;
+only where Windows allows it, which means a device region in the EEA, and never while Edge is the default browser). Use a profile to relax the defaults
 per machine; `profiles/laptop.json` keeps the mitigations, core isolation, UAC, the power mode and Windows Update
 (no pause, no update restriction) and skips the timer service
 to save battery. On a machine with a battery and no profile, the script suggests the laptop profile.

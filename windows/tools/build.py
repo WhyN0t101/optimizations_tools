@@ -110,7 +110,10 @@ groups['SvcExtra'] = ['PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'S
 # Still running in a clean Windows 11 VM after a full run (11 Nov 2026, Explain-Processes before and after), chosen
 # by the owner: background helpers a home PC does not need. cbdhsvc and OneSyncSvc are per user templates.
 groups['SvcBackground'] = ['OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc']
-order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+# Opt in: still running after a full run too, but turning them off costs a visible feature (notifications, the data
+# usage page, AutoPlay and the scanners that depend on it).
+groups['SvcAggressive'] = ['WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection']
+order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -235,7 +238,7 @@ print('mouse scales', [c[0] for c in cases])
 
 # 7. docs/OPTIONS.md, generated from $OptionInfo so the option reference cannot drift from the script.
 OPTION_GROUPS = [
-    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'EdgeBackground', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
+    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'EdgeBackground', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
                   'NvidiaTelemetryStrip']),
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
@@ -247,7 +250,7 @@ OPTION_GROUPS = [
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryHosts', 'BiometricsPolicy', 'Cdp', 'RazerAsusHosts',
                                          'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),
@@ -264,6 +267,7 @@ NOT_REVERTED = {
     'Debloat': 'no, reinstall apps from the Store or winget',
     'RemoveQuickAssist': 'no, add it back with Add-WindowsCapability',
     'RemoveOneDrive': 'the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive',
+    'RemoveEdge': 'no, reinstall with winget install Microsoft.Edge',
     'NvidiaTelemetryStrip': 'no, reinstall the driver',
     'FaultTolerantHeap': 'no',
     'Cdp': 'services yes; the cache folder is deleted (Windows rebuilds it)',
@@ -313,6 +317,8 @@ md += ['## Other settings', '',
        '| `-PauseDays` | 1 to 730 | 365 | Length of the update pause |',
        '| `-SkipRegGroup` | title wildcards | none | Leave out upstream registry groups (`-ListRegGroups` lists them) |',
        '| `-TaskKeep` | task path wildcards | none | Scheduled tasks never deleted |',
+       '| `-Reapply` | switch | off | Put back what Windows changed since the last run: lists drifted items, then asks (`-DryRun` only lists, `-Force` does not ask). Uses the options of that run; leaves alone Packages, RunKeys, Start pins, desktop icons, app permissions, cleanup and other one shot options |',
+       '| `-FrameBenchmark` | switch | off | Frame times of a running game with PresentMon: `-FrameProcess game.exe`, `-FrameSeconds` (60), `-FrameRuns` (3), `-FrameLabel` for the game settings |',
        '| `-SkipCheck` | PendingReboot, WindowsUpdate, PowerSource, Managed, Edition, TamperProtection, SystemProtection | none | Pre flight checks to skip by name |',
        '| `-AllowManaged` | switch | off | Run on a PC joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy (refused otherwise) |',
        '| `-BenchmarkRuns` | 1 to 50 | 5 | Repetitions of each short benchmark measurement (median, minimum and maximum) |',

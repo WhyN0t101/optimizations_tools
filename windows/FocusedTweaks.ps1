@@ -81,6 +81,7 @@ param(
     [switch]$ListRegGroups,
     [switch]$HealthCheck,
     [switch]$HealthCheckLaunch,
+    [switch]$Reapply,
     [string[]]$Skip = @(),
     [string[]]$Enable = @(),
     [string[]]$Only = @(),
@@ -106,6 +107,11 @@ param(
     [ValidateRange(1, 50)][int]$BenchmarkRuns = 5,
     [ValidateRange(10, 600)][int]$BenchmarkIdleSeconds = 60,
     [ValidatePattern('^[A-Za-z0-9_-]{1,40}$')][string]$BenchmarkBaseline,
+    [switch]$FrameBenchmark,
+    [ValidatePattern('^[A-Za-z0-9_. ()+-]{1,80}$')][string]$FrameProcess,
+    [ValidateRange(10, 600)][int]$FrameSeconds = 60,
+    [ValidateRange(1, 10)][int]$FrameRuns = 3,
+    [ValidatePattern('^[A-Za-z0-9_. -]{1,60}$')][string]$FrameLabel,
     [switch]$StartupReview,
     [switch]$AllowManaged,
     [string[]]$SkipCheck = @(),
@@ -177,6 +183,7 @@ $OptionInfo = [ordered]@{
     SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more', 'Folklore', '')
     SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)', 'Folklore', '')
     SvcBackground         = @($true, 'Disable background helpers: Mail and Calendar sync, Program Compatibility Assistant, link tracking, app inventory, IP Helper (IPv6 tunnels; WSL localhost forwarding uses it), file sharing from this PC (Server) and clipboard history (Win+V)', 'Folklore', '')
+    SvcAggressive         = @($false, 'Also disable push notifications (no toasts; Store and Teams alerts stop), data usage (its Settings page and metered settings stop working) and Shell Hardware Detection (no AutoPlay; scanners and camera import through WIA stop). Off: each costs a visible feature', 'Folklore', '')
     SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time', 'Folklore', '')
     SvcBiometrics         = @($true, 'Disable the Windows Biometric Service', 'Folklore', '')
     SvcSmartCard          = @($true, 'Disable smart card services', 'Folklore', '')
@@ -201,6 +208,7 @@ $OptionInfo = [ordered]@{
     NoRecentDocsHistory   = @($false, 'Set the NoRecentDocsHistory policy (no recent files anywhere). Also stops pinning to and unpinning from Quick Access', 'n/a', '')
     RemoveQuickAssist     = @($true, 'Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert', 'n/a', '')
     RemoveOneDrive        = @($true, 'Uninstall OneDrive and block it by policy. Skipped while an account is signed in; files in the OneDrive folder stay on disk. Not reversible by -Revert', 'n/a', '')
+    RemoveEdge            = @($false, 'Uninstall the Edge browser, keeping WebView2 and its updater (apps need them). Only where Windows allows it (device region in the EEA); refused while Edge is the default browser. Not reversible by -Revert', 'n/a', '')
     EdgeBackground        = @($true, 'Stop Edge running in the background: no startup boost, no background apps once it is closed (policy; Edge then says it is managed)', 'Documented', 'https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies#startupboostenabled')
     LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
     HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
@@ -320,6 +328,8 @@ if ($ListOptions) {
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>.'
     Write-Host 'Keep a set of choices in a file: -ProfilePath file.json (see profiles\example.json).'
     Write-Host 'Measure before and after a run: -Benchmark. List startup entries without changing them: -StartupReview.'
+    Write-Host 'Frame times of a game (FPS, 1 % lows, stutter) with PresentMon: -FrameBenchmark -FrameProcess game.exe [-FrameLabel name].'
+    Write-Host 'After a Windows update put back what it undid: -Reapply -DryRun to list it, then -Reapply.'
     Write-Host 'Pre flight checks run before every run; skip one by name with -SkipCheck <name>. A managed PC (domain, Entra ID, MDM) is refused unless -AllowManaged.'
     Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
@@ -1639,6 +1649,7 @@ $ServiceGroups = [ordered]@{
     SvcOther = @('Fax', 'shpamsvc', 'RemoteRegistry', 'PhoneSvc', 'wisvc', 'TabletInputService', 'AssignedAccessManagerSvc', 'MapsBroker', 'lfsvc', 'Netlogon', 'WpcMonSvc', 'WalletService', 'whesvc', 'wuqisvc', 'WSAIFabricSvc')
     SvcExtra = @('PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc')
     SvcBackground = @('OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc')
+    SvcAggressive = @('WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection')
     SvcDefrag = @('defragsvc')
     SvcBiometrics = @('WbioSrvc')
     SvcSmartCard = @('SCardSvr', 'ScDeviceEnum', 'SCPolicySvc')
@@ -2305,7 +2316,9 @@ function Get-RunMode {
     if ($Revert) { return 'revert' }
     if ($RestoreTask.Count -gt 0) { return 'restoretask' }
     if ($HealthCheck) { return 'healthcheck' }
+    if ($Reapply) { return 'reapply' }
     if ($Benchmark) { return 'benchmark' }
+    if ($FrameBenchmark) { return 'framebenchmark' }
     if ($StartupReview) { return 'startupreview' }
     if ($script:DryRun) { return 'dryrun' }
     return 'apply'
@@ -2332,9 +2345,14 @@ function Exit-Run {
     exit $Code
 }
 
+$script:DryRunCount = 0
+# -Reapply: the apply steps run again, but every primitive leaves alone what is already as the run set it, so only
+# what Windows changed back is touched (and, in its first pass, listed).
+$script:Reapply = $false
+
 function Test-DryRun {
     param([Parameter(Mandatory)][string]$Action)
-    if ($script:DryRun) { Write-Log "DRY RUN, would: $Action"; return $true }
+    if ($script:DryRun) { $script:DryRunCount++; Write-Log "DRY RUN, would: $Action"; return $true }
     return $false
 }
 
@@ -2900,6 +2918,15 @@ function Test-RegValueNow {
     return (@($now.Value) -join ',') -eq (@($expected) -join ',')
 }
 
+function Test-RegValueIs {
+    # True when the value already holds exactly this data and type.
+    param([string]$Full, [string]$Name, $Value, [string]$Type)
+    $snap = Get-RegSnapshot -Full $Full -Name $Name
+    if (-not $snap.Existed -or $snap.Kind -ne $Type) { return $false }
+    $want = ConvertTo-StoredValue -Value $Value -Kind $Type
+    return ((@($snap.Value) -join ',') -ceq (@($want) -join ','))
+}
+
 function Set-RegValue {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -2908,6 +2935,7 @@ function Set-RegValue {
         [ValidateSet('DWord', 'String', 'ExpandString', 'QWord', 'Binary', 'MultiString', 'None')][string]$Type = 'DWord'
     )
     $full = ConvertTo-FullRegPath $Path
+    if ($script:Reapply -and (Test-RegValueIs -Full $full -Name $Name -Value $Value -Type $Type)) { return }
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
     $change = $null
     try {
@@ -2950,6 +2978,7 @@ function Remove-RegValueRaw {
 function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
+    if ($script:Reapply -and -not (Get-RegSnapshot -Full $full -Name $Name).Existed) { return }
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
     $change = $null
     try {
@@ -2969,6 +2998,11 @@ function Remove-RegValue {
 function Remove-RegKey {
     param([Parameter(Mandatory)][string]$Path)
     $full = ConvertTo-FullRegPath $Path
+    if ($script:Reapply) {
+        $exists = Open-RegKey -Full $full
+        if (-not $exists) { return }
+        $exists.Close()
+    }
     if (Test-DryRun "delete key $full (a backup is exported first)") { return }
     $change = $null
     try {
@@ -3221,12 +3255,13 @@ function Write-HostsFile {
 
 function Set-HostsBlock {
     param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string[]]$Domains)
+    $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
+    if ($script:Reapply -and ([IO.File]::ReadAllText($HostsPath)).Contains($block)) { return }
     if (Test-DryRun "add $($Domains.Count) entries to the hosts file ($Name)") { return }
     $backup = Join-Path $StateDir 'hosts.original'
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $HostsPath -Destination $backup -Force }
     $text = Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $Name
     if ($text.Length -gt 0 -and -not $text.EndsWith("`n")) { $text += "`r`n" }
-    $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
     if (-not (Test-RecordedFirst $script:State.Hosts { param($e) $e -eq $Name })) { Add-StateRecord -Section 'Hosts' -Item $Name }
     Write-HostsFile -Text ($text + $block)
     Write-Log "Hosts file: blocked $($Domains.Count) domain(s) ($Name)." 'OK'
@@ -3333,6 +3368,8 @@ function Remove-BloatApps {
     foreach ($pkg in @(Get-AppxPackage -AllUsers | Where-Object { -not $_.IsFramework -and -not $_.NonRemovable })) {
         if (-not (Test-NameMatch $pkg.Name $AppsToRemove)) { continue }
         if (Test-NameMatch $pkg.Name $KeepApps) { Write-Log "Kept (protected): $($pkg.Name)"; continue }
+        # -Reapply removes only apps the earlier run removed that came back, never ones installed since.
+        if ($script:Reapply -and @($script:State.Removed) -notcontains $pkg.Name) { continue }
         if (Test-DryRun "remove app $($pkg.Name)") { continue }
         try {
             Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
@@ -3344,11 +3381,12 @@ function Remove-BloatApps {
     foreach ($prov in @(Get-AppxProvisionedPackage -Online)) {
         if (-not (Test-NameMatch $prov.DisplayName $AppsToRemove)) { continue }
         if (Test-NameMatch $prov.DisplayName $KeepApps) { continue }
+        if ($script:Reapply -and @($script:State.Removed) -notcontains $prov.DisplayName) { continue }
         if (Test-DryRun "remove provisioned app $($prov.DisplayName)") { continue }
         try { Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null; Write-Log "Removed provisioned app: $($prov.DisplayName)" 'OK' }
         catch { Write-Log "Could not remove provisioned $($prov.DisplayName). $($_.Exception.Message)" 'WARN' }
     }
-    if (-not $script:DryRun) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
+    if (-not $script:DryRun -and -not ($script:Reapply -and $removed -eq 0)) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
 }
 
 function Get-NvidiaInstallerPath {
@@ -3531,6 +3569,7 @@ function Set-ServiceStart {
     $probe = Open-RegKey -Full $reg
     if (-not $probe) { Write-Log "Service not present: $Name"; return }
     $probe.Close()
+    if ($script:Reapply -and (Get-ServiceStartNow $Name) -eq $(if ($Mode -eq 'Disabled') { 4 } else { 3 })) { return }
     Set-RegValue -Path $reg -Name 'Start' -Value $(if ($Mode -eq 'Disabled') { 4 } else { 3 }) -Type DWord
     if ($Mode -eq 'Disabled' -and -not $script:DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
@@ -3664,6 +3703,8 @@ function Remove-AllScheduledTasks {
         $full = "$($t.TaskPath)$($t.TaskName)"
         if (Test-NameMatch $full $TaskKeepBuiltIn) { continue }
         if (Test-NameMatch $full $TaskKeep) { continue }
+        # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
+        if ($script:Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -3835,8 +3876,11 @@ function Set-UpdatePolicies {
         $now = [DateTime]::UtcNow
         $start = $now.ToString($fmt, $inv)
         $end = $now.AddDays($PauseDays).ToString($fmt, $inv)
-        foreach ($n in 'PauseUpdatesStartTime', 'PauseFeatureUpdatesStartTime', 'PauseQualityUpdatesStartTime') { Set-RegValue -Path $ux -Name $n -Value $start -Type String }
-        foreach ($n in 'PauseUpdatesExpiryTime', 'PauseFeatureUpdatesEndTime', 'PauseQualityUpdatesEndTime') { Set-RegValue -Path $ux -Name $n -Value $end -Type String }
+        # -Reapply keeps the pause dates of the run: writing them again would extend the pause every time.
+        if (-not $script:Reapply) {
+            foreach ($n in 'PauseUpdatesStartTime', 'PauseFeatureUpdatesStartTime', 'PauseQualityUpdatesStartTime') { Set-RegValue -Path $ux -Name $n -Value $start -Type String }
+            foreach ($n in 'PauseUpdatesExpiryTime', 'PauseFeatureUpdatesEndTime', 'PauseQualityUpdatesEndTime') { Set-RegValue -Path $ux -Name $n -Value $end -Type String }
+        }
         foreach ($s in 'wuauserv', 'UsoSvc', 'WaaSMedicSvc') { Set-ServiceStart -Name $s -Mode Manual }
         $deferDays = [Math]::Min($PauseDays, 365)
         foreach ($t in $PauseRegs) {
@@ -3847,7 +3891,7 @@ function Set-UpdatePolicies {
         Set-TweakList $NoAutoUpdateRegs
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
         if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
-        if (-not $script:DryRun) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), and automatic update checks are off until -Revert (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
+        if (-not $script:DryRun -and -not $script:Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), and automatic update checks are off until -Revert (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
     }
 }
 
@@ -3984,6 +4028,10 @@ function Restore-PowerPlan {
 }
 
 function Disable-Hibernation {
+    if ($script:Reapply) {
+        $h = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
+        if ($h -and $h.PSObject.Properties['HibernateEnabled'] -and $h.HibernateEnabled -eq 0) { return }
+    }
     if (Test-DryRun 'turn hibernation off (this also removes Fast Startup)') { return }
     if ($null -eq $script:State.Hibernate) {
         $p = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
@@ -4060,6 +4108,7 @@ function Test-MemoryCompressionTarget {
 function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
     if (-not (Test-MemoryCompressionTarget -RamGB $ram)) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs $MemoryCompressionMinGB GB or more)."; return }
+    if ($script:Reapply -and -not (Get-MMAgent).MemoryCompression) { return }
     if (Test-DryRun 'disable memory compression') { return }
     if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
@@ -4069,6 +4118,7 @@ function Disable-MemoryCompression {
 $SleepStudyLogs = 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic'
 
 function Disable-SleepStudy {
+    if ($script:Reapply -and @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' }).Count -eq 0) { return }
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
     # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
     if ($script:State.SleepStudy -eq $false) {
@@ -4092,6 +4142,7 @@ function Get-MaxPasswordAge {
 
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
+    if ($script:Reapply -and (Get-MaxPasswordAge) -eq 'unlimited') { return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
     if ($script:State.PwAge -eq $false) { Set-StateValue -Name 'PwAge' -Value (Get-MaxPasswordAge) }
     & net.exe accounts /maxpwage:unlimited | Out-Null
@@ -4321,6 +4372,67 @@ function Get-OneDriveState {
         finally { $key.Close() }
     }
     return [pscustomobject]@{ Installed = $installed; Uninstallers = $uninstallers.ToArray(); SignedIn = $accounts }
+}
+
+function Get-EdgeState {
+    # Edge itself, its uninstallers (always under Program Files, which only administrators can write to), and whether
+    # the WebView2 runtime is present. WebView2 lives in its own EdgeWebView folder and is never touched here.
+    param([string[]]$ProgramDirs = @(${env:ProgramFiles(x86)}, $env:ProgramFiles))
+    $roots = @($ProgramDirs | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft\Edge\Application' })
+    $installed = @($roots | ForEach-Object { Join-Path $_ 'msedge.exe' } | Where-Object { Test-Path -LiteralPath $_ })
+    $setups = @($roots | ForEach-Object { Get-ChildItem -Path (Join-Path $_ '*\Installer\setup.exe') -ErrorAction SilentlyContinue } | Sort-Object { [version]($_.Directory.Parent.Name -replace '[^0-9.]', '') } -Descending -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    $webview = @($ProgramDirs | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'Microsoft\EdgeWebView\Application' } | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0
+    return [pscustomobject]@{ Installed = ($installed.Count -gt 0); Paths = $installed; Setups = $setups; WebView2 = $webview }
+}
+
+function Get-DefaultHandler {
+    # The ProgId the user chose for a URL protocol or file type, or '' when Windows decides.
+    param([string]$Key)
+    $snap = Get-RegSnapshot -Full "HKEY_CURRENT_USER\Software\Microsoft\Windows\Shell\Associations\$Key\UserChoice" -Name 'ProgId'
+    if ($snap.Existed) { return [string]$snap.Value }
+    return ''
+}
+
+function Get-EdgeRemovalBlock {
+    # Why Edge must stay, or $null. Removing the default browser would leave links with nothing to open them.
+    param([string]$HttpsHandler, [string]$HttpHandler)
+    foreach ($h in $HttpsHandler, $HttpHandler) {
+        if (-not $h -or $h -like 'MSEdge*') { return 'Edge is the default browser. Set another browser as default (Settings, Apps, Default apps) and run again.' }
+    }
+    return $null
+}
+
+function Remove-Edge {
+    # Gone or kept, never half: Edge's own uninstaller runs, and Windows lets it finish only where Edge may be
+    # uninstalled (device region in the EEA, Windows 11 23H2 or later). Elsewhere it refuses and Edge is kept; the
+    # region is not faked. WebView2 and Microsoft Edge Update stay: apps embed WebView2 and it updates through them.
+    $edge = Get-EdgeState
+    if (-not $edge.Installed) { Write-Log 'Microsoft Edge is not installed.'; return }
+    if ($script:Reapply -and @($script:State.Removed) -notcontains 'Microsoft.Edge') { return }
+    $block = Get-EdgeRemovalBlock -HttpsHandler (Get-DefaultHandler 'UrlAssociations\https') -HttpHandler (Get-DefaultHandler 'UrlAssociations\http')
+    if ($block) { Write-Log "Edge kept: $block" 'WARN'; return }
+    if ((Get-DefaultHandler 'FileAssociations\.pdf') -like 'MSEdge*') { Write-Log 'Edge opens PDF files now; after the removal choose another PDF app (Settings, Apps, Default apps).' 'WARN' }
+    if ($edge.Setups.Count -eq 0) { Write-Log "Edge kept: its uninstaller was not found under $($edge.Paths -join ', ')." 'WARN'; return }
+    $setup = $edge.Setups[0]
+    if (Test-DryRun "uninstall Microsoft Edge with $setup (WebView2 stays)") { return }
+    $sig = Get-AuthenticodeSignature -FilePath $setup
+    if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw "The Edge uninstaller $setup is not validly signed by Microsoft. Refusing to run it." }
+    Stop-Process -Name msedge -Force -ErrorAction SilentlyContinue   # only the browser; msedgewebview2 keeps running
+    $proc = Start-Process -FilePath $setup -ArgumentList '--uninstall', '--system-level', '--force-uninstall', '--verbose-logging' -PassThru -WindowStyle Hidden
+    $null = $proc.Handle
+    if (-not $proc.WaitForExit(300000)) { Write-Log 'The Edge uninstaller did not finish within 5 minutes.' 'WARN' }
+    if ((Get-EdgeState).Installed) {
+        Write-Log "Edge kept: Windows refused the uninstall (exit code $($proc.ExitCode)). It allows it only when the device region is in the European Economic Area." 'WARN'
+        return
+    }
+    if (@($script:State.Removed) -notcontains 'Microsoft.Edge') { Add-StateRecord -Section 'Removed' -Item 'Microsoft.Edge' }
+    $links = @(
+        (Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Microsoft Edge.lnk'),
+        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Microsoft Edge.lnk'),
+        (Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Microsoft Edge.lnk'),
+        (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Microsoft Edge.lnk'))
+    foreach ($l in $links) { Remove-Item -LiteralPath $l -Force -ErrorAction SilentlyContinue }
+    Write-Log "Microsoft Edge uninstalled; WebView2 $(if ((Get-EdgeState).WebView2) { 'is still installed' } else { 'was not installed before either' }). Your Edge profile stays in %LOCALAPPDATA%\Microsoft\Edge. To get Edge back: winget install Microsoft.Edge." 'OK'
 }
 
 function Remove-OneDrive {
@@ -4629,6 +4741,7 @@ function Install-TimerResolutionService {
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $skip = Get-TimerSkipReasonHere
     if ($skip) { Write-Log "Timer resolution service skipped: $skip." 'WARN'; return }
+    if ($script:Reapply -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) { return }
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
     Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })
@@ -4673,6 +4786,7 @@ function Set-TweakListBatched {
     # The journal gets one flushed write per registry key before its values change and one for their results, instead
     # of two per value: device options touch thousands of values.
     param([string]$Label, [object[]]$Tweaks)
+    if ($script:Reapply) { $Tweaks = @($Tweaks | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }) }
     if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
     $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
@@ -4799,6 +4913,7 @@ function Update-TimeService {
 }
 
 function Set-TimeServer {
+    if ($script:Reapply -and @($TimeServerRegs | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }).Count -eq 0) { return }
     Set-TweakList $TimeServerRegs
     if ($script:DryRun) { return }
     Update-TimeService
@@ -5100,6 +5215,231 @@ function Invoke-Benchmark {
     ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
     Write-Log "Benchmark saved to $file" 'OK'
 }
+
+# -FrameBenchmark: frame times of a game, recorded with Intel PresentMon (MIT licence, github.com/GameTechDev/
+# PresentMon). It reads the Windows graphics event trace and injects nothing into the game. One pinned release is
+# downloaded into the state folder (administrators only) and checked against its SHA256 before every use; nothing is
+# installed. To work offline, put that exact file into <state folder>\tools yourself: the hash still has to match.
+$PresentMonVersion = '2.6.0'
+$PresentMonSha256 = 'B2A706BC6AD475749E3B7E3409263AA1E6906D45BDCF993F6DBC0F660188F1AF'
+$PresentMonUrl = "https://github.com/GameTechDev/PresentMon/releases/download/v$PresentMonVersion/PresentMon-$PresentMonVersion-x64.exe"
+$PresentMonSession = 'FocusedTweaksFrames'
+# Frames slower than this are a pause (loading screen, menu, alt-tab), not stutter, and are left out of the statistics.
+$FramePauseMs = 1000
+# Seconds cut from the start and the end of each recording, where the scene starts or stops.
+$FrameTrimSeconds = 2
+
+function Get-PresentMon {
+    $dir = Join-Path $StateDir 'tools'
+    $exe = Join-Path $dir "PresentMon-$PresentMonVersion-x64.exe"
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    if (-not (Test-Path -LiteralPath $exe)) {
+        Write-Log "Downloading PresentMon $PresentMonVersion from $PresentMonUrl"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $tmp = "$exe.download"
+        try { Invoke-WebRequest -Uri $PresentMonUrl -OutFile $tmp -UseBasicParsing -ErrorAction Stop }
+        catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; throw "Could not download PresentMon ($($_.Exception.Message)). Download $PresentMonUrl yourself and put it in $dir." }
+        Move-Item -LiteralPath $tmp -Destination $exe -Force
+    }
+    # Checked every time, not only after the download: the file is run elevated.
+    $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+    if ($hash -ne $PresentMonSha256) {
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+        throw "PresentMon at $exe does not match the pinned SHA256 for version $PresentMonVersion (got $hash). It was deleted; run again to download it."
+    }
+    $sig = Get-AuthenticodeSignature -FilePath $exe
+    if ($sig.Status -ne 'Valid') { Write-Log "PresentMon matches its pinned SHA256, but Windows reports its signature as $($sig.Status)." 'WARN' }
+    return $exe
+}
+
+function Get-Percentile {
+    # Nearest rank on a sorted array: the value below which P percent of the samples fall.
+    param([double[]]$Sorted, [double]$P)
+    if ($Sorted.Count -eq 0) { return $null }
+    $rank = [int][Math]::Ceiling($P / 100 * $Sorted.Count) - 1
+    return $Sorted[[Math]::Max(0, [Math]::Min($rank, $Sorted.Count - 1))]
+}
+
+function Read-PresentMonCsv {
+    # The frames of the busiest swap chain of one PresentMon CSV. PresentMon writes invariant numbers ('.' decimals)
+    # and NA for values it does not have. Lines are read one by one: a long capture has hundreds of thousands.
+    param([Parameter(Mandatory)][string[]]$Lines)
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $head = @($Lines[0].Split(','))
+    $col = @{}
+    for ($i = 0; $i -lt $head.Count; $i++) { $col[$head[$i].Trim()] = $i }
+    foreach ($need in 'SwapChainAddress', 'MsBetweenPresents') { if (-not $col.ContainsKey($need)) { throw "The PresentMon CSV has no '$need' column. Was it written by PresentMon $PresentMonVersion?" } }
+    $get = { param($f, $name) if ($col.ContainsKey($name) -and $col[$name] -lt $f.Count) { $f[$col[$name]] } else { $null } }
+    $chains = @{}
+    for ($n = 1; $n -lt $Lines.Count; $n++) {
+        if (-not $Lines[$n]) { continue }
+        $f = $Lines[$n].Split(',')
+        $ms = 0.0
+        if (-not [double]::TryParse([string](& $get $f 'MsBetweenPresents'), [Globalization.NumberStyles]::Float, $inv, [ref]$ms) -or $ms -le 0) { continue }
+        $chain = [string](& $get $f 'SwapChainAddress')
+        if (-not $chains.ContainsKey($chain)) { $chains[$chain] = [System.Collections.Generic.List[object]]::new() }
+        $shown = [string](& $get $f 'DisplayedTime')
+        $chains[$chain].Add([pscustomobject]@{
+                Ms = $ms
+                Dropped = ($null -ne $shown -and ($shown -eq 'NA' -or $shown -eq '' -or $shown -eq '0' -or $shown -eq '0.000000'))
+                Mode = [string](& $get $f 'PresentMode')
+                Type = [string](& $get $f 'FrameType')
+            })
+    }
+    if ($chains.Count -eq 0) { return @() }
+    $busiest = @($chains.Keys | Sort-Object { $chains[$_].Count } -Descending)[0]
+    return $chains[$busiest].ToArray()
+}
+
+function Get-FrameStats {
+    # Frame time statistics of one recording, all in milliseconds so that lower is better everywhere: average, the
+    # 99th and 99.9th percentile (the "1 % and 0.1 % lows" in FPS), spread, stutters per minute (frames taking more
+    # than twice the median) and the share of frames never shown. Pauses and the trimmed edges are left out.
+    param([object[]]$Frames, [double]$TrimSeconds = $FrameTrimSeconds, [double]$PauseMs = $FramePauseMs)
+    $total = 0.0; foreach ($f in $Frames) { $total += $f.Ms }
+    $t = 0.0; $kept = [System.Collections.Generic.List[object]]::new(); $pauses = 0
+    foreach ($f in $Frames) {
+        $t += $f.Ms
+        if ($t -lt $TrimSeconds * 1000 -or $t -gt $total - $TrimSeconds * 1000) { continue }
+        if ($f.Ms -gt $PauseMs) { $pauses++; continue }
+        $kept.Add($f)
+    }
+    if ($kept.Count -lt 30) { return $null }
+    $ms = [double[]]@($kept | ForEach-Object { $_.Ms })
+    $sorted = [double[]]@($ms | Sort-Object)
+    $sum = 0.0; foreach ($x in $ms) { $sum += $x }
+    $avg = $sum / $ms.Count
+    $sq = 0.0; foreach ($x in $ms) { $sq += ($x - $avg) * ($x - $avg) }
+    $median = Get-Percentile -Sorted $sorted -P 50
+    $stutters = @($ms | Where-Object { $_ -gt 2 * $median }).Count
+    $modes = @($kept | Group-Object Mode | Sort-Object Count -Descending | ForEach-Object { if ($_.Name) { $_.Name } })
+    $generated = @($kept | Where-Object { $_.Type -and $_.Type -ne 'NA' -and $_.Type -ne 'Application' }).Count
+    return [pscustomobject]@{
+        Frames = $ms.Count; Seconds = [Math]::Round($sum / 1000, 1); Pauses = $pauses
+        AvgMs = $avg; P99Ms = (Get-Percentile -Sorted $sorted -P 99); P999Ms = (Get-Percentile -Sorted $sorted -P 99.9)
+        StdevMs = [Math]::Sqrt($sq / $ms.Count); StuttersPerMin = $stutters / ($sum / 60000)
+        DroppedPct = 100.0 * @($kept | Where-Object { $_.Dropped }).Count / $kept.Count
+        PresentMode = $(if ($modes.Count -gt 0) { $modes[0] } else { '' }); GeneratedFrames = $generated
+    }
+}
+
+function Get-DisplayContext {
+    # What must match for two frame benchmarks to be comparable, besides the machine: GPU, resolution, refresh rate.
+    $gpu = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.CurrentHorizontalResolution } | Select-Object -First 1)
+    if ($gpu.Count -eq 0) { return [ordered]@{ GPU = 'unknown'; Resolution = 'unknown'; RefreshHz = 0; Driver = 'unknown' } }
+    $g = $gpu[0]
+    return [ordered]@{ GPU = ([string]$g.Name).Trim(); Resolution = "$($g.CurrentHorizontalResolution)x$($g.CurrentVerticalResolution)"; RefreshHz = [int]$g.CurrentRefreshRate; Driver = [string]$g.DriverVersion }
+}
+
+function Invoke-PresentMonCapture {
+    param([string]$Exe, [string]$Process, [int]$Seconds, [string]$Csv)
+    $pmArgs = @('--process_name', $Process, '--output_file', "`"$Csv`"", '--timed', $Seconds, '--terminate_after_timed',
+        '--session_name', $PresentMonSession, '--stop_existing_session', '--no_console_stats', '--v2_metrics')
+    $proc = Start-Process -FilePath $Exe -ArgumentList $pmArgs -PassThru -WindowStyle Hidden
+    $null = $proc.Handle   # keeps the exit code readable after the process ends
+    if (-not $proc.WaitForExit(($Seconds + 60) * 1000)) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        throw "PresentMon did not finish within $($Seconds + 60) s."
+    }
+    if ($proc.ExitCode -ne 0) { throw "PresentMon exited with code $($proc.ExitCode). Another capture tool (CapFrameX, FrameView, an overlay) may hold the trace; close it and retry." }
+    if (-not (Test-Path -LiteralPath $Csv)) { throw "PresentMon wrote no file. Did $Process draw frames during the capture (not minimised, not paused)?" }
+}
+
+function Invoke-FrameBenchmark {
+    if (-not $FrameProcess) { throw 'Name the game process: -FrameProcess game.exe (Task Manager, Details tab).' }
+    $process = [IO.Path]::GetFileName($FrameProcess)
+    if ($process -notlike '*.exe') { $process += '.exe' }
+    $machine = Get-BenchmarkMachine
+    if ($machine.VirtualMachine) { Write-Log 'Frame benchmarks in a virtual machine measure the virtual graphics adapter, not this hardware. Run it on the PC itself.' 'ERROR'; $script:Failures++; return }
+    if ($machine.PowerSource -eq 'Dc') { Write-Log 'Running on battery: compare only with frame benchmarks also taken on battery.' 'WARN' }
+    $exe = Get-PresentMon
+    $base = [IO.Path]::GetFileNameWithoutExtension($process)
+    if (-not (Get-Process -Name $base -ErrorAction SilentlyContinue)) {
+        Write-Log "Waiting up to 5 minutes for $process. Start the game and go to the scene you test (a built-in benchmark repeats best)."
+        $deadline = (Get-Date).AddMinutes(5)
+        while (-not (Get-Process -Name $base -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+        if (-not (Get-Process -Name $base -ErrorAction SilentlyContinue)) { throw "$process did not start within 5 minutes. Check the name in Task Manager, Details tab." }
+        Write-Log 'Found it. Recording starts in 15 seconds: get into the scene.'
+        Start-Sleep -Seconds 15
+    }
+    $dir = Join-Path $StateDir 'frames'
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $stamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
+    # A short first recording is thrown away: shader compilation and asset streaming stutter once.
+    Write-Log "Warm-up recording (15 s, not counted), then $FrameRuns recording(s) of $FrameSeconds s. Keep the scene the same and do not alt-tab."
+    $runs = [System.Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -le $FrameRuns; $i++) {
+        $csv = Join-Path $dir "$stamp-$base-run$i.csv"
+        $secs = if ($i -eq 0) { 15 } else { $FrameSeconds }
+        Invoke-PresentMonCapture -Exe $exe -Process $process -Seconds $secs -Csv $csv
+        if ($i -eq 0) { Remove-Item -LiteralPath $csv -Force -ErrorAction SilentlyContinue; continue }
+        $stats = Get-FrameStats -Frames @(Read-PresentMonCsv -Lines ([IO.File]::ReadAllLines($csv)))
+        if (-not $stats) { Write-Log "Recording $i holds too few frames to count (was the game paused or minimised?)." 'WARN'; continue }
+        $runs.Add($stats)
+        Write-Log ("Recording {0}: {1:N0} FPS average, {2:N0} FPS 1 % low, {3:N1} stutters per minute, {4} pause(s) left out." -f $i, (1000 / $stats.AvgMs), (1000 / $stats.P99Ms), $stats.StuttersPerMin, $stats.Pauses)
+    }
+    if ($runs.Count -eq 0) { throw 'No recording held enough frames.' }
+    $display = Get-DisplayContext
+    $label = if ($FrameLabel) { $FrameLabel } else { 'default' }
+    $machineCtx = [ordered]@{}
+    foreach ($k in $machine.Keys) { $machineCtx[$k] = $machine[$k] }
+    $machineCtx['Process'] = $process; $machineCtx['Label'] = $label
+    $machineCtx['GPU'] = $display.GPU; $machineCtx['Resolution'] = $display.Resolution; $machineCtx['RefreshHz'] = $display.RefreshHz
+    $settings = Get-BenchmarkSettings
+    $settings['GPU driver'] = $display.Driver
+    $settings['Present mode'] = (@($runs | ForEach-Object { $_.PresentMode } | Group-Object | Sort-Object Count -Descending)[0].Name)
+    $m = [ordered]@{}
+    $m['Frame time, average (ms)'] = Get-Stats @($runs | ForEach-Object { $_.AvgMs })
+    $m['Frame time, 99th percentile (ms)'] = Get-Stats @($runs | ForEach-Object { $_.P99Ms })
+    $m['Frame time, 99.9th percentile (ms)'] = Get-Stats @($runs | ForEach-Object { $_.P999Ms })
+    $m['Frame time spread, stdev (ms)'] = Get-Stats @($runs | ForEach-Object { $_.StdevMs })
+    $m['Stutters per minute'] = Get-Stats @($runs | ForEach-Object { $_.StuttersPerMin })
+    $m['Frames not shown (%)'] = Get-Stats @($runs | ForEach-Object { $_.DroppedPct })
+    $now = [pscustomobject]@{
+        Format = 2; Kind = 'frames'; When = (Get-Date).ToString('o'); Runs = $runs.Count; Seconds = $FrameSeconds; PresentMon = $PresentMonVersion
+        ValidForPerformance = $true; Machine = [pscustomobject]$machineCtx; Settings = [pscustomobject]$settings; Metrics = [pscustomobject]$m
+    }
+    $now = ConvertTo-Json -InputObject $now -Depth 5 | ConvertFrom-Json
+    $avgFps = 1000 / $now.Metrics.'Frame time, average (ms)'.Median
+    $lowFps = 1000 / $now.Metrics.'Frame time, 99th percentile (ms)'.Median
+    $low01 = 1000 / $now.Metrics.'Frame time, 99.9th percentile (ms)'.Median
+    if (-not $Json) {
+        Write-Host ("`n{0} ({1}, {2} at {3} Hz): {4:N0} FPS average, {5:N0} FPS 1 % low, {6:N0} FPS 0.1 % low (median of {7} recording(s))`n" -f $process, $label, $display.Resolution, $display.RefreshHz, $avgFps, $lowFps, $low01, $runs.Count)
+        Write-Host (@(foreach ($p in $now.Metrics.PSObject.Properties) { [pscustomobject]@{ Measurement = $p.Name; Median = [Math]::Round($p.Value.Median, 2); Min = [Math]::Round($p.Value.Min, 2); Max = [Math]::Round($p.Value.Max, 2) } }) | Format-Table -AutoSize | Out-String)
+    }
+    if ($display.RefreshHz -gt 0 -and [Math]::Abs($avgFps - $display.RefreshHz) / $display.RefreshHz -lt 0.02) {
+        Write-Log "The average sits at the refresh rate ($($display.RefreshHz) Hz): V-Sync, G-Sync/FreeSync or a frame limiter caps it. Average FPS cannot show a difference then; compare the percentiles, spread and stutters, or uncap for the test." 'WARN'
+    }
+    if (@($runs | Where-Object { $_.GeneratedFrames -gt 0 }).Count -gt 0) { Write-Log 'Frame generation is active. These numbers count only the frames the game rendered.' 'WARN' }
+    $before = $null; $beforeName = ''
+    $baselineFile = $null
+    if ($BenchmarkBaseline) { $baselineFile = Join-Path $StateDir "frames-baseline-$BenchmarkBaseline.json" }
+    if ($baselineFile -and (Test-Path -LiteralPath $baselineFile)) { $before = Get-Content -LiteralPath $baselineFile -Raw | ConvertFrom-Json; $beforeName = "baseline '$BenchmarkBaseline'" }
+    elseif (-not $baselineFile) {
+        $previous = @(Get-ChildItem -Path (Join-Path $StateDir 'frames-2*.json') -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object {
+                $o = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+                if ($o.Machine.Process -eq $process -and $o.Machine.Label -eq $label) { [pscustomobject]@{ File = $_; Data = $o } }
+            } | Select-Object -First 1)
+        if ($previous.Count -gt 0) { $before = $previous[0].Data; $beforeName = "the frame benchmark of $($previous[0].File.Name -replace '^frames-|\.json$', '')" }
+    }
+    if ($before) {
+        $cmp = Get-BenchmarkComparison -Now $now -Before $before
+        if ($cmp.Refused) { Write-Log "Not compared with $beforeName`: $($cmp.Reason)." 'WARN' }
+        else {
+            if (-not $Json) { Write-Host ($cmp.Rows | Format-Table -AutoSize | Out-String) }
+            Write-Log "Compared with $beforeName (median [min..max]; lower is better for every row; 'within noise' means the ranges overlap)."
+            foreach ($c in $cmp.SettingChanges) { Write-Log "  Setting changed since then: $c" }
+        }
+    }
+    elseif ($baselineFile) {
+        ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $baselineFile -Encoding UTF8
+        Write-Log "Saved as frame baseline '$BenchmarkBaseline'." 'OK'
+    }
+    else { Write-Log "First frame benchmark of $process with label '$label'. Run it again after a run and a restart, same scene and settings, to compare." }
+    $file = Join-Path $StateDir "frames-$stamp.json"
+    ConvertTo-Json -InputObject $now -Depth 5 | Set-Content -LiteralPath $file -Encoding UTF8
+    Write-Log "Frame benchmark saved to $file. The raw PresentMon files are in $dir." 'OK'
+}
 #endregion
 
 #region Health check ---------------------------------------------------------------------
@@ -5208,8 +5548,17 @@ function Test-HealthApps {
         if ($installed -contains $expect[$k]) { Write-Health 'PASS' 'Apps' "$k is installed." }
         else { Write-Health 'WARN' 'Apps' "$k not found. Ignore this if it was never on the image, otherwise reinstall it from the Store." }
     }
-    $edge = Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'
-    if (Test-Path -LiteralPath $edge) { Write-Health 'PASS' 'Apps' 'Microsoft Edge is installed.' } else { Write-Health 'WARN' 'Apps' 'Microsoft Edge was not found.' }
+    $edge = Get-EdgeState
+    $removedByRun = @($script:State.Removed) -contains 'Microsoft.Edge'
+    if ($Opt['RemoveEdge']) {
+        if (-not $edge.Installed) { Write-Health 'PASS' 'Apps' 'Microsoft Edge is removed.' }
+        elseif ($removedByRun) { Write-Health 'WARN' 'Apps' 'Microsoft Edge is installed again (a Windows update brings it back). -Reapply removes it again.' }
+        else { Write-Health 'INFO' 'Apps' 'Microsoft Edge was kept; the run log says why (region outside the EEA, or it is the default browser).' }
+    }
+    elseif ($edge.Installed) { Write-Health 'PASS' 'Apps' 'Microsoft Edge is installed.' }
+    else { Write-Health 'WARN' 'Apps' 'Microsoft Edge was not found.' }
+    if ($edge.WebView2) { Write-Health 'PASS' 'Apps' 'The WebView2 runtime is installed (apps that show web content need it).' }
+    else { Write-Health 'WARN' 'Apps' 'The WebView2 runtime was not found. Apps such as Teams, widgets and many installers need it: winget install Microsoft.EdgeWebView2Runtime.' }
     if ($Opt['Debloat'] -and $script:State.Removed.Count -gt 0) {
         $back = @($script:State.Removed | Sort-Object -Unique | Where-Object { $installed -contains $_ })
         if ($back.Count -eq 0) { Write-Health 'PASS' 'Apps' "Debloat holds: $(@($script:State.Removed | Sort-Object -Unique).Count) removed app(s) are gone." }
@@ -5724,6 +6073,7 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'System' { Test-HealthSystem }
     Invoke-HealthArea 'Events' { Test-HealthEvents }
     if ($HealthCheckLaunch) { Invoke-HealthArea 'Launch' { Test-HealthAppLaunch } }
+    if (-not $script:PostApply) { Invoke-HealthArea 'Drift' { Test-HealthDrift } }
 
     $h = $script:Health
     Write-Log ("Health result: {0} passed, {1} warning(s), {2} failed, {3} note(s)." -f $h.PASS, $h.WARN, $h.FAIL, $h.INFO) $(if ($h.FAIL -gt 0) { 'ERROR' } elseif ($h.WARN -gt 0) { 'WARN' } else { 'OK' })
@@ -5933,7 +6283,15 @@ function Get-PreflightResults {
 
 function Invoke-Preflight {
     # Logs every check with the reason it fired. Returns $false when a check blocks a real run; a dry run goes on.
+    # -Strict (used by -Reapply) blocks on a pending restart or servicing at work: an update in the middle of being
+    # installed would undo the repair again.
+    param([switch]$Strict)
     $script:PreflightResults = @(Get-PreflightResults -Facts (Get-PreflightFacts) -Skip $SkipCheck -AllowManaged:$AllowManaged)
+    if ($Strict) {
+        foreach ($p in $script:PreflightResults) {
+            if ($p.Check -in 'PendingReboot', 'WindowsUpdate' -and $p.Status -eq 'WARN') { $p.Status = 'BLOCK'; $p.Message += ' -Reapply waits for this.' }
+        }
+    }
     foreach ($p in $script:PreflightResults) {
         $level = switch ($p.Status) { 'WARN' { 'WARN' } 'BLOCK' { 'ERROR' } default { 'INFO' } }
         Write-Log "Pre flight $($p.Check) [$($p.Status)]: $($p.Message)" $level
@@ -6058,6 +6416,7 @@ function Confirm-Run {
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
     if ($Opt['RemoveOneDrive']) { $notes += 'OneDrive will be uninstalled unless an account is signed in (reinstall with winget).' }
+    if ($Opt['RemoveEdge']) { $notes += 'The Edge browser will be uninstalled where Windows allows it; WebView2 stays (reinstall Edge with winget).' }
     if ($ServiceMode -eq 'Delete') { $notes += 'Services in the enabled service groups will be deleted (exported first, -Revert brings them back).' }
     if ($TaskMode -eq 'Delete') { $notes += 'Scheduled tasks will be deleted (backups are kept), except time sync, SSD retrim, TPM, BitLocker, Defender, System Restore, certificate and browser update tasks.' }
     if ($Opt['TempCleanup'] -or $Opt['UpdateCacheCleanup']) { $notes += 'Temp and update cache files are deleted for good.' }
@@ -6086,6 +6445,7 @@ function Invoke-Apply {
     $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
     Set-StateValue -Name 'Run' -Value ([pscustomobject]@{
         When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
+        ServiceMode = $(if ($ServiceMode -eq 'Delete' -or ($prev -and $prev.PSObject.Properties['ServiceMode'] -and $prev.ServiceMode -eq 'Delete')) { 'Delete' } else { 'Disable' })
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
     })
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
@@ -6103,7 +6463,11 @@ function Invoke-Apply {
         }
     }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
+    Invoke-ApplySteps
+}
 
+function Invoke-ApplySteps {
+    # Every change of a run, in order. -Reapply runs the same steps; see Invoke-Reapply.
     if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
     if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
@@ -6112,6 +6476,7 @@ function Invoke-Apply {
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
     if ($Opt['RemoveOneDrive']) { Invoke-Step 'Remove OneDrive' -Option 'RemoveOneDrive' { Remove-OneDrive } }
+    if ($Opt['RemoveEdge']) { Invoke-Step 'Remove Edge' -Option 'RemoveEdge' { Remove-Edge } }
     if ($Opt['EdgeBackground']) { Invoke-Step 'Edge in the background' -Option 'EdgeBackground' { Set-TweakList $EdgeBackgroundRegs } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
@@ -6174,6 +6539,93 @@ function Invoke-Apply {
         # A run whose own health check fails must not end with "Finished without errors" and exit code 0.
         if ($script:Health.FAIL -gt 0) { $script:Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
     }
+}
+
+# Options -Reapply leaves alone: running them again would undo choices made since the run (startup entries, pins,
+# desktop shortcuts, app permissions, installed software), or they are one shot actions (cleanup, heap reset, NVIDIA
+# profile import). PauseStopsUpdateTasks: Windows turns those tasks back on at every start; NoAutoUpdate covers them.
+$ReapplyLeavesAlone = @('Packages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
+    'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'FaultTolerantHeap', 'NvidiaProfile', 'NvidiaReBar',
+    'NvidiaTelemetryStrip', 'PauseStopsUpdateTasks')
+
+function Set-ReapplyOptions {
+    # The options of the earlier run, minus those -Reapply leaves alone and those named with -Skip. Options this
+    # version has that the run did not know stay off: they are new choices, not drift. Returns what was left out.
+    param($Run, [string[]]$SkipNames = @())
+    $saved = @($Run.Options.PSObject.Properties | ForEach-Object { $_.Name })
+    $newOptions = @($OptionInfo.Keys | Where-Object { $saved -notcontains $_ })
+    foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = $false }
+    foreach ($p in $Run.Options.PSObject.Properties) { if ($Opt.ContainsKey($p.Name)) { $Opt[$p.Name] = [bool]$p.Value } }
+    $left = @($ReapplyLeavesAlone | Where-Object { $Opt[$_] })
+    foreach ($n in $left) { $Opt[$n] = $false }
+    foreach ($name in @($SkipNames | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
+        if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
+        $Opt[$match] = $false
+    }
+    return [pscustomobject]@{ LeftAlone = $left; New = $newOptions }
+}
+
+function Invoke-Reapply {
+    # Big Windows updates set some values back, register removed tasks and services again and reinstall apps. This
+    # runs the apply steps again in two passes: the first only lists what drifted (every primitive skips what is
+    # still as the run left it), the second puts back just that, through the journal, so -Revert still restores the
+    # originals of the first run. No restore point, no power plan, no Defender switch: those are not drift.
+    $run = $script:State.Run
+    if (-not $run) { Write-Log "No earlier run is recorded in $StateFile, so there is nothing to put back. Run the script normally first." 'WARN'; return }
+    $sel = Set-ReapplyOptions -Run $run -SkipNames $Skip
+    $script:TaskMode = if ($run.TaskMode) { [string]$run.TaskMode } else { 'None' }
+    if ($script:TaskMode -eq 'Delete' -and @($script:State.Tasks).Count -eq 0) { $script:TaskMode = 'None' }
+    $script:PowerProfile = 'Off'; $script:PowerMode = 'Keep'; $script:Defender = 'Keep'; $script:WantNvidia = $false
+    # Runs from before ServiceMode was recorded: an exported service key means the services were deleted.
+    $script:ServiceMode = 'Disable'
+    if ($run.PSObject.Properties['ServiceMode'] -and $run.ServiceMode -eq 'Delete') { $script:ServiceMode = 'Delete' }
+    elseif (@($script:State.KeyBackups | Where-Object { $_.Path -like "$ServicesRoot\*" }).Count -gt 0) { $script:ServiceMode = 'Delete' }
+    if ($run.PauseDays) { $script:PauseDays = [int]$run.PauseDays }
+    if ($run.SkipRegGroup) { $script:SkipRegGroup = @($run.SkipRegGroup) }
+    Write-Log "Reapply: putting back what changed since the run on $($run.When)."
+    if ($sel.LeftAlone.Count -gt 0) { Write-Log "  Left alone (running them again would undo choices made since, or they run once): $($sel.LeftAlone -join ', ')" }
+    if ($sel.New.Count -gt 0) { Write-Log "  Options the earlier run did not have, not applied (run normally to add them): $($sel.New -join ', ')" }
+    if (-not (Invoke-Preflight -Strict)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
+
+    $realRun = -not $script:DryRun
+    $script:Reapply = $true
+    $script:DryRun = $true
+    $script:DryRunCount = 0
+    $healthAfter = $Opt['HealthCheckAfter']
+    $Opt['HealthCheckAfter'] = $false
+    Write-Log 'Pass 1: looking for settings that drifted. Nothing is changed in this pass; each DRY RUN line below is one drifted item.'
+    Invoke-ApplySteps
+    $drift = $script:DryRunCount
+    $script:DryRun = -not $realRun
+    $Opt['HealthCheckAfter'] = $healthAfter
+    if ($drift -eq 0) { Write-Log 'Nothing drifted: everything the run set is still in place.' 'OK'; return }
+    Write-Log "$drift item(s) drifted, listed above." 'WARN'
+    if (-not $realRun) { return }
+    if (-not $Force) {
+        $answer = Read-Host "Put these $drift item(s) back? Type YES to continue"
+        if ($answer -cne 'YES') { Write-Log 'Cancelled, nothing was changed.' 'WARN'; Exit-Run 2 'The reapply was not confirmed.' }
+    }
+    Write-Log 'Pass 2: putting the drifted items back.'
+    Invoke-ApplySteps
+    Save-State
+}
+
+function Get-LastUpdateInstall {
+    # When Windows Update last installed something, from its own event (19, installation successful), or $null.
+    $e = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WindowsUpdateClient'; Id = 19 } -MaxEvents 1 -ErrorAction SilentlyContinue)
+    if ($e.Count -eq 0) { return $null }
+    return $e[0].TimeCreated
+}
+
+function Test-HealthDrift {
+    # After a run, updates are what undoes tweaks. Point at -Reapply when one installed since and something drifted.
+    if (-not $script:AppliedAt) { return }
+    $last = Get-LastUpdateInstall
+    if (-not $last -or $last -le $script:AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
+    $msg = "Windows Update installed something on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($script:AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
+    if ($script:Health.WARN -gt 0 -or $script:Health.FAIL -gt 0) { Write-Health 'WARN' 'Drift' "$msg Updates can set tweaks back; run -Reapply -DryRun to list what changed, then -Reapply to put it back." }
+    else { Write-Health 'INFO' 'Drift' "$msg Nothing above looks changed by it." }
 }
 
 function Invoke-Revert {
@@ -6260,6 +6712,7 @@ function Invoke-Revert {
 
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
+if ($Reapply -and ($Revert -or $HealthCheck -or $Benchmark -or $RestoreTask.Count -gt 0)) { throw '-Reapply cannot be combined with -Revert, -HealthCheck, -Benchmark or -RestoreTask.' }
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
 try { Import-State }
@@ -6267,6 +6720,7 @@ catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message 
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
 if ($Benchmark) { Invoke-Benchmark; Exit-Run 0 }
+if ($FrameBenchmark) { Invoke-FrameBenchmark; Exit-Run ([int]($script:Failures -gt 0)) }
 if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
@@ -6279,6 +6733,10 @@ if ($RestoreTask.Count -gt 0) {
     Exit-Run ([int]($script:Failures -gt 0))
 }
 if ($Revert) { Invoke-Revert }
+elseif ($Reapply) {
+    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
+    Invoke-Reapply
+}
 else {
     if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
