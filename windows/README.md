@@ -5,6 +5,10 @@ with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ulti
 
 ## Quick start
 
+The full walkthrough, from download to the maximum performance setup with an NVIDIA driver install, measuring,
+keeping it after Windows updates and undoing it, is [`docs/GUIDE.md`](docs/GUIDE.md) (also `GUIDE.md` in the release
+zip). The short version:
+
 1. Download `FocusedTweaks.zip` from the repo's Releases page and unzip it. It holds the script, the profiles and
    the licence notices. Check the script against `FocusedTweaks.ps1.sha256` from the same release:
    `(Get-FileHash .\FocusedTweaks.ps1).Hash` must match (case does not matter). That detects a damaged download,

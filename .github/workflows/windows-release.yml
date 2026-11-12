@@ -34,8 +34,8 @@ jobs:
           $hash = (Get-FileHash FocusedTweaks.ps1 -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  FocusedTweaks.ps1" | Set-Content FocusedTweaks.ps1.sha256 -Encoding ascii -NoNewline
           "SHA256=$hash" >> $env:GITHUB_ENV
-          # The zip carries the profiles the README and the battery hint point to.
-          Compress-Archive -Path FocusedTweaks.ps1, NOTICE.md, README.md, profiles -DestinationPath FocusedTweaks.zip
+          # The zip carries the profiles the README and the battery hint point to, and the walkthrough.
+          Compress-Archive -Path FocusedTweaks.ps1, NOTICE.md, README.md, docs\GUIDE.md, profiles -DestinationPath FocusedTweaks.zip
 
       # A signed statement, stored by GitHub, that these files were built by this workflow from this commit.
       # Unlike the SHA256 file, it cannot be replaced by someone who can only change the release.

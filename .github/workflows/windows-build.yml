@@ -58,4 +58,5 @@ jobs:
             windows/FocusedTweaks.ps1
             windows/NOTICE.md
             windows/README.md
+            windows/docs/GUIDE.md
             windows/profiles/*.json
