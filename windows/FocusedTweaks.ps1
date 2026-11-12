@@ -196,7 +196,7 @@ $OptionInfo = [ordered]@{
     SvcRadio              = @($false, 'Disable Radio Management (airplane mode and radio toggles). Off, it supports Bluetooth', 'Folklore', '')
     DriverExclusion       = @($true, 'Exclude drivers from Windows Update and stop device metadata downloads', 'n/a', '')
     SecurityUpdatesOnly   = @($true, 'Upstream update block: long deferrals plus excluded update classifications', 'n/a', '')
-    PauseUpdates          = @($true, 'Pause updates for -PauseDays, turn off automatic update checks until -Revert (NoAutoUpdate policy; Check for updates still works) and set update services to Manual', 'Documented', 'https://learn.microsoft.com/en-us/windows/deployment/update/waas-wu-settings')
+    PauseUpdates          = @($true, 'Pause updates for -PauseDays and turn off automatic update checks for the same time (NoAutoUpdate policy, removed again by a one-off task when the pause ends; Check for updates still works); update services to Manual', 'Documented', 'https://learn.microsoft.com/en-us/windows/deployment/update/waas-wu-settings')
     PauseStopsUpdateTasks = @($true, 'While pausing, also disable the Update Orchestrator, WaaSMedic and Windows Update tasks', 'n/a', '')
     KeepDefinitionUpdates = @($true, 'Leave Defender definition updates out of the excluded classifications, so Defender keeps current signatures', 'n/a', '')
     RazerAsusHosts        = @($true, 'Block Razer and ASUS software download servers in the hosts file', 'n/a', '')
@@ -1963,6 +1963,8 @@ $TaskKeepBuiltIn = @(
     # (Edge, Google, Firefox). Telemetry tasks next to them, such as the Firefox Default Browser Agent, still go.
     '\Microsoft\Windows\Windows Defender\*'
     '\Microsoft\Windows\SystemRestore\SR'
+    # This script's own task that ends the update pause (Register-PauseEndTask).
+    '\FocusedTweaks\*'
     '\Microsoft\Windows\CertificateServicesClient\*'
     '\MicrosoftEdgeUpdate*'
     '\GoogleUpdateTask*'
@@ -2154,10 +2156,14 @@ $EdgeBackgroundRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'BackgroundModeEnabled' 0 'DWord'
 )
 
+# The one-off task that removes NoAutoUpdate again when the pause ends (Register-PauseEndTask).
+$PauseEndTaskPath = '\FocusedTweaks\'
+$PauseEndTaskName = 'End update pause'
+
 # While updates are paused: no automatic checks, downloads or installs. The Update Orchestrator registers and enables
 # its Schedule Scan and Schedule Work tasks again at every start, so disabling them does not hold; this documented
-# policy makes them do nothing instead. Unlike the pause it does not expire: it stays until -Revert. Checking for
-# updates by hand in Settings still works, and Defender definitions still arrive.
+# policy makes them do nothing instead. A policy has no end date, so a one-off task removes it when the pause ends and
+# updates resume by themselves. Checking for updates by hand in Settings still works, and Defender definitions arrive.
 $NoAutoUpdateRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 1 'DWord'
 )
@@ -2298,6 +2304,7 @@ $script:State = @{
     Power      = $null
     Defender   = $false
     DefenderPrefs = $null
+    PauseEndTask = $false
     Hibernate  = $null
     MemCompress = $null
     SleepStudy = $false
@@ -3948,10 +3955,52 @@ function Set-UpdatePolicies {
             if ($t.Name -in 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdatesPeriodInDays') { $v = $deferDays }
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
-        Set-TweakList $NoAutoUpdateRegs
+        if ($script:Reapply) {
+            # -Reapply keeps the pause of the run: after it ended, updates stay on; before, the policy and its end come back.
+            $expiry = Get-PauseExpiry
+            if ($expiry -and $expiry -gt [DateTime]::UtcNow) {
+                Set-TweakList $NoAutoUpdateRegs
+                if (-not (Get-ScheduledTask -TaskPath $PauseEndTaskPath -TaskName $PauseEndTaskName -ErrorAction SilentlyContinue)) { Register-PauseEndTask -EndUtc $expiry }
+            }
+        }
+        else {
+            Set-TweakList $NoAutoUpdateRegs
+            Register-PauseEndTask -EndUtc $now.AddDays($PauseDays)
+        }
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
         if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
-        if (-not $script:DryRun -and -not $script:Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), and automatic update checks are off until -Revert (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
+        if (-not $script:DryRun -and -not $script:Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), with automatic update checks off for the same time (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
+    }
+}
+
+function Get-PauseExpiry {
+    # The end of the update pause the run wrote, in UTC, or $null.
+    param([string]$Text = [string](Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime').Value)
+    if (-not $Text) { return $null }
+    $styles = [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal
+    $when = [DateTime]::MinValue
+    if ([DateTime]::TryParse($Text, [Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$when)) { return $when }
+    return $null
+}
+
+function Register-PauseEndTask {
+    # NoAutoUpdate has no end date of its own. This one-off task removes it as SYSTEM when the pause ends, also when the
+    # PC was off at that moment. Its only action is reg.exe deleting that one value: no script or user file runs.
+    param([Parameter(Mandatory)][DateTime]$EndUtc)
+    if (Test-DryRun "schedule $PauseEndTaskPath$PauseEndTaskName for $($EndUtc.ToLocalTime().ToString('yyyy-MM-dd HH:mm')) to turn automatic update checks back on") { return }
+    $action = New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\reg.exe') -Argument 'delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f'
+    $trigger = New-ScheduledTaskTrigger -Once -At $EndUtc.ToLocalTime()
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    $principal = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+    Set-StateValue -Name 'PauseEndTask' -Value $true   # recorded first, so -Revert removes the task even after a crash here
+    Register-ScheduledTask -TaskPath $PauseEndTaskPath -TaskName $PauseEndTaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    Write-Log "Automatic update checks come back on $($EndUtc.ToLocalTime().ToString('yyyy-MM-dd')), when the pause ends." 'OK'
+}
+
+function Remove-PauseEndTask {
+    if (Get-ScheduledTask -TaskPath $PauseEndTaskPath -TaskName $PauseEndTaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskPath $PauseEndTaskPath -TaskName $PauseEndTaskName -Confirm:$false
+        Write-Log 'The task that ends the update pause is removed.' 'OK'
     }
 }
 
@@ -5749,7 +5798,18 @@ function Test-HealthRegistry {
             New-Tweak $t.Path $t.Name $v $t.Type
         }
         Test-HealthTweakTable -Label 'Update pause policy' -Tweaks @($effective)
-        Test-HealthTweakTable -Label 'Automatic update checks off' -Tweaks $NoAutoUpdateRegs
+        $expiry = Get-PauseExpiry
+        if ($expiry -and $expiry -le [DateTime]::UtcNow) {
+            $na = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -Name 'NoAutoUpdate'
+            if ($na.Existed -and [int]$na.Value -eq 1) { Write-Health 'WARN' 'Updates' "The update pause ended on $($expiry.ToLocalTime().ToString('yyyy-MM-dd')), but automatic update checks are still off (NoAutoUpdate). -Revert -Only PauseUpdates turns them back on." }
+            else { Write-Health 'INFO' 'Updates' "The update pause ended on $($expiry.ToLocalTime().ToString('yyyy-MM-dd')); automatic updates are back on." }
+        }
+        else {
+            Test-HealthTweakTable -Label 'Automatic update checks off' -Tweaks $NoAutoUpdateRegs
+            if ($script:State.PauseEndTask -and -not (Get-ScheduledTask -TaskPath $PauseEndTaskPath -TaskName $PauseEndTaskName -ErrorAction SilentlyContinue)) {
+                Write-Health 'WARN' 'Updates' 'The task that turns automatic update checks back on when the pause ends is missing, so they would stay off. -Reapply schedules it again.'
+            }
+        }
     }
     if ($Opt['DefenderQuiet']) { Test-HealthTweakTable -Label 'Quiet Defender policy' -Tweaks $DefenderQuietRegs }
     if ($Opt['SpectreMeltdownOff']) { Test-HealthTweakTable -Label 'Spectre and Meltdown mitigations off' -Tweaks $MitigationRegs }
@@ -6727,7 +6787,7 @@ function Test-HealthDrift {
 
 # -Revert -Only: what the journal can undo per option. Registry values and keys, service start values and tasks carry
 # the option that changed them; these other options keep their own records and are undone here as well.
-$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features' }
+$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask' }
 
 function Get-OptionChanges {
     # From journal lines: the registry values, key exports and tasks that the named options changed. A value another
@@ -6786,6 +6846,7 @@ function Invoke-RevertOptions {
                     Write-Log "Hosts block removed: $name" 'OK'
                 }
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
+                'PauseEndTask' { Remove-PauseEndTask }
                 'Features' {
                     foreach ($f in @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })) {
                         try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "Optional feature turned back on: $f (finishes at the next restart)." 'OK' }
@@ -6877,6 +6938,7 @@ function Invoke-Revert {
     }
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
+    if ($script:State.PauseEndTask) { Invoke-Step 'Remove the task that ends the update pause' { Remove-PauseEndTask } }
     if ($script:State.NetBindings.Count -gt 0) { Invoke-Step 'Turn IPv6 back on' { Restore-NetBindings } }
     if ($script:State.StartLayout) { Invoke-Step 'Restore Start menu layout' { Restore-StartPins } }
     if ($script:State.DesktopMoved.Count -gt 0) { Invoke-Step 'Restore desktop shortcuts' { Restore-DesktopIcons } }
