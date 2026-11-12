@@ -33,8 +33,8 @@ jobs:
       - name: Committed script matches the build
         shell: pwsh
         run: |
-          git diff --ignore-cr-at-eol --exit-code -- windows/FocusedTweaks.ps1 windows/docs/OPTIONS.md
-          if ($LASTEXITCODE -ne 0) { throw 'FocusedTweaks.ps1 or docs/OPTIONS.md is out of date: rebuild and commit them.' }
+          git diff --ignore-cr-at-eol --exit-code -- windows/FocusedTweaks.ps1 windows/docs/OPTIONS.md windows/docs/REGISTRY.md
+          if ($LASTEXITCODE -ne 0) { throw 'FocusedTweaks.ps1, docs/OPTIONS.md or docs/REGISTRY.md is out of date: rebuild and commit them.' }
 
       - name: Test-Parse (Windows PowerShell 5.1)
         working-directory: windows

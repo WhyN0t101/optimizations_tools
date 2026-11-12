@@ -132,6 +132,8 @@ Every option, with its default, whether `-Revert` undoes it and what evidence ba
 the vendor page, Folklore, or n/a for options that are not about speed), is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
 The evidence column is information only: options are chosen for speed, less bloat, less telemetry and smoothness.
 That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
+Every one of the 482 upstream ZOICWARE registry items (192 groups), with its key, value, data and the option that
+applies it, is in [`docs/REGISTRY.md`](docs/REGISTRY.md), generated the same way.
 
 Third party licence notices are in `NOTICE.md`.
 
