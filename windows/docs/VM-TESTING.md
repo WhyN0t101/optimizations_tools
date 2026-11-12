@@ -33,9 +33,10 @@ It asks for the guest password (or reads `FT_VM_PASSWORD`), then:
 | Benchmark | `-Benchmark` (runs before and after by default, the second one compares) |
 | Apply | `-Force` (real run, no prompts), then a restart |
 | Health | `-HealthCheck` |
+| Reapply | `-Reapply -Force` (puts back what Windows changed after the restart) |
 | Revert | `-Revert` with its revert check, then a restart |
 
-The default order is Dry, Benchmark, Apply, Health, Benchmark, Revert; `StartupReview` is also available. Pick stages
+The default order is Dry, Benchmark, Apply, Health, Reapply, Benchmark, Revert; `StartupReview` is also available. Pick stages
 with `-Stages Dry,Apply`, add script parameters with `-ScriptArgs '-Only MpoOff'`, and point at another VM
 with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<number>-<stage>` (ignored by git): `console.txt`, the
 `run-*.log`, `health-*.json`, `revert-check-*.json` and `state.json`. `summary.txt` lists errors, health warnings and

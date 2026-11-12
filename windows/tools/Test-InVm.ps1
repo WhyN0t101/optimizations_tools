@@ -30,7 +30,7 @@ param(
     [string]$GuestUser = 'Administrator',
     [string]$ProfilePath,
     [string]$ScriptArgs = '',
-    [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Revert', 'StartupReview')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Benchmark', 'Revert'),
+    [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Revert', 'StartupReview')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Benchmark', 'Revert'),
     [string]$OutDir,
     [int]$BootTimeoutSeconds = 600,
     [int]$StageTimeoutMinutes = 120
@@ -498,6 +498,8 @@ foreach ($stage in $Stages) {
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
         'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest; $restartedSinceRevert = $true }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
+        # After the restart Windows has had a chance to set things back; -Reapply lists and fixes only that.
+        'Reapply' { Invoke-GuestStage -Name $label -Arguments '-Reapply -Force' }
         'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest; $restartedSinceRevert = $true }
     }
 }
