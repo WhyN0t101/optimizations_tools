@@ -50,6 +50,9 @@ $stages = @(
     # away afterwards, so the pre flight block for managed PCs must not fail the smoke test.
     @{ Name = 'Apply'; Args = '-Force -SkipRestorePoint -AllowManaged -Skip Packages,HealthCheckAfter' }
     @{ Name = 'Health'; Args = '-HealthCheck' }
+    # Both passes of -Reapply: the scan and the repair. The runner is never restarted, so the restart the optional
+    # features asked for stays pending; -Reapply would wait for it, hence the two skipped checks.
+    @{ Name = 'Reapply'; Args = '-Reapply -Force -AllowManaged -SkipCheck PendingReboot,WindowsUpdate' }
     # Read only, so it can run between the others; this only proves it runs cleanly as administrator.
     @{ Name = 'Explain'; Script = (Join-Path (Split-Path $PSCommandPath -Parent) 'Explain-Processes.ps1'); Args = '' }
     @{ Name = 'RestoreTask'; Args = "-RestoreTask '\Microsoft\Windows\Application Experience\*'" }
