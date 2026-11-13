@@ -23,8 +23,8 @@ function Invoke-ApplyMode {
     if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
     }
-    Show-Plan
-    if (-not (Invoke-Preflight)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
+    Invoke-Timed -Name 'Plan' -Block { Show-Plan }
+    if (-not (Invoke-Timed -Name 'Pre flight checks' -Block { Invoke-Preflight })) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
     if (-not (Confirm-Run)) { Write-Log 'Cancelled, nothing was changed.' 'WARN'; Exit-Run 2 'The run was not confirmed.' }
     Invoke-Apply
     Save-State
@@ -52,7 +52,7 @@ if ($conflict) { throw $conflict }
 Enable-StayAwake
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
-try { Import-State }
+try { Invoke-Timed -Name 'Load state' -Block { Import-State } }
 catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
 catch { $Ctx.Failures++; Write-Log $_.Exception.Message 'ERROR' }

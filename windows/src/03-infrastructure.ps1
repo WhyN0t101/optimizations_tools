@@ -51,6 +51,16 @@ function Write-Log {
     Add-Content -Path $LogFile -Value $line
 }
 
+function Invoke-Timed {
+    # Times work that is not a step (start up, pre flight, plan, health areas). The Starting and Completed lines go to
+    # the log file only, in the same form as Invoke-Step's, so CI's step times include them and the console stays as
+    # it was. Passes the block's output through.
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][scriptblock]$Block)
+    Add-Content -Path $LogFile -Value ('{0:HH:mm:ss} [INFO] Starting: {1}' -f (Get-Date), $Name)
+    try { & $Block }
+    finally { Add-Content -Path $LogFile -Value ('{0:HH:mm:ss} [INFO] Completed: {1}' -f (Get-Date), $Name) }
+}
+
 # docs/AUDIT.md C-5: exit codes, also in the README and in the -Json result.
 $ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable' }
 $script:PreflightResults = @()
@@ -203,8 +213,14 @@ function Add-JournalEvents {
             [void]$text.Append((ConvertTo-Json -InputObject $line -Depth 6 -Compress)).Append("`n")
         }
         $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($text.ToString())
-        $stream = [IO.FileStream]::new($JournalFile, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read, 4096, [IO.FileOptions]::WriteThrough)
-        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
+        # Only lines that announce a change must be on the disk before it is made: they hold the value before. A
+        # batch of nothing but results (OK, MISMATCH, FAILED) is written without waiting for the disk; if a crash
+        # loses one, the change counts as interrupted and its original is still in the announcing line. That halves
+        # the forced writes for registry values and tasks.
+        $resultsOnly = @($Events | Where-Object { $_['Op'] -ne 'Result' }).Count -eq 0
+        $options = if ($resultsOnly) { [IO.FileOptions]::None } else { [IO.FileOptions]::WriteThrough }
+        $stream = [IO.FileStream]::new($JournalFile, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read, 4096, $options)
+        try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush((-not $resultsOnly)) }
         finally { $stream.Dispose() }
     }
     foreach ($e in $Events) {

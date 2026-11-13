@@ -5,7 +5,11 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
-Nothing yet.
+- Journal: only lines that announce a change are forced to disk before it (they hold the value before). Result lines
+  (OK, MISMATCH, FAILED) are written normally: a crash that loses one leaves the change counted as interrupted with its
+  original still recorded. Half the forced writes for registry values and tasks.
+- Timing: start up (Load state), the plan, the pre flight checks and each health check area now log Starting and
+  Completed lines to the log file (not the console), so CI's step times show them.
 
 ## v8.0 (13 Nov 2026)
 

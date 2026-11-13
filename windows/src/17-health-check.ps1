@@ -17,7 +17,7 @@ function Get-RuntimeStatus { if ($Ctx.SoftRuntime) { return 'INFO' } return 'FAI
 
 function Invoke-HealthArea {
     param([string]$Name, [scriptblock]$Check)
-    try { & $Check }
+    try { Invoke-Timed -Name "Health: $Name" -Block $Check }
     catch { Write-Health 'WARN' $Name "This check could not run: $($_.Exception.Message)" }
 }
 
