@@ -332,9 +332,11 @@ have not run in the VM yet):
   background polling cap, then measures the polling rate and its steadiness from raw input in a small window.
   `MouseFullRateBackground` (on) lifts Windows 11's cap of about 125 Hz for windows in the background (idea from FR33THY
   Ultimate). HWiNFO joins the default packages.
-- Windows 11 ARM smoke run (13 Nov 2026): TaskMode Delete now keeps a task whose account no longer exists (it cannot run,
+- Windows 11 ARM smoke run (13 Nov 2026): TaskMode Delete now keeps a task that names an account which no longer exists, in its principal or its logon trigger (it cannot run,
   and Windows refuses to register it again, so -Revert could not bring it back), and the policy store cache
   `CPSS\Store\AllowTelemetry` joined the values Windows recomputes after a revert.
+  The health check fails only for a core service the run disabled; one already disabled before it (that image ships
+  StorSvc disabled) is a warning.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

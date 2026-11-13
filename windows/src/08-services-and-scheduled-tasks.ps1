@@ -137,20 +137,22 @@ function Disable-TelemetryTasks {
     }
 }
 
-function Test-TaskAccountExists {
-    # A task whose account was deleted cannot run, and Task Scheduler refuses to register it again from its export
-    # ("No mapping between account names and security IDs"), so deleting it could never be undone. Seen on the
-    # Windows 11 ARM runner: a Visual Studio per user task of the account that built the image.
-    param([Parameter(Mandatory)]$Task)
-    if (-not $Task.PSObject.Properties['Principal'] -or -not $Task.Principal) { return $true }
-    $id = [string]$Task.Principal.UserId
-    if (-not $id) { return $true }
-    try {
-        if ($id -match '^S-\d-') { [void]([Security.Principal.SecurityIdentifier]::new($id)).Translate([Security.Principal.NTAccount]) }
-        else { [void]([Security.Principal.NTAccount]::new($id)).Translate([Security.Principal.SecurityIdentifier]) }
-        return $true
+function Get-TaskMissingAccount {
+    # The accounts a task's XML names (principal, logon trigger, group) that no longer exist. Such a task cannot run,
+    # and Task Scheduler refuses to register it again from its export ("No mapping between account names and security
+    # IDs"), so deleting it could never be undone. Seen on the Windows 11 ARM runner: a Visual Studio per user task
+    # whose logon trigger names the account that built the image.
+    param([AllowEmptyString()][string]$Xml)
+    $missing = @()
+    foreach ($m in [regex]::Matches($Xml, '<(UserId|GroupId)>([^<]+)</\1>')) {
+        $id = $m.Groups[2].Value.Trim()
+        try {
+            if ($id -match '^S-\d-') { [void]([Security.Principal.SecurityIdentifier]::new($id)).Translate([Security.Principal.NTAccount]) }
+            else { [void]([Security.Principal.NTAccount]::new($id)).Translate([Security.Principal.SecurityIdentifier]) }
+        }
+        catch { $missing += $id }
     }
-    catch { return $false }
+    return @($missing | Select-Object -Unique)
 }
 
 function Remove-AllScheduledTasks {
@@ -170,7 +172,10 @@ function Remove-AllScheduledTasks {
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
         if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
         if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
-        if (-not (Test-TaskAccountExists -Task $t)) { Write-Log "Task $full kept: its account ($($t.Principal.UserId)) no longer exists, so it cannot run and could not be restored."; continue }
+        # Exported here (reading only) to see which accounts it names; the same export becomes the backup below.
+        $xml = [string](Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction SilentlyContinue)
+        $gone = @(Get-TaskMissingAccount -Xml $xml)
+        if ($gone.Count -gt 0) { Write-Log "Task $full kept: its account ($($gone -join ', ')) no longer exists, so it cannot run and could not be restored."; continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -184,7 +189,8 @@ function Remove-AllScheduledTasks {
             $prior = Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName
             $haveOriginal = $prior -and $prior.Action -eq 'Deleted' -and $prior.XmlFile -and (Test-Path -LiteralPath $prior.XmlFile)
             if (-not $haveOriginal) {
-                Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath | Set-Content -LiteralPath $file -Encoding Unicode
+                if (-not $xml) { throw 'the task could not be exported, so it is not deleted' }
+                $xml | Set-Content -LiteralPath $file -Encoding Unicode
                 $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
             }
             else { $file = [string]$prior.XmlFile }

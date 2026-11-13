@@ -97,8 +97,13 @@ function Test-HealthServices {
     $core = @('BITS', 'CryptSvc', 'Winmgmt', 'StorSvc', 'AppXSvc', 'ClipSVC', 'InstallService', 'LicenseManager', 'BFE', 'mpssvc', 'Dnscache', 'NlaSvc', 'wuauserv', 'UsoSvc', 'WaaSMedicSvc')
     if ($Defender -ne 'Disable') { $core += 'WinDefend' }
     $disabledCore = @($core | Where-Object { (Get-ServiceStartNow $_) -eq 4 })
+    # Only a service this script disabled is a failure of the run. One that was disabled before it (the Windows 11 ARM
+    # runner image ships StorSvc disabled, 13 Nov 2026) is reported, but the run did not cause it.
+    $byRun = @($disabledCore | Where-Object { $n = $_; @($script:State.Registry | Where-Object { $_.Path -like "*\Services\$n" -and $_.Name -eq 'Start' }).Count -gt 0 })
+    $before = @($disabledCore | Where-Object { $byRun -notcontains $_ })
     if ($disabledCore.Count -eq 0) { Write-Health 'PASS' 'Services' 'Store, Windows Update, BITS, Delivery Optimization path and firewall services are not disabled.' }
-    else { Write-Health 'FAIL' 'Services' "Core services are disabled: $($disabledCore -join ', '). Store installs or updates may fail." }
+    if ($byRun.Count -gt 0) { Write-Health 'FAIL' 'Services' "Core services are disabled: $($byRun -join ', '). Store installs or updates may fail." }
+    if ($before.Count -gt 0) { Write-Health 'WARN' 'Services' "Core services were already disabled before FocusedTweaks ran (it did not change them): $($before -join ', '). Store installs or updates may fail; set them back to Manual if that matters." }
 }
 
 function Test-HealthApps {
