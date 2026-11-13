@@ -49,6 +49,7 @@ $conflict = Get-ModeConflict -Flags @{
     Benchmark = [bool]$Benchmark; FrameBenchmark = [bool]$FrameBenchmark
 }
 if ($conflict) { throw $conflict }
+Enable-StayAwake
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
 try { Import-State }

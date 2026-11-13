@@ -5,6 +5,10 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased (after v7.9)
 
+- Stay awake: every mode asks Windows not to sleep while the script runs (`SetThreadExecutionState`, as installers do;
+  no setting changes, Windows drops it when the script ends). In the VM test of 13 Nov 2026 the idle VM went to sleep
+  20 minutes after the last input, two minutes into the task step, and VMware suspended it. `Test-InVm.ps1` keeps the
+  host awake the same way.
 - Development (v7.9 on): `tools\Check.ps1` builds and runs Test-Parse under 5.1 and 7 in one go; the pre-commit hook in
   `.githooks/` runs it and refuses stale generated files. CI cancels runs for older pushes. A release is a tag only:
   the workflow checks that the smoke test passed on the tagged commit and stamps the tag into the script header

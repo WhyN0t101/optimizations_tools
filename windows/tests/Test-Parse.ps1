@@ -704,6 +704,7 @@ Check 'Reapply: the Connected Devices Platform cache, which Windows refills all 
     Register-PauseEndTask -EndUtc ([DateTime]::UtcNow.AddDays(30))
     Check 'Behaviour, PauseUpdates: the end task runs reg.exe as SYSTEM to delete only NoAutoUpdate, also after the PC was off, and is recorded before it is made' ($script:task.Execute -like '*\System32\reg.exe' -and $script:task.Argument -eq 'delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f' -and $script:task.User -eq 'S-1-5-18' -and $script:task.WhenAvailable -and (@($script:calls) -join ';') -eq 'state PauseEndTask;register \FocusedTweaks\End update pause' -and (Test-NameMatch '\FocusedTweaks\End update pause' $TaskKeepBuiltIn) -and $RevertOnlyExtra['PauseUpdates'] -eq 'PauseEndTask')
 }
+Check 'Every mode asks Windows to stay awake before it starts working (an idle PC slept mid run in the VM test of 13 Nov 2026)' ($text -match '(?m)^Enable-StayAwake\r?\nInitialize-StateDir' -and $text -match 'SetThreadExecutionState\(\[uint32\]''0x80000001''\)')
 & {
     # Optional features change in one servicing call; only when that fails is each name tried alone.
     $script:featureCalls = [System.Collections.Generic.List[string]]::new()

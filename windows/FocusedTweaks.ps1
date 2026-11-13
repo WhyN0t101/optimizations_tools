@@ -2851,6 +2851,18 @@ function Test-RecordedFirst {
     return $false
 }
 
+function Enable-StayAwake {
+    # A run takes minutes; an idle PC may go to sleep in the middle of it (the VM run of 13 Nov 2026 slept 20 minutes
+    # after the last input, two minutes into the task step). This asks Windows to stay awake while this process runs,
+    # as installers and video players do. No setting changes, the screen may still turn off, and Windows drops the
+    # request when the script ends.
+    if (-not ('Native.Kernel32Power' -as [type])) {
+        Add-Type -Namespace Native -Name Kernel32Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+    }
+    # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x1)
+    if ([Native.Kernel32Power]::SetThreadExecutionState([uint32]'0x80000001') -eq 0) { Write-Log 'Could not ask Windows to stay awake during the run; if the PC sleeps, the run pauses until it wakes.' 'WARN' }
+}
+
 function Initialize-StateDir {
     # The state file is read back by -Revert and -HealthCheck and drives file, service and TrustedInstaller actions, and
     # C:\ProgramData lets standard users create folders. So the folder must belong to administrators and be closed to
@@ -6805,6 +6817,7 @@ $conflict = Get-ModeConflict -Flags @{
     Benchmark = [bool]$Benchmark; FrameBenchmark = [bool]$FrameBenchmark
 }
 if ($conflict) { throw $conflict }
+Enable-StayAwake
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
 try { Import-State }

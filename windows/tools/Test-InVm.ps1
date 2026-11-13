@@ -56,6 +56,13 @@ if (-not (Test-Path -LiteralPath $Vmx)) { throw "VM not found: $Vmx (pass -Vmx).
 if (-not (Test-Path -LiteralPath $scriptFile)) { throw "Script not found: $scriptFile. Build it first with tools\build.py." }
 if ($ProfilePath -and -not (Test-Path -LiteralPath $ProfilePath)) { throw "Profile not found: $ProfilePath" }
 
+# A sleeping PC suspends the VM, and the stage then fails with "VMware Tools did not answer" (13 Nov 2026, PC left
+# alone during a run). Ask Windows to stay awake while this process runs, as a video player does. It changes no
+# setting, the screen may still turn off, and Windows drops the request when this process ends.
+Add-Type -Namespace FtInVm -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'
+# ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x1)
+if ([FtInVm.Power]::SetThreadExecutionState([uint32]'0x80000001') -eq 0) { Write-Warning 'Could not keep the PC awake: if it sleeps during the run, the VM is suspended and the stage fails.' }
+
 $password = $env:FT_VM_PASSWORD
 if (-not $password) {
     $secure = Read-Host "Password for $GuestUser in the VM" -AsSecureString
