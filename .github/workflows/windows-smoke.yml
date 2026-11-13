@@ -1,16 +1,24 @@
-# Runs FocusedTweaks for real on a disposable Windows Server 2025 runner (the closest image to Windows 11 24H2):
-# dry runs, a real run with the defaults, the health check and -Revert. The runner is thrown away afterwards.
-# Logs, health and revert-check JSON and summary.txt are uploaded as the "smoke-results" artifact.
+# Runs FocusedTweaks for real on disposable GitHub runners: dry runs, a real run with the defaults, the health check,
+# -Reapply and -Revert. The runners are thrown away afterwards.
+# - windows-2025: Windows Server 2025, x64, the closest Server image to Windows 11 24H2. No Store apps, Quick Assist
+#   or restore points.
+# - windows-11-arm: Windows 11 client on ARM64. Has the client parts Server lacks; no NVIDIA, and x64-only installers
+#   run under emulation.
+# Logs, health and revert-check JSON and summary.txt are uploaded per runner as "smoke-results-<runner>".
+# A weekly run catches Windows changes (the runner images get each month's updates) in weeks without a commit.
 name: windows smoke test
 
 on:
   push:
     paths: ['windows/**', '.github/workflows/windows-smoke.yml', '.github/workflows/windows-build.yml']
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
   workflow_dispatch:
 
-# A newer push to the same branch cancels this run: only the newest commit's result matters.
+# A newer push to the same branch cancels this run: only the newest commit's result matters. The event is in the
+# group so the weekly run and a push never cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -22,8 +30,12 @@ jobs:
 
   smoke:
     needs: build
-    runs-on: windows-2025
-    # Each of the six stages stops itself after 12 minutes and still reports; this only catches the rest.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    # Each of the stages stops itself after 12 minutes and still reports; this only catches the rest.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,7 +45,7 @@ jobs:
           name: FocusedTweaks
           path: dist
 
-      - name: Dry runs, real run, health check, revert
+      - name: Dry runs, real run, health check, reapply, revert
         shell: powershell
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Test-Smoke.ps1 -Script dist\FocusedTweaks.ps1 -OutDir smoke
@@ -43,5 +55,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: smoke-results
+          name: smoke-results-${{ matrix.runner }}
           path: smoke

@@ -18,10 +18,11 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
   `windows-release.yml`, which refuses a commit without a successful smoke test run, stamps the tag into the header
 (`build.py --version`; there is no version commit, `src/00-header.ps1` holds `__FT_VERSION__`), and publishes the built script, its SHA256 and NOTICE.md as a GitHub release, with a
   build provenance attestation. Actions are pinned by commit SHA with the tag in a comment (`Test-Parse` checks it).
-- `windows-smoke.yml` runs the script for real on a throwaway Windows Server 2025 runner through
-  `tools/Test-Smoke.ps1` (dry runs, apply, health check, revert) and uploads the results as `smoke-results`.
-  Test-Smoke refuses to run outside GitHub Actions. Server lacks Store apps, Quick Assist and restore points,
-  so read Server-only failures with that in mind; the VM test is still the full Windows 11 check.
+- `windows-smoke.yml` runs the script for real on throwaway runners, Windows Server 2025 (x64) and Windows 11
+  (`windows-11-arm`, ARM64), through `tools/Test-Smoke.ps1` (dry runs, apply, health check, reapply, revert), on every
+  push and every Monday, and uploads `smoke-results-<runner>`. Test-Smoke refuses to run outside GitHub Actions.
+  Server lacks Store apps, Quick Assist and restore points; the ARM runner has them but no NVIDIA and emulates x64
+  installers. The VM test remains the x64 Windows 11 check with a real reboot.
 - `tests/Test-Parse.ps1` is a static check that needs no admin rights and changes nothing. Run it with both `pwsh` and
   `powershell.exe`. It also builds a junction in a scratch folder to prove the cleanup never follows links, and tests
   the journal rules in a scratch key under `HKCU\Software\FocusedTweaksTest-<id>`; both are removed again.
