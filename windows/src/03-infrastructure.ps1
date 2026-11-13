@@ -56,6 +56,8 @@ $ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refus
 $script:PreflightResults = @()
 
 function Get-RunMode {
+    # The mode this run is in; src/19-entry-point.ps1 maps each to what it does ($ModeActions).
+    if ($Revert -and $Only.Count -gt 0) { return 'revertonly' }
     if ($Revert) { return 'revert' }
     if ($RestoreTask.Count -gt 0) { return 'restoretask' }
     if ($HealthCheck) { return 'healthcheck' }

@@ -301,6 +301,11 @@ have not run in the VM yet):
 - Run context: fifteen script-level flags and counters (dry run, reapply, after-apply, failures, warnings, the current
   step and its journal option, and more), which four files each set up, became one object, `$Ctx`, made once in the
   header. The built script behaves the same; a test fails if a `$script:` copy of one of them comes back.
+- Mode dispatch: the `if`/`elseif` chain at the end became a table from mode (`Get-RunMode`) to action, and one pure
+  function, `Get-ModeConflict`, refuses every combination that would drop a mode. New: `-HealthCheck`,
+  `-StartupReview`, `-RestoreTask`, `-Revert` and `-Reapply` are refused together instead of the first one winning;
+  `-Revert -Only` is its own mode (`revertonly` in `-Json`). Tests check the combinations and that every mode has an
+  action.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.
