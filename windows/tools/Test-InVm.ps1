@@ -326,7 +326,8 @@ exit `$code
     $polls = 0
     $checkRunner = $false
     while (-not $problem) {
-        Start-Sleep -Seconds 15
+        # Every 3 s: a stage was noticed up to 15 s late before. Each check is one vmrun call.
+        Start-Sleep -Seconds 3
         $polls++
         $state = Test-GuestFile -Path $done
         if ($state -eq $true) { break }
@@ -336,7 +337,7 @@ exit `$code
             continue
         }
         if ((Get-Date) -gt $deadline) { $problem = "it ran longer than $StageTimeoutMinutes minutes"; break }
-        if ($checkRunner -or $polls % 4 -eq 0) {
+        if ($checkRunner -or $polls % 20 -eq 0) {   # about once a minute, as before
             $checkRunner = $false
             if (-not (Test-GuestRunnerAlive -Name $Name) -and (Test-GuestFile -Path $done) -ne $true) {
                 $problem = 'its runner is no longer running in the guest (restart or sign out?)'

@@ -3895,16 +3895,18 @@ function Get-TaskRecord {
 function Save-TaskState {
     # Returns what it did: 'new', 'upgraded' (a Disabled record became Deleted) or 'kept'. The first record keeps the
     # original WasEnabled; a task disabled by one run and deleted by a later one must still be restorable from XML.
-    param($Task, [string]$Action, [string]$XmlFile = $null)
+    # -Also: journal events to write in the same flushed write (the change line that announces the delete), so each
+    # task costs one forced disk write before it changes, not two.
+    param($Task, [string]$Action, [string]$XmlFile = $null, [object[]]$Also = @())
     $e = Get-TaskRecord -Path $Task.TaskPath -Name $Task.TaskName
     $mode = 'kept'
     if (-not $e) { $mode = 'new' }
     elseif ($Action -eq 'Deleted' -and $e.Action -eq 'Disabled') { $mode = 'upgraded' }
-    if ($mode -eq 'kept') { return 'kept' }
+    if ($mode -eq 'kept') { Add-JournalEvents $Also; return 'kept' }
     $wasEnabled = ($Task.State -ne 'Disabled')
     if ($e) { $wasEnabled = [bool]$e.WasEnabled }
     $record = [pscustomobject]@{ Path = $Task.TaskPath; Name = $Task.TaskName; Action = $Action; WasEnabled = $wasEnabled; XmlFile = $XmlFile }
-    Add-JournalEvents @([ordered]@{ Op = 'Task'; Mode = $mode; Record = $record })
+    Add-JournalEvents (@([ordered]@{ Op = 'Task'; Mode = $mode; Record = $record }) + @($Also))
     return $mode
 }
 
@@ -3955,6 +3957,53 @@ function Disable-TelemetryTasks {
     }
 }
 
+# Per task work goes to Task Scheduler directly through its COM interface (Schedule.Service), the one its own console
+# uses. The ScheduledTasks cmdlets go through WMI instead: in the VM run of 13 Nov 2026 WMI Provider Host took most of
+# the CPU and deleting or restoring a task took 2 seconds or more each. The full task list is still read once with
+# Get-ScheduledTask, and protected tasks still go through TrustedInstaller with the cmdlets.
+function Get-TaskSchedulerService {
+    # Get-Variable, not $script:..., which strict mode refuses to read before the first assignment.
+    if (-not (Get-Variable -Name TaskSchedulerService -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
+        $service = New-Object -ComObject Schedule.Service
+        $service.Connect()
+        $script:TaskSchedulerService = $service
+    }
+    return $script:TaskSchedulerService
+}
+
+function Get-TaskFolderDirect {
+    # $Path is a task path as the cmdlets give it ('\Microsoft\Windows\Defrag\'). -Create makes missing folders.
+    param([Parameter(Mandatory)][string]$Path, [switch]$Create)
+    $service = Get-TaskSchedulerService
+    $folder = $service.GetFolder('\')
+    foreach ($part in @($Path.Trim('\') -split '\\' | Where-Object { $_ })) {
+        $next = $null
+        try { $next = $folder.GetFolder($part) } catch { if (-not $Create) { throw } }
+        if (-not $next) { $next = $folder.CreateFolder($part) }
+        $folder = $next
+    }
+    return $folder
+}
+
+function Export-TaskXmlDirect {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name)
+    return [string](Get-TaskFolderDirect -Path $Path).GetTask($Name).Xml
+}
+
+function Remove-TaskDirect {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name)
+    (Get-TaskFolderDirect -Path $Path).DeleteTask($Name, 0)
+}
+
+function Register-TaskXmlDirect {
+    # Registers the exported XML as it is: the account and logon type come from the XML's own principal, as with
+    # Register-ScheduledTask -Xml. 6 = create or update.
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Xml)
+    $definition = (Get-TaskSchedulerService).NewTask(0)
+    $definition.XmlText = $Xml
+    [void](Get-TaskFolderDirect -Path $Path -Create).RegisterTaskDefinition($Name, $definition, 6, $null, $null, $definition.Principal.LogonType)
+}
+
 function Get-TaskMissingAccount {
     # The accounts a task's XML names (principal, logon trigger, group) that no longer exist. Such a task cannot run,
     # and Task Scheduler refuses to register it again from its export ("No mapping between account names and security
@@ -3991,11 +4040,12 @@ function Remove-AllScheduledTasks {
         if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
         if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
         # Exported here (reading only) to see which accounts it names; the same export becomes the backup below.
-        $xml = [string](Export-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -ErrorAction SilentlyContinue)
+        $xml = ''
+        try { $xml = Export-TaskXmlDirect -Path $t.TaskPath -Name $t.TaskName } catch { }
         $gone = @(Get-TaskMissingAccount -Xml $xml)
         if ($gone.Count -gt 0) { Write-Log "Task $full kept: its account ($($gone -join ', ')) no longer exists, so it cannot run and could not be restored."; continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
-        # Each task takes about a second (export, then delete), so say that the step is still working.
+        # Each task takes a moment (export, journal, delete), so say that the step is still working.
         $seen++
         if ($seen % 40 -eq 0) { Write-Log "Scheduled tasks: $seen of $($tasks.Count) processed, still working." }
         $file = Join-Path $dir (($full -replace '[\\/:*?"<>| ]', '_') + '.xml')
@@ -4009,12 +4059,17 @@ function Remove-AllScheduledTasks {
             if (-not $haveOriginal) {
                 if (-not $xml) { throw 'the task could not be exported, so it is not deleted' }
                 $xml | Set-Content -LiteralPath $file -Encoding Unicode
-                $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file
+                # The task record and the line announcing the delete go to disk in one write.
+                $pending = New-TaskChange -Task $t -Action 'Deleted' -XmlFile $file
+                $outcome = Save-TaskState -Task $t -Action 'Deleted' -XmlFile $file -Also @($pending)
+                $change = $pending
             }
-            else { $file = [string]$prior.XmlFile }
-            $change = New-TaskChange -Task $t -Action 'Deleted' -XmlFile $file
-            Add-JournalEvents @($change)
-            Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop
+            else {
+                $file = [string]$prior.XmlFile
+                $change = New-TaskChange -Task $t -Action 'Deleted' -XmlFile $file
+                Add-JournalEvents @($change)
+            }
+            Remove-TaskDirect -Path $t.TaskPath -Name $t.TaskName
             Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now 'Deleted')
             $deleted++
         }
@@ -4042,9 +4097,8 @@ function Invoke-TaskMode {
 function Set-TaskEnabledState {
     # Brings a task back to enabled or disabled as it was before the run.
     param([string]$Path, [string]$Name, [bool]$Enabled)
-    $now = Get-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop
-    if ($Enabled -and $now.State -eq 'Disabled') { Enable-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop | Out-Null }
-    elseif (-not $Enabled -and $now.State -ne 'Disabled') { Disable-ScheduledTask -TaskPath $Path -TaskName $Name -ErrorAction Stop | Out-Null }
+    $task = (Get-TaskFolderDirect -Path $Path).GetTask($Name)
+    if ([bool]$task.Enabled -ne $Enabled) { $task.Enabled = $Enabled }
 }
 
 function Restore-Tasks {
@@ -4059,7 +4113,7 @@ function Restore-Tasks {
                     $problems++
                     continue
                 }
-                Register-ScheduledTask -Xml (Get-Content -LiteralPath $t.XmlFile -Raw) -TaskName $t.Name -TaskPath $t.Path -Force -ErrorAction Stop | Out-Null
+                Register-TaskXmlDirect -Path $t.Path -Name $t.Name -Xml ([IO.File]::ReadAllText($t.XmlFile))
             }
             # The export may hold a disabled copy (a task disabled by one run, deleted by a later one).
             Set-TaskEnabledState -Path $t.Path -Name $t.Name -Enabled ([bool]$t.WasEnabled)

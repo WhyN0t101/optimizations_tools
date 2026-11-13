@@ -5,6 +5,10 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased (after v7.9)
 
+- Scheduled tasks: deleting and restoring them now talks to Task Scheduler directly (its COM interface, as its own console
+  does) instead of through WMI, which took most of the CPU in the VM run of 13 Nov 2026 at 2 s or more per task. The
+  exported XML is identical (a test compares both). Each delete now makes one forced journal write before it, not two.
+  Protected tasks still go through TrustedInstaller. `Test-InVm.ps1` notices a finished stage within 3 s, not 15.
 - Stay awake: every mode asks Windows not to sleep while the script runs (`SetThreadExecutionState`, as installers do;
   no setting changes, Windows drops it when the script ends). In the VM test of 13 Nov 2026 the idle VM went to sleep
   20 minutes after the last input, two minutes into the task step, and VMware suspended it. `Test-InVm.ps1` keeps the
