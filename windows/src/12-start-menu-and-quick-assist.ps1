@@ -31,9 +31,9 @@ function Clear-DesktopIcons {
             $moved++
         }
     }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         Write-Log "Desktop cleared: $moved shortcut(s) moved to the backup folder. $left file or folder item(s) were left on the desktop untouched." 'OK'
-        $script:ShellDirty = $true
+        $Ctx.ShellDirty = $true
     }
 }
 
@@ -45,7 +45,7 @@ function Restore-DesktopIcons {
         }
     }
     Write-Log 'Desktop shortcuts restored.' 'OK'
-    $script:ShellDirty = $true
+    $Ctx.ShellDirty = $true
 }
 
 function Clear-StartPins {
@@ -126,7 +126,7 @@ function Test-QuickAssistPresent {
 
 function Remove-QuickAssist {
     # -Reapply: Quick Assist that is still gone is not drift.
-    if ($script:Reapply -and -not (Test-QuickAssistPresent)) { return }
+    if ($Ctx.Reapply -and -not (Test-QuickAssistPresent)) { return }
     if (Test-DryRun 'remove Quick Assist (Windows capability, package and app)') { return }
     $removed = 0
     foreach ($cap in @(Get-WindowsCapability -Online | Where-Object { $_.Name -like 'App.Support.QuickAssist~~~~*' -and $_.State -eq 'Installed' })) {
@@ -209,7 +209,7 @@ function Remove-Edge {
     # region is not faked. WebView2 and Microsoft Edge Update stay: apps embed WebView2 and it updates through them.
     $edge = Get-EdgeState
     if (-not $edge.Installed) { Write-Log 'Microsoft Edge is not installed.'; return }
-    if ($script:Reapply -and @($script:State.Removed) -notcontains 'Microsoft.Edge') { return }
+    if ($Ctx.Reapply -and @($script:State.Removed) -notcontains 'Microsoft.Edge') { return }
     $block = Get-EdgeRemovalBlock -HttpsHandler (Get-DefaultHandler 'UrlAssociations\https') -HttpHandler (Get-DefaultHandler 'UrlAssociations\http')
     if ($block) { Write-Log "Edge kept: $block" 'WARN'; return }
     if ((Get-DefaultHandler 'FileAssociations\.pdf') -like 'MSEdge*') { Write-Log 'Edge opens PDF files now; after the removal choose another PDF app (Settings, Apps, Default apps).' 'WARN' }
@@ -257,7 +257,7 @@ function Remove-OneDrive {
     }
     $left = @((Get-OneDriveState).Installed)
     if ($left.Count -eq 0) { Write-Log 'OneDrive uninstalled. Files in the OneDrive folder stay on disk. To get it back: -Revert (lifts the policy), then winget install Microsoft.OneDrive.' 'OK' }
-    else { $script:Failures++; Write-Log "OneDrive is still installed: $($left -join ', ')." 'ERROR' }
+    else { $Ctx.Failures++; Write-Log "OneDrive is still installed: $($left -join ', ')." 'ERROR' }
 }
 #endregion
 

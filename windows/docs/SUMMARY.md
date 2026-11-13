@@ -298,6 +298,9 @@ have not run in the VM yet):
   folder handling, so the tweak script lost about 450 lines and two modes. `FocusedTweaks.ps1 -Benchmark` and
   `-FrameBenchmark` now say where they went. The release zip carries `tools\` (Measure-Performance and
   Explain-Processes); `Test-InVm.ps1` runs the benchmark stages with the tool.
+- Run context: fifteen script-level flags and counters (dry run, reapply, after-apply, failures, warnings, the current
+  step and its journal option, and more), which four files each set up, became one object, `$Ctx`, made once in the
+  header. The built script behaves the same; a test fails if a `$script:` copy of one of them comes back.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

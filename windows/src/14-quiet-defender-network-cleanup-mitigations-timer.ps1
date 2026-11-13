@@ -2,7 +2,7 @@
 function Wait-TamperProtectionOff {
     # Tamper Protection exists to stop software from changing Defender, so a script cannot and must not switch it off.
     # Ask for it up front instead, with the right Windows Security page open. -Force skips the question.
-    if ($script:DryRun -or $Force) { return }
+    if ($Ctx.DryRun -or $Force) { return }
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try { $tamper = [bool](Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected }
         catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)"; return }
@@ -25,7 +25,7 @@ function Set-DefenderQuiet {
     }
     catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)" }
     Set-TweakList $DefenderQuietRegs
-    if (-not $script:DryRun) { Write-Log 'Defender cloud reporting, sample submission, infection reports and notifications are off by policy. Protection stays on.' 'OK' }
+    if (-not $Ctx.DryRun) { Write-Log 'Defender cloud reporting, sample submission, infection reports and notifications are off by policy. Protection stays on.' 'OK' }
 }
 
 function Get-NetAdapterTweaks {
@@ -64,7 +64,7 @@ function Set-NetAdapterOff {
     $tweaks = @(Get-NetAdapterTweaks -Keywords $Keywords -AllowOff:$AllowOff)
     if ($tweaks.Count -eq 0) { Write-Log "$Label`: no matching values on the physical network adapters." 'WARN'; return }
     Set-TweakList $tweaks
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     $adapters = @($tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     Write-Log "$Label`: $($tweaks.Count) value(s) set on $adapters adapter(s). They apply after a restart." 'OK'
 }
@@ -181,7 +181,7 @@ function Clear-UpdateDownloadCache {
 
 function Disable-SpectreMeltdownMitigations {
     Set-TweakList $MitigationRegs
-    if (-not $script:DryRun) { Write-Log 'Spectre and Meltdown mitigations are switched off. Restart Windows to apply.' 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log 'Spectre and Meltdown mitigations are switched off. Restart Windows to apply.' 'WARN' }
 }
 
 function Get-BcdValue {
@@ -225,7 +225,7 @@ function Install-TimerResolutionService {
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $skip = Get-TimerSkipReasonHere
     if ($skip) { Write-Log "Timer resolution service skipped: $skip." 'WARN'; return }
-    if ($script:Reapply -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) { return }
+    if ($Ctx.Reapply -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) { return }
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
     Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })

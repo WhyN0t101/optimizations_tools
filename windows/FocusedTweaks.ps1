@@ -146,6 +146,26 @@ if (-not ($ListOptions -or $ListRegGroups)) {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The run in progress, in one place: which mode it is in (dry run, reapply, after an apply), its counters and the step
+# it is at. Functions read and change it here instead of each keeping a script-level variable of its own.
+$Ctx = [pscustomobject]@{
+    DryRun        = [bool]$DryRun
+    Reapply       = $false
+    DryRunCount   = 0
+    PostApply     = $false
+    SoftRuntime   = $false
+    AppliedAt     = $null
+    StopRun       = $false
+    ShellDirty    = $false
+    Failures      = 0
+    Warnings      = 0
+    TiCount       = 0
+    JournalOption = ''      # option the current change belongs to, written into each journal line
+    StepId        = 0
+    StepName      = ''
+    StepEvents    = [System.Collections.Generic.List[object]]::new()
+}
+
 #region Options ---------------------------------------------------------------------------
 # Name = default state, description, evidence tier, source. Defaults mirror upstream unless noted. The tier says what
 # backs the option's effect (docs/AUDIT.md C-3); it is information only and never decides a default:
@@ -333,7 +353,6 @@ if ($ListOptions) {
     exit 0
 }
 Resolve-Options
-$script:DryRun = [bool]$DryRun
 $WantNvidia = [bool]($NvidiaInstaller -or $NvidiaDownload -or $NvidiaVersion)
 #endregion
 
@@ -2279,16 +2298,7 @@ $StateVersion = 2
 $LogFile = Join-Path $StateDir ('run-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
-$script:Failures = 0
-$script:Warnings = 0
-$script:TiCount = 0
-$script:ShellDirty = $false
 $script:JournalSeq = 0      # number of the last journal line written or read
-$script:StepId = 0
-$script:StepName = ''
-$script:JournalOption = ''  # option the current change belongs to, written into each journal line
-$script:StepEvents = [System.Collections.Generic.List[object]]::new()
-$script:StopRun = $false
 $script:State = @{
     Registry   = [System.Collections.Generic.List[object]]::new()
     KeyBackups = [System.Collections.Generic.List[object]]::new()
@@ -2324,7 +2334,7 @@ function Write-Log {
         [Parameter(Mandatory)][string]$Message,
         [ValidateSet('INFO', 'OK', 'WARN', 'ERROR')][string]$Level = 'INFO'
     )
-    if ($Level -eq 'WARN') { $script:Warnings++ }
+    if ($Level -eq 'WARN') { $Ctx.Warnings++ }
     $line = '{0:HH:mm:ss} [{1}] {2}' -f (Get-Date), $Level, $Message
     $colour = switch ($Level) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'ERROR' { 'Red' } default { 'Gray' } }
     # With -Json the console gets only the result object; the log file still gets every line.
@@ -2342,7 +2352,7 @@ function Get-RunMode {
     if ($HealthCheck) { return 'healthcheck' }
     if ($Reapply) { return 'reapply' }
     if ($StartupReview) { return 'startupreview' }
-    if ($script:DryRun) { return 'dryrun' }
+    if ($Ctx.DryRun) { return 'dryrun' }
     return 'apply'
 }
 
@@ -2355,7 +2365,7 @@ function Get-RunResult {
     if (Test-Path -LiteralPath $JournalFile) { $journal = $JournalFile }
     return [ordered]@{
         ExitCode = $Code; Result = $ExitCodes[$Code]; Reason = $Reason; Mode = (Get-RunMode)
-        Failures = $script:Failures; Warnings = $script:Warnings; Preflight = @($script:PreflightResults); Health = $health
+        Failures = $Ctx.Failures; Warnings = $Ctx.Warnings; Preflight = @($script:PreflightResults); Health = $health
         Log = $LogFile; Journal = $journal; StateDir = $StateDir
     }
 }
@@ -2367,14 +2377,12 @@ function Exit-Run {
     exit $Code
 }
 
-$script:DryRunCount = 0
-# -Reapply: the apply steps run again, but every primitive leaves alone what is already as the run set it, so only
-# what Windows changed back is touched (and, in its first pass, listed).
-$script:Reapply = $false
+# -Reapply ($Ctx.Reapply): the apply steps run again, but every primitive leaves alone what is already as the run set
+# it, so only what Windows changed back is touched (and, in its first pass, listed).
 
 function Test-DryRun {
     param([Parameter(Mandatory)][string]$Action)
-    if ($script:DryRun) { $script:DryRunCount++; Write-Log "DRY RUN, would: $Action"; return $true }
+    if ($Ctx.DryRun) { $Ctx.DryRunCount++; Write-Log "DRY RUN, would: $Action"; return $true }
     return $false
 }
 
@@ -2400,7 +2408,7 @@ function ConvertFrom-StoredRecord {
 }
 
 function Save-State {
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     $copy = @{}
     foreach ($entry in $script:State.GetEnumerator()) { $copy[$entry.Key] = $entry.Value }
     $copy.Registry = @($script:State.Registry | ForEach-Object { ConvertTo-StoredRecord $_ })
@@ -2471,12 +2479,12 @@ function Add-JournalEvents {
     # Dry runs and -Revert write no journal.
     param([AllowEmptyCollection()][object[]]$Events = @())
     if ($Events.Count -eq 0) { return }
-    if (-not ($script:DryRun -or $Revert)) {
+    if (-not ($Ctx.DryRun -or $Revert)) {
         $text = New-Object Text.StringBuilder
         foreach ($e in $Events) {
             $script:JournalSeq++
             $e['Seq'] = $script:JournalSeq
-            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $script:StepId; StepName = $script:StepName; Option = $script:JournalOption }
+            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $Ctx.StepId; StepName = $Ctx.StepName; Option = $Ctx.JournalOption }
             foreach ($k in @($e.Keys)) {
                 if ($k -eq 'Seq') { continue }
                 if ($k -eq 'Item' -or $k -eq 'Before') { $line[$k] = ConvertTo-StoredRecord $e[$k] } else { $line[$k] = $e[$k] }
@@ -2490,7 +2498,7 @@ function Add-JournalEvents {
     }
     foreach ($e in $Events) {
         Invoke-JournalEvent -JournalEvent $e
-        $script:StepEvents.Add($e)
+        $Ctx.StepEvents.Add($e)
     }
 }
 
@@ -2567,16 +2575,16 @@ function Undo-FailedStep {
     # half done. When the step changed something the journal cannot put back, the run stops instead: nothing more is
     # built on a half done step, and -Revert still undoes everything recorded.
     param([string]$Name)
-    $changes = @($script:StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
+    $changes = @($Ctx.StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
     if ($changes.Count -eq 0) { Write-Log "Rollback of '$Name': the step recorded no changes, nothing to undo."; return }
     $unsafe = @($changes | Where-Object { -not (Test-RollbackSafe $_) })
     if ($unsafe.Count -gt 0) {
-        $script:StopRun = $true
+        $Ctx.StopRun = $true
         $what = @($unsafe | ForEach-Object { if ($_.Op -eq 'Set') { $_.Name } elseif ($_.Op -eq 'Add') { $_.Section } else { $_.Kind } } | Select-Object -Unique) -join ', '
         Write-Log "Rollback of '$Name' is not safe: the step also changed $what, which the journal cannot put back. The run stops here. Everything recorded so far is saved, so -Revert undoes it." 'ERROR'
         return
     }
-    $failedTasks = @($script:StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
+    $failedTasks = @($Ctx.StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
     $tasks = [System.Collections.Generic.List[object]]::new()
     $undone = 0; $problems = 0
     [array]::Reverse($changes)
@@ -2598,33 +2606,33 @@ function Undo-FailedStep {
     Add-JournalEvents @([ordered]@{ Op = 'Rollback'; Kind = 'Step'; Target = $Name; Result = $outcome; Now = "$undone change(s) put back" })
     if ($problems -eq 0) { Write-Log "Rolled back '$Name': $undone change(s) put back from the journal." 'WARN' }
     else {
-        $script:StopRun = $true
+        $Ctx.StopRun = $true
         Write-Log "Rollback of '$Name' put back $undone change(s) but $problems could not be put back (listed above). The run stops here; -Revert undoes what is recorded." 'ERROR'
     }
 }
 
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Action, [string]$Option = '')
-    if ($script:StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
-    $script:StepId++
-    $script:StepName = $Name
-    $script:JournalOption = $Option
-    $script:StepEvents.Clear()
-    $failuresBefore = $script:Failures
+    if ($Ctx.StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
+    $Ctx.StepId++
+    $Ctx.StepName = $Name
+    $Ctx.JournalOption = $Option
+    $Ctx.StepEvents.Clear()
+    $failuresBefore = $Ctx.Failures
     Write-Log "Starting: $Name"
     try {
         & $Action
-        if ($script:Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
-        else { Write-Log "Failed: $Name. $($script:Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
+        if ($Ctx.Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
+        else { Write-Log "Failed: $Name. $($Ctx.Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Failed: $Name. $($_.Exception.Message)" 'ERROR'
     }
     finally {
-        if ($script:Failures -gt $failuresBefore -and -not $Revert -and -not $script:DryRun) { Undo-FailedStep -Name $Name }
+        if ($Ctx.Failures -gt $failuresBefore -and -not $Revert -and -not $Ctx.DryRun) { Undo-FailedStep -Name $Name }
         if (-not $Revert) { Save-State }
-        $script:JournalOption = ''
+        $Ctx.JournalOption = ''
     }
 }
 
@@ -2856,7 +2864,7 @@ function Invoke-AsTI {
     # Runs a PowerShell command as TrustedInstaller by briefly pointing the TrustedInstaller service at it.
     # The service path is always restored to the default afterwards.
     param([Parameter(Mandatory)][string]$PsCommand)
-    $script:TiCount++
+    $Ctx.TiCount++
     $flag = Join-Path $env:TEMP ('ft-ti-{0}.done' -f [guid]::NewGuid().ToString('N'))
     $wrapped = "try { $PsCommand } catch { } ; New-Item -ItemType File -Force -Path '$flag' | Out-Null"
     $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wrapped))
@@ -2957,7 +2965,7 @@ function Set-RegValue {
         [ValidateSet('DWord', 'String', 'ExpandString', 'QWord', 'Binary', 'MultiString', 'None')][string]$Type = 'DWord'
     )
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply -and (Test-RegValueIs -Full $full -Name $Name -Value $Value -Type $Type)) { return }
+    if ($Ctx.Reapply -and (Test-RegValueIs -Full $full -Name $Name -Value $Value -Type $Type)) { return }
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
     $change = $null
     try {
@@ -2972,7 +2980,7 @@ function Set-RegValue {
         Add-JournalEvents @(Complete-RegChange -Change $change -Full $full -Name $Name -Value $Value -Kind $Type)
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry write failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
@@ -3000,7 +3008,7 @@ function Remove-RegValueRaw {
 function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply -and -not (Get-RegSnapshot -Full $full -Name $Name).Existed) { return }
+    if ($Ctx.Reapply -and -not (Get-RegSnapshot -Full $full -Name $Name).Existed) { return }
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
     $change = $null
     try {
@@ -3011,7 +3019,7 @@ function Remove-RegValue {
         Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>')
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry value removal failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
@@ -3020,7 +3028,7 @@ function Remove-RegValue {
 function Remove-RegKey {
     param([Parameter(Mandatory)][string]$Path)
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply) {
+    if ($Ctx.Reapply) {
         $exists = Open-RegKey -Full $full
         if (-not $exists) { return }
         $exists.Close()
@@ -3054,7 +3062,7 @@ function Remove-RegKey {
         if (-not $gone) { Write-Log "MISMATCH: the key $full is still present after deleting it." 'WARN' }
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry key removal failed: $full. $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
@@ -3251,7 +3259,7 @@ function Remove-StartupEntries {
     $kept = @($names | Where-Object { Test-StartupKept $_ })
     foreach ($n in @($names | Where-Object { -not (Test-StartupKept $_) })) {
         Remove-RegValue -Path $full -Name $n
-        if (-not $script:DryRun -and -not (Get-RegSnapshot -Full $full -Name $n).Existed) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
+        if (-not $Ctx.DryRun -and -not (Get-RegSnapshot -Full $full -Name $n).Existed) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
     }
     if ($kept.Count -gt 0) { Write-Log "Startup entries kept in $full`: $($kept -join ', ')" }
 }
@@ -3262,16 +3270,16 @@ function Import-UpstreamRegistry {
     $gated = Get-GatedRegOptions
     foreach ($g in $gated.Keys) { Write-Log "$g skipped on this PC: $($gated[$g])." 'WARN' }
     foreach ($op in $ops) {
-        $script:JournalOption = Get-RegOpOption $op
-        if (-not $Opt[$script:JournalOption]) { $byOption++; continue }
-        if ($gated.ContainsKey($script:JournalOption)) { $byOption++; continue }
+        $Ctx.JournalOption = Get-RegOpOption $op
+        if (-not $Opt[$Ctx.JournalOption]) { $byOption++; continue }
+        if ($gated.ContainsKey($Ctx.JournalOption)) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
             'DeleteValue' { Remove-RegValue -Path $op.Path -Name $op.Name }
             'DeleteKey' {
                 # The Run keys lose their entries one by one, so -StartupKeep can spare some and -Revert restores each.
-                if ($script:JournalOption -eq 'RunKeys') { Remove-StartupEntries -Path $op.Path } else { Remove-RegKey -Path $op.Path }
+                if ($Ctx.JournalOption -eq 'RunKeys') { Remove-StartupEntries -Path $op.Path } else { Remove-RegKey -Path $op.Path }
             }
         }
         $applied++
@@ -3302,7 +3310,7 @@ function Write-HostsFile {
 function Set-HostsBlock {
     param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string[]]$Domains)
     $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
-    if ($script:Reapply -and ([IO.File]::ReadAllText($HostsPath)).Contains($block)) { return }
+    if ($Ctx.Reapply -and ([IO.File]::ReadAllText($HostsPath)).Contains($block)) { return }
     if (Test-DryRun "add $($Domains.Count) entries to the hosts file ($Name)") { return }
     $backup = Join-Path $StateDir 'hosts.original'
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $HostsPath -Destination $backup -Force }
@@ -3404,7 +3412,7 @@ function Install-RuntimePackages {
         if ($NvidiaOnlyPackages -contains $id) { $scope = @('--scope', 'machine') }
         & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @scope | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
-        else { $script:Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
+        else { $Ctx.Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
     }
 }
 
@@ -3415,7 +3423,7 @@ function Remove-BloatApps {
         if (-not (Test-NameMatch $pkg.Name $AppsToRemove)) { continue }
         if (Test-NameMatch $pkg.Name $KeepApps) { Write-Log "Kept (protected): $($pkg.Name)"; continue }
         # -Reapply removes only apps the earlier run removed that came back, never ones installed since.
-        if ($script:Reapply -and @($script:State.Removed) -notcontains $pkg.Name) { continue }
+        if ($Ctx.Reapply -and @($script:State.Removed) -notcontains $pkg.Name) { continue }
         if (Test-DryRun "remove app $($pkg.Name)") { continue }
         try {
             Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
@@ -3427,12 +3435,12 @@ function Remove-BloatApps {
     foreach ($prov in @(Get-AppxProvisionedPackage -Online)) {
         if (-not (Test-NameMatch $prov.DisplayName $AppsToRemove)) { continue }
         if (Test-NameMatch $prov.DisplayName $KeepApps) { continue }
-        if ($script:Reapply -and @($script:State.Removed) -notcontains $prov.DisplayName) { continue }
+        if ($Ctx.Reapply -and @($script:State.Removed) -notcontains $prov.DisplayName) { continue }
         if (Test-DryRun "remove provisioned app $($prov.DisplayName)") { continue }
         try { Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null; Write-Log "Removed provisioned app: $($prov.DisplayName)" 'OK' }
         catch { Write-Log "Could not remove provisioned $($prov.DisplayName). $($_.Exception.Message)" 'WARN' }
     }
-    if (-not $script:DryRun -and -not ($script:Reapply -and $removed -eq 0)) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
+    if (-not $Ctx.DryRun -and -not ($Ctx.Reapply -and $removed -eq 0)) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
 }
 
 function Get-NvidiaInstallerPath {
@@ -3615,9 +3623,9 @@ function Set-ServiceStart {
     $probe = Open-RegKey -Full $reg
     if (-not $probe) { Write-Log "Service not present: $Name"; return }
     $probe.Close()
-    if ($script:Reapply -and (Get-ServiceStartNow $Name) -eq $(if ($Mode -eq 'Disabled') { 4 } else { 3 })) { return }
+    if ($Ctx.Reapply -and (Get-ServiceStartNow $Name) -eq $(if ($Mode -eq 'Disabled') { 4 } else { 3 })) { return }
     Set-RegValue -Path $reg -Name 'Start' -Value $(if ($Mode -eq 'Disabled') { 4 } else { 3 }) -Type DWord
-    if ($Mode -eq 'Disabled' -and -not $script:DryRun) {
+    if ($Mode -eq 'Disabled' -and -not $Ctx.DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
             # Disabled is what counts; a service that will not stop now stays stopped after the next restart.
             if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) is disabled but did not stop within 30 s. It stops at the next restart." }
@@ -3635,7 +3643,7 @@ function Remove-ServiceKey {
     if (-not $root) { return }
     try { $keys = @($root.GetSubKeyNames() | Where-Object { $_ -ieq $Name -or $_ -like "${Name}_*" }) } finally { $root.Close() }
     if (@($keys | Where-Object { $_ -ieq $Name }).Count -eq 0) { Write-Log "Service not present: $Name"; return }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
             if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) did not stop within 30 s; it is gone after the next restart anyway." }
         }
@@ -3670,7 +3678,7 @@ function Disable-ServiceGroups {
     $done = @()
     foreach ($g in $ServiceGroups.Keys) {
         if (-not $Opt[$g]) { continue }
-        $script:JournalOption = $g
+        $Ctx.JournalOption = $g
         foreach ($name in $ServiceGroups[$g]) {
             if ($done -contains $name) { continue }
             if ($ServiceMode -eq 'Delete') { Remove-ServiceKey -Name $name } else { Set-ServiceStart -Name $name -Mode Disabled }
@@ -3762,8 +3770,8 @@ function Remove-AllScheduledTasks {
         if (Test-NameMatch $full $TaskKeepBuiltIn) { continue }
         if (Test-NameMatch $full $TaskKeep) { continue }
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
-        if ($script:Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
-        if ($script:Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
+        if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
+        if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -3794,7 +3802,7 @@ function Remove-AllScheduledTasks {
             Write-Log "Task $full not deleted: $($_.Exception.Message)"
         }
     }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         $level = 'OK'; if ($failed -gt 0) { $level = 'WARN' }
         Write-Log "Scheduled tasks deleted: $deleted (backups in $dir). $failed could not be removed (protected by the system, listed above)." $level
     }
@@ -3891,7 +3899,7 @@ function Restore-ProtectedTasks {
 #region Telemetry, updates, vendor blocks -------------------------------------------------
 function Invoke-TelemetryTweaks {
     if ($Opt['TelemetryPolicy']) {
-        $script:JournalOption = 'TelemetryPolicy'
+        $Ctx.JournalOption = 'TelemetryPolicy'
         Set-TweakList $TelemetryRegs
         foreach ($s in $TelemetryServices) { Set-ServiceStart -Name $s -Mode Disabled }
         # Stop every logger under the DiagTrack autologger.
@@ -3902,16 +3910,16 @@ function Invoke-TelemetryTweaks {
             finally { $k.Close() }
         }
     }
-    if ($Opt['BiometricsPolicy']) { $script:JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
+    if ($Opt['BiometricsPolicy']) { $Ctx.JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
     if ($Opt['Cdp']) {
-        $script:JournalOption = 'Cdp'
+        $Ctx.JournalOption = 'Cdp'
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
         $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
-        if (-not $script:Reapply -and (Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
+        if (-not $Ctx.Reapply -and (Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
             Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($Opt['TelemetryHosts']) { $script:JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
+    if ($Opt['TelemetryHosts']) { $Ctx.JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
 }
 
 function Set-UpdatePolicies {
@@ -3921,22 +3929,22 @@ function Set-UpdatePolicies {
     $wu = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
     $ux = 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
 
-    if ($Opt['DriverExclusion']) { $script:JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
+    if ($Opt['DriverExclusion']) { $Ctx.JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) {
-        $script:JournalOption = 'SecurityUpdatesOnly'
+        $Ctx.JournalOption = 'SecurityUpdatesOnly'
         Set-TweakList $SecurityUpdatesRegs
         Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
         Write-Log 'Update policy: long deferrals set and update classifications excluded (upstream behaviour).' 'WARN'
     }
     if ($Opt['PauseUpdates']) {
-        $script:JournalOption = 'PauseUpdates'
+        $Ctx.JournalOption = 'PauseUpdates'
         $fmt = 'yyyy-MM-ddTHH:mm:ssZ'
         $inv = [System.Globalization.CultureInfo]::InvariantCulture
         $now = [DateTime]::UtcNow
         $start = $now.ToString($fmt, $inv)
         $end = $now.AddDays($PauseDays).ToString($fmt, $inv)
         # -Reapply keeps the pause dates of the run: writing them again would extend the pause every time.
-        if (-not $script:Reapply) {
+        if (-not $Ctx.Reapply) {
             foreach ($n in 'PauseUpdatesStartTime', 'PauseFeatureUpdatesStartTime', 'PauseQualityUpdatesStartTime') { Set-RegValue -Path $ux -Name $n -Value $start -Type String }
             foreach ($n in 'PauseUpdatesExpiryTime', 'PauseFeatureUpdatesEndTime', 'PauseQualityUpdatesEndTime') { Set-RegValue -Path $ux -Name $n -Value $end -Type String }
         }
@@ -3947,7 +3955,7 @@ function Set-UpdatePolicies {
             if ($t.Name -in 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdatesPeriodInDays') { $v = $deferDays }
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
-        if ($script:Reapply) {
+        if ($Ctx.Reapply) {
             # -Reapply keeps the pause of the run: after it ended, updates stay on; before, the policy and its end come back.
             $expiry = Get-PauseExpiry
             if ($expiry -and $expiry -gt [DateTime]::UtcNow) {
@@ -3960,8 +3968,8 @@ function Set-UpdatePolicies {
             Register-PauseEndTask -EndUtc $now.AddDays($PauseDays)
         }
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
-        if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
-        if (-not $script:DryRun -and -not $script:Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), with automatic update checks off for the same time (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
+        if ($Opt['PauseStopsUpdateTasks']) { $Ctx.JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
+        if (-not $Ctx.DryRun -and -not $Ctx.Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), with automatic update checks off for the same time (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
     }
 }
 
@@ -4129,7 +4137,7 @@ function Restore-PowerPlan {
 }
 
 function Disable-Hibernation {
-    if ($script:Reapply) {
+    if ($Ctx.Reapply) {
         $h = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
         if ($h -and $h.PSObject.Properties['HibernateEnabled'] -and $h.HibernateEnabled -eq 0) { return }
     }
@@ -4146,7 +4154,7 @@ function Disable-Hibernation {
 
 #region Mouse and registry helper actions -------------------------------------------------
 function Sync-MouseSettings {
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     if (-not ('Native.User32' -as [type])) {
         Add-Type -Namespace Native -Name User32 -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true)]
@@ -4209,7 +4217,7 @@ function Test-MemoryCompressionTarget {
 function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
     if (-not (Test-MemoryCompressionTarget -RamGB $ram)) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs $MemoryCompressionMinGB GB or more)."; return }
-    if ($script:Reapply -and -not (Get-MMAgent).MemoryCompression) { return }
+    if ($Ctx.Reapply -and -not (Get-MMAgent).MemoryCompression) { return }
     if (Test-DryRun 'disable memory compression') { return }
     if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
@@ -4219,7 +4227,7 @@ function Disable-MemoryCompression {
 $SleepStudyLogs = 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic'
 
 function Disable-SleepStudy {
-    if ($script:Reapply -and @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' }).Count -eq 0) { return }
+    if ($Ctx.Reapply -and @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' }).Count -eq 0) { return }
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
     # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
     if ($script:State.SleepStudy -eq $false) {
@@ -4243,7 +4251,7 @@ function Get-MaxPasswordAge {
 
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
-    if ($script:Reapply -and (Get-MaxPasswordAge) -eq 'unlimited') { return }
+    if ($Ctx.Reapply -and (Get-MaxPasswordAge) -eq 'unlimited') { return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
     if ($script:State.PwAge -eq $false) { Set-StateValue -Name 'PwAge' -Value (Get-MaxPasswordAge) }
     & net.exe accounts /maxpwage:unlimited | Out-Null
@@ -4299,7 +4307,7 @@ function Reset-ConsentDatabase {
 }
 
 function Update-UserVisuals {
-    if ($script:DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
+    if ($Ctx.DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
     1..5 | ForEach-Object { & rundll32.exe user32.dll, UpdatePerUserSystemParameters, 1, True; Start-Sleep -Milliseconds 5 }
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 }
@@ -4338,9 +4346,9 @@ function Clear-DesktopIcons {
             $moved++
         }
     }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         Write-Log "Desktop cleared: $moved shortcut(s) moved to the backup folder. $left file or folder item(s) were left on the desktop untouched." 'OK'
-        $script:ShellDirty = $true
+        $Ctx.ShellDirty = $true
     }
 }
 
@@ -4352,7 +4360,7 @@ function Restore-DesktopIcons {
         }
     }
     Write-Log 'Desktop shortcuts restored.' 'OK'
-    $script:ShellDirty = $true
+    $Ctx.ShellDirty = $true
 }
 
 function Clear-StartPins {
@@ -4433,7 +4441,7 @@ function Test-QuickAssistPresent {
 
 function Remove-QuickAssist {
     # -Reapply: Quick Assist that is still gone is not drift.
-    if ($script:Reapply -and -not (Test-QuickAssistPresent)) { return }
+    if ($Ctx.Reapply -and -not (Test-QuickAssistPresent)) { return }
     if (Test-DryRun 'remove Quick Assist (Windows capability, package and app)') { return }
     $removed = 0
     foreach ($cap in @(Get-WindowsCapability -Online | Where-Object { $_.Name -like 'App.Support.QuickAssist~~~~*' -and $_.State -eq 'Installed' })) {
@@ -4516,7 +4524,7 @@ function Remove-Edge {
     # region is not faked. WebView2 and Microsoft Edge Update stay: apps embed WebView2 and it updates through them.
     $edge = Get-EdgeState
     if (-not $edge.Installed) { Write-Log 'Microsoft Edge is not installed.'; return }
-    if ($script:Reapply -and @($script:State.Removed) -notcontains 'Microsoft.Edge') { return }
+    if ($Ctx.Reapply -and @($script:State.Removed) -notcontains 'Microsoft.Edge') { return }
     $block = Get-EdgeRemovalBlock -HttpsHandler (Get-DefaultHandler 'UrlAssociations\https') -HttpHandler (Get-DefaultHandler 'UrlAssociations\http')
     if ($block) { Write-Log "Edge kept: $block" 'WARN'; return }
     if ((Get-DefaultHandler 'FileAssociations\.pdf') -like 'MSEdge*') { Write-Log 'Edge opens PDF files now; after the removal choose another PDF app (Settings, Apps, Default apps).' 'WARN' }
@@ -4564,7 +4572,7 @@ function Remove-OneDrive {
     }
     $left = @((Get-OneDriveState).Installed)
     if ($left.Count -eq 0) { Write-Log 'OneDrive uninstalled. Files in the OneDrive folder stay on disk. To get it back: -Revert (lifts the policy), then winget install Microsoft.OneDrive.' 'OK' }
-    else { $script:Failures++; Write-Log "OneDrive is still installed: $($left -join ', ')." 'ERROR' }
+    else { $Ctx.Failures++; Write-Log "OneDrive is still installed: $($left -join ', ')." 'ERROR' }
 }
 #endregion
 
@@ -4626,7 +4634,7 @@ function Restore-DefenderPrefs {
 function Wait-TamperProtectionOff {
     # Tamper Protection exists to stop software from changing Defender, so a script cannot and must not switch it off.
     # Ask for it up front instead, with the right Windows Security page open. -Force skips the question.
-    if ($script:DryRun -or $Force) { return }
+    if ($Ctx.DryRun -or $Force) { return }
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try { $tamper = [bool](Get-MpComputerStatus -ErrorAction Stop).IsTamperProtected }
         catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)"; return }
@@ -4649,7 +4657,7 @@ function Set-DefenderQuiet {
     }
     catch { Write-Log "Defender status is not available, so Tamper Protection was not checked. $($_.Exception.Message)" }
     Set-TweakList $DefenderQuietRegs
-    if (-not $script:DryRun) { Write-Log 'Defender cloud reporting, sample submission, infection reports and notifications are off by policy. Protection stays on.' 'OK' }
+    if (-not $Ctx.DryRun) { Write-Log 'Defender cloud reporting, sample submission, infection reports and notifications are off by policy. Protection stays on.' 'OK' }
 }
 
 function Get-NetAdapterTweaks {
@@ -4688,7 +4696,7 @@ function Set-NetAdapterOff {
     $tweaks = @(Get-NetAdapterTweaks -Keywords $Keywords -AllowOff:$AllowOff)
     if ($tweaks.Count -eq 0) { Write-Log "$Label`: no matching values on the physical network adapters." 'WARN'; return }
     Set-TweakList $tweaks
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     $adapters = @($tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     Write-Log "$Label`: $($tweaks.Count) value(s) set on $adapters adapter(s). They apply after a restart." 'OK'
 }
@@ -4805,7 +4813,7 @@ function Clear-UpdateDownloadCache {
 
 function Disable-SpectreMeltdownMitigations {
     Set-TweakList $MitigationRegs
-    if (-not $script:DryRun) { Write-Log 'Spectre and Meltdown mitigations are switched off. Restart Windows to apply.' 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log 'Spectre and Meltdown mitigations are switched off. Restart Windows to apply.' 'WARN' }
 }
 
 function Get-BcdValue {
@@ -4849,7 +4857,7 @@ function Install-TimerResolutionService {
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $skip = Get-TimerSkipReasonHere
     if ($skip) { Write-Log "Timer resolution service skipped: $skip." 'WARN'; return }
-    if ($script:Reapply -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) { return }
+    if ($Ctx.Reapply -and (Get-Service -Name $TimerServiceName -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Running' })) { return }
     if (Test-DryRun "build $exe with csc.exe, install and start the service '$TimerServiceName', set GlobalTimerResolutionRequests 1") { return }
     if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe was not found at $csc (.NET Framework 4 is required)." }
     Set-StateValue -Name 'TimerService' -Value ([pscustomobject]@{ Name = $TimerServiceName; Dir = $dir; Exe = $exe })
@@ -4894,7 +4902,7 @@ function Set-TweakListBatched {
     # The journal gets one flushed write per registry key before its values change and one for their results, instead
     # of two per value: device options touch thousands of values.
     param([string]$Label, [object[]]$Tweaks)
-    if ($script:Reapply) { $Tweaks = @($Tweaks | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }) }
+    if ($Ctx.Reapply) { $Tweaks = @($Tweaks | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }) }
     if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
     $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
@@ -4921,7 +4929,7 @@ function Set-TweakListBatched {
             }
             catch {
                 if (Test-AccessDenied $_) { $denied.Add($p); continue }
-                $script:Failures++
+                $Ctx.Failures++
                 Write-Log "Registry write failed: $full\$(Show-RegName $p.Tweak.Name). $($_.Exception.Message)" 'ERROR'
                 $results.Add((New-ChangeResult -Change $p.Change -Result 'FAILED' -Now $_.Exception.Message))
             }
@@ -5008,7 +5016,7 @@ function Get-FeatureUpgradeTweaks {
 function Set-FeatureUpgradeBlock {
     $tweaks = @(Get-FeatureUpgradeTweaks)
     Set-TweakList $tweaks
-    if (-not $script:DryRun) { Write-Log "Windows stays on $($tweaks[0].Value) $($tweaks[2].Value). Remove this before that version reaches end of support." 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log "Windows stays on $($tweaks[0].Value) $($tweaks[2].Value). Remove this before that version reaches end of support." 'WARN' }
 }
 
 function Update-TimeService {
@@ -5021,9 +5029,9 @@ function Update-TimeService {
 }
 
 function Set-TimeServer {
-    if ($script:Reapply -and @($TimeServerRegs | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }).Count -eq 0) { return }
+    if ($Ctx.Reapply -and @($TimeServerRegs | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }).Count -eq 0) { return }
     Set-TweakList $TimeServerRegs
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     Update-TimeService
     Write-Log 'Time is now synced from pool.ntp.org.' 'OK'
 }
@@ -5034,7 +5042,7 @@ function Set-NvmeNativeDriver {
     # The native NVMe stack ships with Windows 11 24H2 (build 26100). On older builds the overrides do nothing useful.
     if ([Environment]::OSVersion.Version.Build -lt 26100) { Write-Log 'Native NVMe driver needs Windows 11 24H2 (build 26100) or later, skipped.' 'WARN'; return }
     Set-TweakList $NvmeRegs
-    if (-not $script:DryRun) { Write-Log 'Native NVMe driver switched on. It takes effect after a restart; -Revert switches it off again.' 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log 'Native NVMe driver switched on. It takes effect after a restart; -Revert switches it off again.' 'WARN' }
 }
 
 function Set-IPv4Only {
@@ -5102,9 +5110,6 @@ function Show-StartupReview {
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
 $script:HealthItems = [System.Collections.Generic.List[object]]::new()
-$script:SoftRuntime = $false
-$script:PostApply = $false
-$script:AppliedAt = $null
 
 function Write-Health {
     param([ValidateSet('PASS', 'WARN', 'FAIL', 'INFO')][string]$Status, [string]$Area, [string]$Message)
@@ -5117,7 +5122,7 @@ function Write-Health {
 }
 
 # Runtime state (running services, memory compression) lags behind the registry until a restart.
-function Get-RuntimeStatus { if ($script:SoftRuntime) { return 'INFO' } return 'FAIL' }
+function Get-RuntimeStatus { if ($Ctx.SoftRuntime) { return 'INFO' } return 'FAIL' }
 
 function Invoke-HealthArea {
     param([string]$Name, [scriptblock]$Check)
@@ -5499,7 +5504,7 @@ function Test-HealthDefender {
     if ($st.PSObject.Properties['AntivirusSignatureLastUpdated'] -and $st.AntivirusSignatureLastUpdated) {
         $age = [int]((Get-Date) - [DateTime]$st.AntivirusSignatureLastUpdated).TotalDays
         if ($rt -and $age -gt 7) {
-            $predates = $script:AppliedAt -and ($age -gt (((Get-Date) - $script:AppliedAt).TotalDays + 1))
+            $predates = $Ctx.AppliedAt -and ($age -gt (((Get-Date) - $Ctx.AppliedAt).TotalDays + 1))
             $excluded = ($Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) -and -not $Opt['KeepDefinitionUpdates']
             $why = if ($predates) { ' That is older than this run, so the base image was already out of date.' } else { '' }
             if ($excluded) { $why += ' Your update options also exclude definition updates, so Windows Update will not refresh them.' }
@@ -5513,7 +5518,7 @@ function Test-HealthSystem {
     if ($Opt['Uac']) {
         $s = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name 'EnableLUA'
         if ($s.Existed -and [int]$s.Value -eq 0) {
-            if ($script:SoftRuntime) { Write-Health 'INFO' 'System' 'UAC is set to off. It takes effect after a restart, and some Store apps behave differently without it.' }
+            if ($Ctx.SoftRuntime) { Write-Health 'INFO' 'System' 'UAC is set to off. It takes effect after a restart, and some Store apps behave differently without it.' }
             else { Write-Health 'PASS' 'System' 'UAC is off (EnableLUA 0, active since the last restart).' }
         }
         else { Write-Health 'WARN' 'System' 'UAC was meant to be off but EnableLUA is not 0.' }
@@ -5655,7 +5660,7 @@ function Test-HealthSystem {
         elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }
         else { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is not installed." }
     }
-    if ((Test-RebootPending) -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
+    if ((Test-RebootPending) -or $Ctx.SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
 }
 
 function Test-HealthEvents {
@@ -5666,8 +5671,8 @@ function Test-HealthEvents {
     $own = @($events | Where-Object { $_.Message -match $tiPattern })
     $other = @($events | Where-Object { $_.Message -notmatch $tiPattern })
     if ($own.Count -gt 0) {
-        if ($script:TiCount -gt 0) {
-            Write-Health 'INFO' 'Events' "$($own.Count) Windows Modules Installer service error(s) (7000, 7009, 7031) come from this script's TrustedInstaller helper, used $($script:TiCount) time(s) in this run. This is expected and harmless."
+        if ($Ctx.TiCount -gt 0) {
+            Write-Health 'INFO' 'Events' "$($own.Count) Windows Modules Installer service error(s) (7000, 7009, 7031) come from this script's TrustedInstaller helper, used $($Ctx.TiCount) time(s) in this run. This is expected and harmless."
         }
         else {
             Write-Health 'WARN' 'Events' "$($own.Count) Windows Modules Installer service error(s) since the last start. If you ran this script since the last restart they come from its TrustedInstaller helper and are harmless. Otherwise Windows servicing may have a problem."
@@ -5743,9 +5748,9 @@ function Invoke-HealthCheck {
         $w = $script:State.Run.When
         try { $applied = if ($w -is [DateTime]) { $w } else { [DateTime]::Parse([string]$w, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) } } catch { }
     }
-    $script:AppliedAt = $applied
-    $script:SoftRuntime = $script:PostApply -or ($applied -and $boot -lt $applied)
-    Write-Log "Health check starting$(if ($script:SoftRuntime) { ' (no restart since the tweaks, so runtime state may lag)' })."
+    $Ctx.AppliedAt = $applied
+    $Ctx.SoftRuntime = $Ctx.PostApply -or ($applied -and $boot -lt $applied)
+    Write-Log "Health check starting$(if ($Ctx.SoftRuntime) { ' (no restart since the tweaks, so runtime state may lag)' })."
 
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
@@ -5758,13 +5763,13 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'System' { Test-HealthSystem }
     Invoke-HealthArea 'Events' { Test-HealthEvents }
     if ($HealthCheckLaunch) { Invoke-HealthArea 'Launch' { Test-HealthAppLaunch } }
-    if (-not $script:PostApply) { Invoke-HealthArea 'Drift' { Test-HealthDrift } }
+    if (-not $Ctx.PostApply) { Invoke-HealthArea 'Drift' { Test-HealthDrift } }
 
     $h = $script:Health
     Write-Log ("Health result: {0} passed, {1} warning(s), {2} failed, {3} note(s)." -f $h.PASS, $h.WARN, $h.FAIL, $h.INFO) $(if ($h.FAIL -gt 0) { 'ERROR' } elseif ($h.WARN -gt 0) { 'WARN' } else { 'OK' })
     if ($h.FAIL -gt 0) { Write-Log 'Failures mean something you asked to keep is broken. Undo one item with -Skip <Option>, or everything with -Revert.' 'ERROR' }
     if (-not $HealthCheckLaunch) { Write-Log 'Add -HealthCheckLaunch to also open Settings, Store, Photos, Paint and Xbox and confirm they start.' }
-    if (-not $script:DryRun) { Save-ResultJson -Kind 'health' -Counts $h -Items $script:HealthItems.ToArray() }
+    if (-not $Ctx.DryRun) { Save-ResultJson -Kind 'health' -Counts $h -Items $script:HealthItems.ToArray() }
 }
 
 function Test-RevertResult {
@@ -5983,7 +5988,7 @@ function Invoke-Preflight {
     }
     $blocks = @($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' })
     if ($blocks.Count -eq 0) { return $true }
-    if ($script:DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
+    if ($Ctx.DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
     Write-Log "Run refused by the pre flight check(s) $(@($blocks | ForEach-Object { $_.Check }) -join ', '). Nothing was changed. Skip a check by name with -SkipCheck." 'ERROR'
     return $false
 }
@@ -6077,7 +6082,7 @@ function Get-SecurityTradeoffs {
 }
 
 function Show-Plan {
-    Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
+    Write-Log "Mode: $(if ($Ctx.DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
     $edition = Get-EditionId
     $editionGaps = @(Get-EditionReport -Edition $edition)
     $notApplicable = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' })
@@ -6096,7 +6101,7 @@ function Show-Plan {
 }
 
 function Confirm-Run {
-    if ($Force -or $script:DryRun) { return $true }
+    if ($Force -or $Ctx.DryRun) { return $true }
     Write-Host ''
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
@@ -6136,7 +6141,7 @@ function Invoke-Apply {
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
-    if (-not $SkipRestorePoint -and -not $script:DryRun) {
+    if (-not $SkipRestorePoint -and -not $Ctx.DryRun) {
         $script:RestorePoint = $null
         Invoke-Step 'Restore point' { $script:RestorePoint = New-SafetyRestorePoint }
         $why = 'the restore point step failed'
@@ -6219,12 +6224,12 @@ function Invoke-ApplySteps {
         # Starting UsoSvc again registers its Schedule Scan tasks anew, so the pause would show active tasks.
         if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' -Option 'PauseStopsUpdateTasks' { Disable-UpdateTasks } }
     }
-    if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
-    if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) {
-        $script:PostApply = $true
+    if ($Opt['RestartExplorer'] -or $Ctx.ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
+    if ($Opt['HealthCheckAfter'] -and -not $Ctx.DryRun) {
+        $Ctx.PostApply = $true
         Invoke-Step 'Health check' { Invoke-HealthCheck }
         # A run whose own health check fails must not end with "Finished without errors" and exit code 0.
-        if ($script:Health.FAIL -gt 0) { $script:Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
+        if ($script:Health.FAIL -gt 0) { $Ctx.Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
     }
 }
 
@@ -6275,16 +6280,16 @@ function Invoke-Reapply {
     if ($sel.New.Count -gt 0) { Write-Log "  Options the earlier run did not have, not applied (run normally to add them): $($sel.New -join ', ')" }
     if (-not (Invoke-Preflight -Strict)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
 
-    $realRun = -not $script:DryRun
-    $script:Reapply = $true
-    $script:DryRun = $true
-    $script:DryRunCount = 0
+    $realRun = -not $Ctx.DryRun
+    $Ctx.Reapply = $true
+    $Ctx.DryRun = $true
+    $Ctx.DryRunCount = 0
     $healthAfter = $Opt['HealthCheckAfter']
     $Opt['HealthCheckAfter'] = $false
     Write-Log 'Pass 1: looking for settings that drifted. Nothing is changed in this pass; each DRY RUN line below is one drifted item.'
     Invoke-ApplySteps
-    $drift = $script:DryRunCount
-    $script:DryRun = -not $realRun
+    $drift = $Ctx.DryRunCount
+    $Ctx.DryRun = -not $realRun
     $Opt['HealthCheckAfter'] = $healthAfter
     if ($drift -eq 0) { Write-Log 'Nothing drifted: everything the run set is still in place.' 'OK'; return }
     Write-Log "$drift item(s) drifted, listed above." 'WARN'
@@ -6318,10 +6323,10 @@ function Get-LastUpdateInstall {
 
 function Test-HealthDrift {
     # After a run, updates are what undoes tweaks. Point at -Reapply when one installed since and something drifted.
-    if (-not $script:AppliedAt) { return }
+    if (-not $Ctx.AppliedAt) { return }
     $last = Get-LastUpdateInstall
-    if (-not $last -or $last -le $script:AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
-    $msg = "Windows Update installed a Windows update on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($script:AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
+    if (-not $last -or $last -le $Ctx.AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
+    $msg = "Windows Update installed a Windows update on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($Ctx.AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
     if ($script:Health.WARN -gt 0 -or $script:Health.FAIL -gt 0) { Write-Health 'WARN' 'Drift' "$msg Updates can set tweaks back; run -Reapply -DryRun to list what changed, then -Reapply to put it back." }
     else { Write-Health 'INFO' 'Drift' "$msg Nothing above looks changed by it." }
 }
@@ -6426,7 +6431,7 @@ function Invoke-Revert {
         [array]::Reverse($entries)
         foreach ($e in $entries) {
             try { Restore-RegValue -Entry $e }
-            catch { $script:Failures++; Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name). $($_.Exception.Message)" 'ERROR' }
+            catch { $Ctx.Failures++; Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name). $($_.Exception.Message)" 'ERROR' }
         }
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
@@ -6487,7 +6492,7 @@ function Invoke-Revert {
     if ($script:State.Removed.Count -gt 0) {
         Write-Log ('Apps removed earlier (reinstall from the Store or winget if wanted): ' + (($script:State.Removed | Sort-Object -Unique) -join ', ')) 'WARN'
     }
-    if ($script:ShellDirty) { Update-UserVisuals }
+    if ($Ctx.ShellDirty) { Update-UserVisuals }
     Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force
@@ -6509,7 +6514,7 @@ Initialize-StateDir
 try { Import-State }
 catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
-catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
+catch { $Ctx.Failures++; Write-Log $_.Exception.Message 'ERROR' }
 if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
@@ -6519,7 +6524,7 @@ if ($HealthCheck) {
 if ($RestoreTask.Count -gt 0) {
     if ($Revert -or $DryRun) { throw '-RestoreTask cannot be combined with -Revert or -DryRun.' }
     Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
-    Exit-Run ([int]($script:Failures -gt 0))
+    Exit-Run ([int]($Ctx.Failures -gt 0))
 }
 if ($Revert -and $Only.Count -gt 0) {
     # -Only with -Revert names what to undo, not what to apply.
@@ -6527,11 +6532,11 @@ if ($Revert -and $Only.Count -gt 0) {
 }
 elseif ($Revert) { Invoke-Revert }
 elseif ($Reapply) {
-    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
+    if ($Json -and -not $Force -and -not $Ctx.DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     Invoke-Reapply
 }
 else {
-    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
+    if ($Json -and -not $Force -and -not $Ctx.DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
     if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
@@ -6543,10 +6548,10 @@ else {
     Save-State
 }
 
-if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
-if ($script:Failures -gt 0) { Write-Log "Finished with $($script:Failures) failure(s) and $($script:Warnings) warning(s). Review the log: $LogFile" 'WARN' }
-else { Write-Log "Finished without errors ($($script:Warnings) warning(s)). Log: $LogFile" 'OK' }
+if ($Ctx.DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
+if ($Ctx.Failures -gt 0) { Write-Log "Finished with $($Ctx.Failures) failure(s) and $($Ctx.Warnings) warning(s). Review the log: $LogFile" 'WARN' }
+else { Write-Log "Finished without errors ($($Ctx.Warnings) warning(s)). Log: $LogFile" 'OK' }
 if (-not $Revert -and (Test-Path -LiteralPath $JournalFile)) { Write-Log "Every change with its option, value before, value after and result (OK, MISMATCH, FAILED): $JournalFile" }
 Write-Log 'Restart Windows so service, policy and power changes take full effect.'
-Exit-Run ([int]($script:Failures -gt 0))
+Exit-Run ([int]($Ctx.Failures -gt 0))
 #endregion

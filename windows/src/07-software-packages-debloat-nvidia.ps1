@@ -88,7 +88,7 @@ function Install-RuntimePackages {
         if ($NvidiaOnlyPackages -contains $id) { $scope = @('--scope', 'machine') }
         & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @scope | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
-        else { $script:Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
+        else { $Ctx.Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
     }
 }
 
@@ -99,7 +99,7 @@ function Remove-BloatApps {
         if (-not (Test-NameMatch $pkg.Name $AppsToRemove)) { continue }
         if (Test-NameMatch $pkg.Name $KeepApps) { Write-Log "Kept (protected): $($pkg.Name)"; continue }
         # -Reapply removes only apps the earlier run removed that came back, never ones installed since.
-        if ($script:Reapply -and @($script:State.Removed) -notcontains $pkg.Name) { continue }
+        if ($Ctx.Reapply -and @($script:State.Removed) -notcontains $pkg.Name) { continue }
         if (Test-DryRun "remove app $($pkg.Name)") { continue }
         try {
             Remove-AppxPackage -Package $pkg.PackageFullName -AllUsers -ErrorAction Stop
@@ -111,12 +111,12 @@ function Remove-BloatApps {
     foreach ($prov in @(Get-AppxProvisionedPackage -Online)) {
         if (-not (Test-NameMatch $prov.DisplayName $AppsToRemove)) { continue }
         if (Test-NameMatch $prov.DisplayName $KeepApps) { continue }
-        if ($script:Reapply -and @($script:State.Removed) -notcontains $prov.DisplayName) { continue }
+        if ($Ctx.Reapply -and @($script:State.Removed) -notcontains $prov.DisplayName) { continue }
         if (Test-DryRun "remove provisioned app $($prov.DisplayName)") { continue }
         try { Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop | Out-Null; Write-Log "Removed provisioned app: $($prov.DisplayName)" 'OK' }
         catch { Write-Log "Could not remove provisioned $($prov.DisplayName). $($_.Exception.Message)" 'WARN' }
     }
-    if (-not $script:DryRun -and -not ($script:Reapply -and $removed -eq 0)) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
+    if (-not $Ctx.DryRun -and -not ($Ctx.Reapply -and $removed -eq 0)) { Write-Log "Debloat removed $removed installed app(s). Not reversible by -Revert, reinstall from the Store or winget." 'WARN' }
 }
 
 function Get-NvidiaInstallerPath {

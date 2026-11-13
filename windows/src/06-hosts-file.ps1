@@ -18,7 +18,7 @@ function Write-HostsFile {
 function Set-HostsBlock {
     param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string[]]$Domains)
     $block = "# FocusedTweaks BEGIN $Name`r`n" + (($Domains | ForEach-Object { "0.0.0.0 $_" }) -join "`r`n") + "`r`n# FocusedTweaks END $Name`r`n"
-    if ($script:Reapply -and ([IO.File]::ReadAllText($HostsPath)).Contains($block)) { return }
+    if ($Ctx.Reapply -and ([IO.File]::ReadAllText($HostsPath)).Contains($block)) { return }
     if (Test-DryRun "add $($Domains.Count) entries to the hosts file ($Name)") { return }
     $backup = Join-Path $StateDir 'hosts.original'
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $HostsPath -Destination $backup -Force }

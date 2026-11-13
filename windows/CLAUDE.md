@@ -41,6 +41,9 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
 6. Output encoding is UTF-8 with BOM, CRLF line endings, ASCII only. `build.py` writes this. `.gitattributes` keeps it.
 7. Native commands need `$LASTEXITCODE` checked. .NET method errors arrive wrapped, so use `Test-AccessDenied` rather than typed catch blocks.
 8. JSON state: PowerShell 7 turns ISO date strings into dates when reading JSON. Registry strings are stored with an `s:` prefix for that reason.
+9. The run in progress is `$Ctx` (made once in `src/00-header.ps1`): dry run, reapply, after-apply flags, failure and
+   warning counters, the current step and its journal option. Read and change it there; never add a `$script:` flag
+   for run state, and never name a local variable `$ctx` (names are case-insensitive). `Test-Parse` checks this.
 
 ## Workflow for a change
 Edit the file in `src/`, rebuild, run `tests/Test-Parse.ps1`, then let the user run `tools/Test-InVm.ps1` (see

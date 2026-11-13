@@ -185,7 +185,6 @@ if ($ListOptions) {
     exit 0
 }
 Resolve-Options
-$script:DryRun = [bool]$DryRun
 $WantNvidia = [bool]($NvidiaInstaller -or $NvidiaDownload -or $NvidiaVersion)
 #endregion
 

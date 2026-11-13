@@ -7,16 +7,7 @@ $StateVersion = 2
 $LogFile = Join-Path $StateDir ('run-{0:yyyyMMdd-HHmmss}.log' -f (Get-Date))
 $HostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 
-$script:Failures = 0
-$script:Warnings = 0
-$script:TiCount = 0
-$script:ShellDirty = $false
 $script:JournalSeq = 0      # number of the last journal line written or read
-$script:StepId = 0
-$script:StepName = ''
-$script:JournalOption = ''  # option the current change belongs to, written into each journal line
-$script:StepEvents = [System.Collections.Generic.List[object]]::new()
-$script:StopRun = $false
 $script:State = @{
     Registry   = [System.Collections.Generic.List[object]]::new()
     KeyBackups = [System.Collections.Generic.List[object]]::new()
@@ -52,7 +43,7 @@ function Write-Log {
         [Parameter(Mandatory)][string]$Message,
         [ValidateSet('INFO', 'OK', 'WARN', 'ERROR')][string]$Level = 'INFO'
     )
-    if ($Level -eq 'WARN') { $script:Warnings++ }
+    if ($Level -eq 'WARN') { $Ctx.Warnings++ }
     $line = '{0:HH:mm:ss} [{1}] {2}' -f (Get-Date), $Level, $Message
     $colour = switch ($Level) { 'OK' { 'Green' } 'WARN' { 'Yellow' } 'ERROR' { 'Red' } default { 'Gray' } }
     # With -Json the console gets only the result object; the log file still gets every line.
@@ -70,7 +61,7 @@ function Get-RunMode {
     if ($HealthCheck) { return 'healthcheck' }
     if ($Reapply) { return 'reapply' }
     if ($StartupReview) { return 'startupreview' }
-    if ($script:DryRun) { return 'dryrun' }
+    if ($Ctx.DryRun) { return 'dryrun' }
     return 'apply'
 }
 
@@ -83,7 +74,7 @@ function Get-RunResult {
     if (Test-Path -LiteralPath $JournalFile) { $journal = $JournalFile }
     return [ordered]@{
         ExitCode = $Code; Result = $ExitCodes[$Code]; Reason = $Reason; Mode = (Get-RunMode)
-        Failures = $script:Failures; Warnings = $script:Warnings; Preflight = @($script:PreflightResults); Health = $health
+        Failures = $Ctx.Failures; Warnings = $Ctx.Warnings; Preflight = @($script:PreflightResults); Health = $health
         Log = $LogFile; Journal = $journal; StateDir = $StateDir
     }
 }
@@ -95,14 +86,12 @@ function Exit-Run {
     exit $Code
 }
 
-$script:DryRunCount = 0
-# -Reapply: the apply steps run again, but every primitive leaves alone what is already as the run set it, so only
-# what Windows changed back is touched (and, in its first pass, listed).
-$script:Reapply = $false
+# -Reapply ($Ctx.Reapply): the apply steps run again, but every primitive leaves alone what is already as the run set
+# it, so only what Windows changed back is touched (and, in its first pass, listed).
 
 function Test-DryRun {
     param([Parameter(Mandatory)][string]$Action)
-    if ($script:DryRun) { $script:DryRunCount++; Write-Log "DRY RUN, would: $Action"; return $true }
+    if ($Ctx.DryRun) { $Ctx.DryRunCount++; Write-Log "DRY RUN, would: $Action"; return $true }
     return $false
 }
 
@@ -128,7 +117,7 @@ function ConvertFrom-StoredRecord {
 }
 
 function Save-State {
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     $copy = @{}
     foreach ($entry in $script:State.GetEnumerator()) { $copy[$entry.Key] = $entry.Value }
     $copy.Registry = @($script:State.Registry | ForEach-Object { ConvertTo-StoredRecord $_ })
@@ -199,12 +188,12 @@ function Add-JournalEvents {
     # Dry runs and -Revert write no journal.
     param([AllowEmptyCollection()][object[]]$Events = @())
     if ($Events.Count -eq 0) { return }
-    if (-not ($script:DryRun -or $Revert)) {
+    if (-not ($Ctx.DryRun -or $Revert)) {
         $text = New-Object Text.StringBuilder
         foreach ($e in $Events) {
             $script:JournalSeq++
             $e['Seq'] = $script:JournalSeq
-            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $script:StepId; StepName = $script:StepName; Option = $script:JournalOption }
+            $line = [ordered]@{ Seq = $script:JournalSeq; T = (Get-Date).ToString('o'); Step = $Ctx.StepId; StepName = $Ctx.StepName; Option = $Ctx.JournalOption }
             foreach ($k in @($e.Keys)) {
                 if ($k -eq 'Seq') { continue }
                 if ($k -eq 'Item' -or $k -eq 'Before') { $line[$k] = ConvertTo-StoredRecord $e[$k] } else { $line[$k] = $e[$k] }
@@ -218,7 +207,7 @@ function Add-JournalEvents {
     }
     foreach ($e in $Events) {
         Invoke-JournalEvent -JournalEvent $e
-        $script:StepEvents.Add($e)
+        $Ctx.StepEvents.Add($e)
     }
 }
 
@@ -295,16 +284,16 @@ function Undo-FailedStep {
     # half done. When the step changed something the journal cannot put back, the run stops instead: nothing more is
     # built on a half done step, and -Revert still undoes everything recorded.
     param([string]$Name)
-    $changes = @($script:StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
+    $changes = @($Ctx.StepEvents | Where-Object { $_.Op -ne 'Result' -and $_.Op -ne 'Rollback' })
     if ($changes.Count -eq 0) { Write-Log "Rollback of '$Name': the step recorded no changes, nothing to undo."; return }
     $unsafe = @($changes | Where-Object { -not (Test-RollbackSafe $_) })
     if ($unsafe.Count -gt 0) {
-        $script:StopRun = $true
+        $Ctx.StopRun = $true
         $what = @($unsafe | ForEach-Object { if ($_.Op -eq 'Set') { $_.Name } elseif ($_.Op -eq 'Add') { $_.Section } else { $_.Kind } } | Select-Object -Unique) -join ', '
         Write-Log "Rollback of '$Name' is not safe: the step also changed $what, which the journal cannot put back. The run stops here. Everything recorded so far is saved, so -Revert undoes it." 'ERROR'
         return
     }
-    $failedTasks = @($script:StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
+    $failedTasks = @($Ctx.StepEvents | Where-Object { $_.Op -eq 'Result' -and $_.Kind -eq 'Task' -and $_.Result -eq 'FAILED' } | ForEach-Object { $_.Ref })
     $tasks = [System.Collections.Generic.List[object]]::new()
     $undone = 0; $problems = 0
     [array]::Reverse($changes)
@@ -326,33 +315,33 @@ function Undo-FailedStep {
     Add-JournalEvents @([ordered]@{ Op = 'Rollback'; Kind = 'Step'; Target = $Name; Result = $outcome; Now = "$undone change(s) put back" })
     if ($problems -eq 0) { Write-Log "Rolled back '$Name': $undone change(s) put back from the journal." 'WARN' }
     else {
-        $script:StopRun = $true
+        $Ctx.StopRun = $true
         Write-Log "Rollback of '$Name' put back $undone change(s) but $problems could not be put back (listed above). The run stops here; -Revert undoes what is recorded." 'ERROR'
     }
 }
 
 function Invoke-Step {
     param([string]$Name, [scriptblock]$Action, [string]$Option = '')
-    if ($script:StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
-    $script:StepId++
-    $script:StepName = $Name
-    $script:JournalOption = $Option
-    $script:StepEvents.Clear()
-    $failuresBefore = $script:Failures
+    if ($Ctx.StopRun) { Write-Log "Skipped: $Name. The run stopped after a step that could not be rolled back." 'WARN'; return }
+    $Ctx.StepId++
+    $Ctx.StepName = $Name
+    $Ctx.JournalOption = $Option
+    $Ctx.StepEvents.Clear()
+    $failuresBefore = $Ctx.Failures
     Write-Log "Starting: $Name"
     try {
         & $Action
-        if ($script:Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
-        else { Write-Log "Failed: $Name. $($script:Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
+        if ($Ctx.Failures -eq $failuresBefore) { Write-Log "Completed: $Name" 'OK' }
+        else { Write-Log "Failed: $Name. $($Ctx.Failures - $failuresBefore) change(s) in it failed, listed above." 'ERROR' }
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Failed: $Name. $($_.Exception.Message)" 'ERROR'
     }
     finally {
-        if ($script:Failures -gt $failuresBefore -and -not $Revert -and -not $script:DryRun) { Undo-FailedStep -Name $Name }
+        if ($Ctx.Failures -gt $failuresBefore -and -not $Revert -and -not $Ctx.DryRun) { Undo-FailedStep -Name $Name }
         if (-not $Revert) { Save-State }
-        $script:JournalOption = ''
+        $Ctx.JournalOption = ''
     }
 }
 

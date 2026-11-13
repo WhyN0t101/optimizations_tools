@@ -159,7 +159,7 @@ function Invoke-AsTI {
     # Runs a PowerShell command as TrustedInstaller by briefly pointing the TrustedInstaller service at it.
     # The service path is always restored to the default afterwards.
     param([Parameter(Mandatory)][string]$PsCommand)
-    $script:TiCount++
+    $Ctx.TiCount++
     $flag = Join-Path $env:TEMP ('ft-ti-{0}.done' -f [guid]::NewGuid().ToString('N'))
     $wrapped = "try { $PsCommand } catch { } ; New-Item -ItemType File -Force -Path '$flag' | Out-Null"
     $b64 = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($wrapped))
@@ -260,7 +260,7 @@ function Set-RegValue {
         [ValidateSet('DWord', 'String', 'ExpandString', 'QWord', 'Binary', 'MultiString', 'None')][string]$Type = 'DWord'
     )
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply -and (Test-RegValueIs -Full $full -Name $Name -Value $Value -Type $Type)) { return }
+    if ($Ctx.Reapply -and (Test-RegValueIs -Full $full -Name $Name -Value $Value -Type $Type)) { return }
     if (Test-DryRun "set $full\$(Show-RegName $Name) = $(if ($Type -eq 'Binary') { '<binary>' } else { $Value }) ($Type)") { return }
     $change = $null
     try {
@@ -275,7 +275,7 @@ function Set-RegValue {
         Add-JournalEvents @(Complete-RegChange -Change $change -Full $full -Name $Name -Value $Value -Kind $Type)
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry write failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
@@ -303,7 +303,7 @@ function Remove-RegValueRaw {
 function Remove-RegValue {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply -and -not (Get-RegSnapshot -Full $full -Name $Name).Existed) { return }
+    if ($Ctx.Reapply -and -not (Get-RegSnapshot -Full $full -Name $Name).Existed) { return }
     if (Test-DryRun "delete value $full\$(Show-RegName $Name)") { return }
     $change = $null
     try {
@@ -314,7 +314,7 @@ function Remove-RegValue {
         Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>')
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry value removal failed: $full\$(Show-RegName $Name). $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }
@@ -323,7 +323,7 @@ function Remove-RegValue {
 function Remove-RegKey {
     param([Parameter(Mandatory)][string]$Path)
     $full = ConvertTo-FullRegPath $Path
-    if ($script:Reapply) {
+    if ($Ctx.Reapply) {
         $exists = Open-RegKey -Full $full
         if (-not $exists) { return }
         $exists.Close()
@@ -357,7 +357,7 @@ function Remove-RegKey {
         if (-not $gone) { Write-Log "MISMATCH: the key $full is still present after deleting it." 'WARN' }
     }
     catch {
-        $script:Failures++
+        $Ctx.Failures++
         Write-Log "Registry key removal failed: $full. $($_.Exception.Message)" 'ERROR'
         if ($change) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'FAILED' -Now $_.Exception.Message) }
     }

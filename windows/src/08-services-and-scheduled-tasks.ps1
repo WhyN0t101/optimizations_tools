@@ -5,9 +5,9 @@ function Set-ServiceStart {
     $probe = Open-RegKey -Full $reg
     if (-not $probe) { Write-Log "Service not present: $Name"; return }
     $probe.Close()
-    if ($script:Reapply -and (Get-ServiceStartNow $Name) -eq $(if ($Mode -eq 'Disabled') { 4 } else { 3 })) { return }
+    if ($Ctx.Reapply -and (Get-ServiceStartNow $Name) -eq $(if ($Mode -eq 'Disabled') { 4 } else { 3 })) { return }
     Set-RegValue -Path $reg -Name 'Start' -Value $(if ($Mode -eq 'Disabled') { 4 } else { 3 }) -Type DWord
-    if ($Mode -eq 'Disabled' -and -not $script:DryRun) {
+    if ($Mode -eq 'Disabled' -and -not $Ctx.DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
             # Disabled is what counts; a service that will not stop now stays stopped after the next restart.
             if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) is disabled but did not stop within 30 s. It stops at the next restart." }
@@ -25,7 +25,7 @@ function Remove-ServiceKey {
     if (-not $root) { return }
     try { $keys = @($root.GetSubKeyNames() | Where-Object { $_ -ieq $Name -or $_ -like "${Name}_*" }) } finally { $root.Close() }
     if (@($keys | Where-Object { $_ -ieq $Name }).Count -eq 0) { Write-Log "Service not present: $Name"; return }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         foreach ($svc in @(Get-Service -Name $Name, "${Name}_*" -ErrorAction SilentlyContinue)) {
             if (-not (Stop-ServiceBounded -Name $svc.Name)) { Write-Log "Service $($svc.Name) did not stop within 30 s; it is gone after the next restart anyway." }
         }
@@ -60,7 +60,7 @@ function Disable-ServiceGroups {
     $done = @()
     foreach ($g in $ServiceGroups.Keys) {
         if (-not $Opt[$g]) { continue }
-        $script:JournalOption = $g
+        $Ctx.JournalOption = $g
         foreach ($name in $ServiceGroups[$g]) {
             if ($done -contains $name) { continue }
             if ($ServiceMode -eq 'Delete') { Remove-ServiceKey -Name $name } else { Set-ServiceStart -Name $name -Mode Disabled }
@@ -152,8 +152,8 @@ function Remove-AllScheduledTasks {
         if (Test-NameMatch $full $TaskKeepBuiltIn) { continue }
         if (Test-NameMatch $full $TaskKeep) { continue }
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
-        if ($script:Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
-        if ($script:Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
+        if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
+        if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -184,7 +184,7 @@ function Remove-AllScheduledTasks {
             Write-Log "Task $full not deleted: $($_.Exception.Message)"
         }
     }
-    if (-not $script:DryRun) {
+    if (-not $Ctx.DryRun) {
         $level = 'OK'; if ($failed -gt 0) { $level = 'WARN' }
         Write-Log "Scheduled tasks deleted: $deleted (backups in $dir). $failed could not be removed (protected by the system, listed above)." $level
     }

@@ -118,7 +118,7 @@ function Restore-PowerPlan {
 }
 
 function Disable-Hibernation {
-    if ($script:Reapply) {
+    if ($Ctx.Reapply) {
         $h = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
         if ($h -and $h.PSObject.Properties['HibernateEnabled'] -and $h.HibernateEnabled -eq 0) { return }
     }

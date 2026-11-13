@@ -5,7 +5,7 @@ function Set-TweakListBatched {
     # The journal gets one flushed write per registry key before its values change and one for their results, instead
     # of two per value: device options touch thousands of values.
     param([string]$Label, [object[]]$Tweaks)
-    if ($script:Reapply) { $Tweaks = @($Tweaks | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }) }
+    if ($Ctx.Reapply) { $Tweaks = @($Tweaks | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }) }
     if ($Tweaks.Count -eq 0) { Write-Log "$Label`: nothing to change on this machine."; return }
     $keys = @($Tweaks | ForEach-Object { $_.Path } | Select-Object -Unique).Count
     if (Test-DryRun "$Label`: set $($Tweaks.Count) value(s) under $keys registry key(s)") { return }
@@ -32,7 +32,7 @@ function Set-TweakListBatched {
             }
             catch {
                 if (Test-AccessDenied $_) { $denied.Add($p); continue }
-                $script:Failures++
+                $Ctx.Failures++
                 Write-Log "Registry write failed: $full\$(Show-RegName $p.Tweak.Name). $($_.Exception.Message)" 'ERROR'
                 $results.Add((New-ChangeResult -Change $p.Change -Result 'FAILED' -Now $_.Exception.Message))
             }
@@ -119,7 +119,7 @@ function Get-FeatureUpgradeTweaks {
 function Set-FeatureUpgradeBlock {
     $tweaks = @(Get-FeatureUpgradeTweaks)
     Set-TweakList $tweaks
-    if (-not $script:DryRun) { Write-Log "Windows stays on $($tweaks[0].Value) $($tweaks[2].Value). Remove this before that version reaches end of support." 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log "Windows stays on $($tweaks[0].Value) $($tweaks[2].Value). Remove this before that version reaches end of support." 'WARN' }
 }
 
 function Update-TimeService {
@@ -132,9 +132,9 @@ function Update-TimeService {
 }
 
 function Set-TimeServer {
-    if ($script:Reapply -and @($TimeServerRegs | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }).Count -eq 0) { return }
+    if ($Ctx.Reapply -and @($TimeServerRegs | Where-Object { -not (Test-RegValueIs -Full (ConvertTo-FullRegPath $_.Path) -Name $_.Name -Value $_.Value -Type $_.Type) }).Count -eq 0) { return }
     Set-TweakList $TimeServerRegs
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     Update-TimeService
     Write-Log 'Time is now synced from pool.ntp.org.' 'OK'
 }

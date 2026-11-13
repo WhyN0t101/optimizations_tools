@@ -155,7 +155,7 @@ function Remove-StartupEntries {
     $kept = @($names | Where-Object { Test-StartupKept $_ })
     foreach ($n in @($names | Where-Object { -not (Test-StartupKept $_) })) {
         Remove-RegValue -Path $full -Name $n
-        if (-not $script:DryRun -and -not (Get-RegSnapshot -Full $full -Name $n).Existed) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
+        if (-not $Ctx.DryRun -and -not (Get-RegSnapshot -Full $full -Name $n).Existed) { Write-Log "Startup entry removed: $n ($full)" 'OK' }
     }
     if ($kept.Count -gt 0) { Write-Log "Startup entries kept in $full`: $($kept -join ', ')" }
 }
@@ -166,16 +166,16 @@ function Import-UpstreamRegistry {
     $gated = Get-GatedRegOptions
     foreach ($g in $gated.Keys) { Write-Log "$g skipped on this PC: $($gated[$g])." 'WARN' }
     foreach ($op in $ops) {
-        $script:JournalOption = Get-RegOpOption $op
-        if (-not $Opt[$script:JournalOption]) { $byOption++; continue }
-        if ($gated.ContainsKey($script:JournalOption)) { $byOption++; continue }
+        $Ctx.JournalOption = Get-RegOpOption $op
+        if (-not $Opt[$Ctx.JournalOption]) { $byOption++; continue }
+        if ($gated.ContainsKey($Ctx.JournalOption)) { $byOption++; continue }
         if (Test-NameMatch $op.Group $SkipRegGroup) { $byGroup++; continue }
         switch ($op.Action) {
             'Set' { Set-RegValue -Path $op.Path -Name $op.Name -Value $op.Value -Type $op.Type }
             'DeleteValue' { Remove-RegValue -Path $op.Path -Name $op.Name }
             'DeleteKey' {
                 # The Run keys lose their entries one by one, so -StartupKeep can spare some and -Revert restores each.
-                if ($script:JournalOption -eq 'RunKeys') { Remove-StartupEntries -Path $op.Path } else { Remove-RegKey -Path $op.Path }
+                if ($Ctx.JournalOption -eq 'RunKeys') { Remove-StartupEntries -Path $op.Path } else { Remove-RegKey -Path $op.Path }
             }
         }
         $applied++

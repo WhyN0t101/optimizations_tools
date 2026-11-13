@@ -155,7 +155,7 @@ function Invoke-Preflight {
     }
     $blocks = @($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' })
     if ($blocks.Count -eq 0) { return $true }
-    if ($script:DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
+    if ($Ctx.DryRun) { Write-Log 'A real run would stop here because of the pre flight check(s) above. The dry run goes on.' 'WARN'; return $true }
     Write-Log "Run refused by the pre flight check(s) $(@($blocks | ForEach-Object { $_.Check }) -join ', '). Nothing was changed. Skip a check by name with -SkipCheck." 'ERROR'
     return $false
 }
@@ -249,7 +249,7 @@ function Get-SecurityTradeoffs {
 }
 
 function Show-Plan {
-    Write-Log "Mode: $(if ($script:DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
+    Write-Log "Mode: $(if ($Ctx.DryRun) { 'DRY RUN (no changes)' } else { 'APPLY' }). State and logs: $StateDir"
     $edition = Get-EditionId
     $editionGaps = @(Get-EditionReport -Edition $edition)
     $notApplicable = @($editionGaps | Where-Object { $_.Verdict -eq 'not applicable' })
@@ -268,7 +268,7 @@ function Show-Plan {
 }
 
 function Confirm-Run {
-    if ($Force -or $script:DryRun) { return $true }
+    if ($Force -or $Ctx.DryRun) { return $true }
     Write-Host ''
     $notes = @()
     if ($Opt['Debloat']) { $notes += 'App debloat cannot be undone by -Revert.' }
@@ -308,7 +308,7 @@ function Invoke-Apply {
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
-    if (-not $SkipRestorePoint -and -not $script:DryRun) {
+    if (-not $SkipRestorePoint -and -not $Ctx.DryRun) {
         $script:RestorePoint = $null
         Invoke-Step 'Restore point' { $script:RestorePoint = New-SafetyRestorePoint }
         $why = 'the restore point step failed'
@@ -391,12 +391,12 @@ function Invoke-ApplySteps {
         # Starting UsoSvc again registers its Schedule Scan tasks anew, so the pause would show active tasks.
         if ($Opt['PauseUpdates'] -and $Opt['PauseStopsUpdateTasks']) { Invoke-Step 'Disable update tasks re-registered by UsoSvc' -Option 'PauseStopsUpdateTasks' { Disable-UpdateTasks } }
     }
-    if ($Opt['RestartExplorer'] -or $script:ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
-    if ($Opt['HealthCheckAfter'] -and -not $script:DryRun) {
-        $script:PostApply = $true
+    if ($Opt['RestartExplorer'] -or $Ctx.ShellDirty) { Invoke-Step 'Refresh settings and restart Explorer' { Update-UserVisuals } }
+    if ($Opt['HealthCheckAfter'] -and -not $Ctx.DryRun) {
+        $Ctx.PostApply = $true
         Invoke-Step 'Health check' { Invoke-HealthCheck }
         # A run whose own health check fails must not end with "Finished without errors" and exit code 0.
-        if ($script:Health.FAIL -gt 0) { $script:Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
+        if ($script:Health.FAIL -gt 0) { $Ctx.Failures++; Write-Log "The health check after the run reported $($script:Health.FAIL) failure(s)." 'ERROR' }
     }
 }
 
@@ -447,16 +447,16 @@ function Invoke-Reapply {
     if ($sel.New.Count -gt 0) { Write-Log "  Options the earlier run did not have, not applied (run normally to add them): $($sel.New -join ', ')" }
     if (-not (Invoke-Preflight -Strict)) { Exit-Run 3 "Refused by the pre flight check(s) $(@($script:PreflightResults | Where-Object { $_.Status -eq 'BLOCK' } | ForEach-Object { $_.Check }) -join ', ')." }
 
-    $realRun = -not $script:DryRun
-    $script:Reapply = $true
-    $script:DryRun = $true
-    $script:DryRunCount = 0
+    $realRun = -not $Ctx.DryRun
+    $Ctx.Reapply = $true
+    $Ctx.DryRun = $true
+    $Ctx.DryRunCount = 0
     $healthAfter = $Opt['HealthCheckAfter']
     $Opt['HealthCheckAfter'] = $false
     Write-Log 'Pass 1: looking for settings that drifted. Nothing is changed in this pass; each DRY RUN line below is one drifted item.'
     Invoke-ApplySteps
-    $drift = $script:DryRunCount
-    $script:DryRun = -not $realRun
+    $drift = $Ctx.DryRunCount
+    $Ctx.DryRun = -not $realRun
     $Opt['HealthCheckAfter'] = $healthAfter
     if ($drift -eq 0) { Write-Log 'Nothing drifted: everything the run set is still in place.' 'OK'; return }
     Write-Log "$drift item(s) drifted, listed above." 'WARN'
@@ -490,10 +490,10 @@ function Get-LastUpdateInstall {
 
 function Test-HealthDrift {
     # After a run, updates are what undoes tweaks. Point at -Reapply when one installed since and something drifted.
-    if (-not $script:AppliedAt) { return }
+    if (-not $Ctx.AppliedAt) { return }
     $last = Get-LastUpdateInstall
-    if (-not $last -or $last -le $script:AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
-    $msg = "Windows Update installed a Windows update on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($script:AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
+    if (-not $last -or $last -le $Ctx.AppliedAt) { Write-Health 'PASS' 'Drift' 'No Windows update installed since the run.'; return }
+    $msg = "Windows Update installed a Windows update on $($last.ToString('yyyy-MM-dd HH:mm')), after the run on $($Ctx.AppliedAt.ToString('yyyy-MM-dd HH:mm'))."
     if ($script:Health.WARN -gt 0 -or $script:Health.FAIL -gt 0) { Write-Health 'WARN' 'Drift' "$msg Updates can set tweaks back; run -Reapply -DryRun to list what changed, then -Reapply to put it back." }
     else { Write-Health 'INFO' 'Drift' "$msg Nothing above looks changed by it." }
 }
@@ -598,7 +598,7 @@ function Invoke-Revert {
         [array]::Reverse($entries)
         foreach ($e in $entries) {
             try { Restore-RegValue -Entry $e }
-            catch { $script:Failures++; Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name). $($_.Exception.Message)" 'ERROR' }
+            catch { $Ctx.Failures++; Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name). $($_.Exception.Message)" 'ERROR' }
         }
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
@@ -659,7 +659,7 @@ function Invoke-Revert {
     if ($script:State.Removed.Count -gt 0) {
         Write-Log ('Apps removed earlier (reinstall from the Store or winget if wanted): ' + (($script:State.Removed | Sort-Object -Unique) -join ', ')) 'WARN'
     }
-    if ($script:ShellDirty) { Update-UserVisuals }
+    if ($Ctx.ShellDirty) { Update-UserVisuals }
     Invoke-Step 'Revert check' { Test-RevertResult }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
     Move-Item -LiteralPath $StateFile -Destination $archive -Force

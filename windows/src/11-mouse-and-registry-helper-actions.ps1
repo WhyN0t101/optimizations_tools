@@ -1,6 +1,6 @@
 #region Mouse and registry helper actions -------------------------------------------------
 function Sync-MouseSettings {
-    if ($script:DryRun) { return }
+    if ($Ctx.DryRun) { return }
     if (-not ('Native.User32' -as [type])) {
         Add-Type -Namespace Native -Name User32 -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true)]
@@ -63,7 +63,7 @@ function Test-MemoryCompressionTarget {
 function Disable-MemoryCompression {
     $ram = (Get-CimInstance Win32_PhysicalMemory | Measure-Object -Property Capacity -Sum).Sum / 1GB
     if (-not (Test-MemoryCompressionTarget -RamGB $ram)) { Write-Log "Memory compression kept (RAM is $([Math]::Round($ram, 1)) GB, the change needs $MemoryCompressionMinGB GB or more)."; return }
-    if ($script:Reapply -and -not (Get-MMAgent).MemoryCompression) { return }
+    if ($Ctx.Reapply -and -not (Get-MMAgent).MemoryCompression) { return }
     if (Test-DryRun 'disable memory compression') { return }
     if ($null -eq $script:State.MemCompress) { Set-StateValue -Name 'MemCompress' -Value ([bool](Get-MMAgent).MemoryCompression) }
     Disable-MMAgent -MemoryCompression
@@ -73,7 +73,7 @@ function Disable-MemoryCompression {
 $SleepStudyLogs = 'Microsoft-Windows-SleepStudy/Diagnostic', 'Microsoft-Windows-Kernel-Processor-Power/Diagnostic', 'Microsoft-Windows-UserModePowerService/Diagnostic'
 
 function Disable-SleepStudy {
-    if ($script:Reapply -and @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' }).Count -eq 0) { return }
+    if ($Ctx.Reapply -and @($SleepStudyLogs | Where-Object { ((& wevtutil.exe gl $_) | Out-String) -match 'enabled:\s*true' }).Count -eq 0) { return }
     if (Test-DryRun 'turn off the Sleep Study and power diagnostic event logs') { return }
     # Record which logs were on, the first time only, so -Revert turns back on exactly those and no more.
     if ($script:State.SleepStudy -eq $false) {
@@ -97,7 +97,7 @@ function Get-MaxPasswordAge {
 
 function Set-PasswordExpiry {
     if ([Environment]::OSVersion.Version.Build -le 19045) { Write-Log 'Password expiry change skipped (Windows 11 only).'; return }
-    if ($script:Reapply -and (Get-MaxPasswordAge) -eq 'unlimited') { return }
+    if ($Ctx.Reapply -and (Get-MaxPasswordAge) -eq 'unlimited') { return }
     if (Test-DryRun 'set the maximum local password age to unlimited') { return }
     if ($script:State.PwAge -eq $false) { Set-StateValue -Name 'PwAge' -Value (Get-MaxPasswordAge) }
     & net.exe accounts /maxpwage:unlimited | Out-Null
@@ -153,7 +153,7 @@ function Reset-ConsentDatabase {
 }
 
 function Update-UserVisuals {
-    if ($script:DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
+    if ($Ctx.DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
     1..5 | ForEach-Object { & rundll32.exe user32.dll, UpdatePerUserSystemParameters, 1, True; Start-Sleep -Milliseconds 5 }
     Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
 }

@@ -8,7 +8,7 @@ Initialize-StateDir
 try { Import-State }
 catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
-catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
+catch { $Ctx.Failures++; Write-Log $_.Exception.Message 'ERROR' }
 if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings
@@ -18,7 +18,7 @@ if ($HealthCheck) {
 if ($RestoreTask.Count -gt 0) {
     if ($Revert -or $DryRun) { throw '-RestoreTask cannot be combined with -Revert or -DryRun.' }
     Invoke-Step 'Restore selected tasks' { Restore-SelectedTasks }
-    Exit-Run ([int]($script:Failures -gt 0))
+    Exit-Run ([int]($Ctx.Failures -gt 0))
 }
 if ($Revert -and $Only.Count -gt 0) {
     # -Only with -Revert names what to undo, not what to apply.
@@ -26,11 +26,11 @@ if ($Revert -and $Only.Count -gt 0) {
 }
 elseif ($Revert) { Invoke-Revert }
 elseif ($Reapply) {
-    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
+    if ($Json -and -not $Force -and -not $Ctx.DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     Invoke-Reapply
 }
 else {
-    if ($Json -and -not $Force -and -not $script:DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
+    if ($Json -and -not $Force -and -not $Ctx.DryRun) { Exit-Run 2 'A -Json run cannot answer questions. Add -Force for an unattended run.' }
     # Only a hint: the defaults trade battery and security for speed, and laptops usually want the laptop profile.
     if (-not $ProfilePath -and (Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)) {
         Write-Log "Battery detected and no profile given. The defaults favour speed over battery life and security; on a laptop consider -ProfilePath $(Join-Path $PSScriptRoot 'profiles\laptop.json')." 'WARN'
@@ -42,10 +42,10 @@ else {
     Save-State
 }
 
-if ($script:DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
-if ($script:Failures -gt 0) { Write-Log "Finished with $($script:Failures) failure(s) and $($script:Warnings) warning(s). Review the log: $LogFile" 'WARN' }
-else { Write-Log "Finished without errors ($($script:Warnings) warning(s)). Log: $LogFile" 'OK' }
+if ($Ctx.DryRun) { Write-Log 'Dry run complete. Nothing was changed.' 'OK'; Exit-Run 0 'Dry run, nothing was changed.' }
+if ($Ctx.Failures -gt 0) { Write-Log "Finished with $($Ctx.Failures) failure(s) and $($Ctx.Warnings) warning(s). Review the log: $LogFile" 'WARN' }
+else { Write-Log "Finished without errors ($($Ctx.Warnings) warning(s)). Log: $LogFile" 'OK' }
 if (-not $Revert -and (Test-Path -LiteralPath $JournalFile)) { Write-Log "Every change with its option, value before, value after and result (OK, MISMATCH, FAILED): $JournalFile" }
 Write-Log 'Restart Windows so service, policy and power changes take full effect.'
-Exit-Run ([int]($script:Failures -gt 0))
+Exit-Run ([int]($Ctx.Failures -gt 0))
 #endregion

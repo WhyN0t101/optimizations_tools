@@ -146,3 +146,23 @@ if (-not ($ListOptions -or $ListRegGroups)) {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The run in progress, in one place: which mode it is in (dry run, reapply, after an apply), its counters and the step
+# it is at. Functions read and change it here instead of each keeping a script-level variable of its own.
+$Ctx = [pscustomobject]@{
+    DryRun        = [bool]$DryRun
+    Reapply       = $false
+    DryRunCount   = 0
+    PostApply     = $false
+    SoftRuntime   = $false
+    AppliedAt     = $null
+    StopRun       = $false
+    ShellDirty    = $false
+    Failures      = 0
+    Warnings      = 0
+    TiCount       = 0
+    JournalOption = ''      # option the current change belongs to, written into each journal line
+    StepId        = 0
+    StepName      = ''
+    StepEvents    = [System.Collections.Generic.List[object]]::new()
+}
+

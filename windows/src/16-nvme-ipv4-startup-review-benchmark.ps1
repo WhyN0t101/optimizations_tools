@@ -3,7 +3,7 @@ function Set-NvmeNativeDriver {
     # The native NVMe stack ships with Windows 11 24H2 (build 26100). On older builds the overrides do nothing useful.
     if ([Environment]::OSVersion.Version.Build -lt 26100) { Write-Log 'Native NVMe driver needs Windows 11 24H2 (build 26100) or later, skipped.' 'WARN'; return }
     Set-TweakList $NvmeRegs
-    if (-not $script:DryRun) { Write-Log 'Native NVMe driver switched on. It takes effect after a restart; -Revert switches it off again.' 'WARN' }
+    if (-not $Ctx.DryRun) { Write-Log 'Native NVMe driver switched on. It takes effect after a restart; -Revert switches it off again.' 'WARN' }
 }
 
 function Set-IPv4Only {

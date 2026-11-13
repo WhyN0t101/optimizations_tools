@@ -1,9 +1,6 @@
 #region Health check ---------------------------------------------------------------------
 $script:Health = @{ PASS = 0; WARN = 0; FAIL = 0; INFO = 0 }
 $script:HealthItems = [System.Collections.Generic.List[object]]::new()
-$script:SoftRuntime = $false
-$script:PostApply = $false
-$script:AppliedAt = $null
 
 function Write-Health {
     param([ValidateSet('PASS', 'WARN', 'FAIL', 'INFO')][string]$Status, [string]$Area, [string]$Message)
@@ -16,7 +13,7 @@ function Write-Health {
 }
 
 # Runtime state (running services, memory compression) lags behind the registry until a restart.
-function Get-RuntimeStatus { if ($script:SoftRuntime) { return 'INFO' } return 'FAIL' }
+function Get-RuntimeStatus { if ($Ctx.SoftRuntime) { return 'INFO' } return 'FAIL' }
 
 function Invoke-HealthArea {
     param([string]$Name, [scriptblock]$Check)
@@ -398,7 +395,7 @@ function Test-HealthDefender {
     if ($st.PSObject.Properties['AntivirusSignatureLastUpdated'] -and $st.AntivirusSignatureLastUpdated) {
         $age = [int]((Get-Date) - [DateTime]$st.AntivirusSignatureLastUpdated).TotalDays
         if ($rt -and $age -gt 7) {
-            $predates = $script:AppliedAt -and ($age -gt (((Get-Date) - $script:AppliedAt).TotalDays + 1))
+            $predates = $Ctx.AppliedAt -and ($age -gt (((Get-Date) - $Ctx.AppliedAt).TotalDays + 1))
             $excluded = ($Opt['SecurityUpdatesOnly'] -or $Opt['PauseUpdates']) -and -not $Opt['KeepDefinitionUpdates']
             $why = if ($predates) { ' That is older than this run, so the base image was already out of date.' } else { '' }
             if ($excluded) { $why += ' Your update options also exclude definition updates, so Windows Update will not refresh them.' }
@@ -412,7 +409,7 @@ function Test-HealthSystem {
     if ($Opt['Uac']) {
         $s = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name 'EnableLUA'
         if ($s.Existed -and [int]$s.Value -eq 0) {
-            if ($script:SoftRuntime) { Write-Health 'INFO' 'System' 'UAC is set to off. It takes effect after a restart, and some Store apps behave differently without it.' }
+            if ($Ctx.SoftRuntime) { Write-Health 'INFO' 'System' 'UAC is set to off. It takes effect after a restart, and some Store apps behave differently without it.' }
             else { Write-Health 'PASS' 'System' 'UAC is off (EnableLUA 0, active since the last restart).' }
         }
         else { Write-Health 'WARN' 'System' 'UAC was meant to be off but EnableLUA is not 0.' }
@@ -554,7 +551,7 @@ function Test-HealthSystem {
         elseif ($svc) { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is installed but $($svc.Status)." }
         else { Write-Health 'WARN' 'System' "Timer resolution service '$TimerServiceName' is not installed." }
     }
-    if ((Test-RebootPending) -or $script:SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
+    if ((Test-RebootPending) -or $Ctx.SoftRuntime) { Write-Health 'INFO' 'System' 'A restart is pending or needed, so some results above show the state before it.' }
 }
 
 function Test-HealthEvents {
@@ -565,8 +562,8 @@ function Test-HealthEvents {
     $own = @($events | Where-Object { $_.Message -match $tiPattern })
     $other = @($events | Where-Object { $_.Message -notmatch $tiPattern })
     if ($own.Count -gt 0) {
-        if ($script:TiCount -gt 0) {
-            Write-Health 'INFO' 'Events' "$($own.Count) Windows Modules Installer service error(s) (7000, 7009, 7031) come from this script's TrustedInstaller helper, used $($script:TiCount) time(s) in this run. This is expected and harmless."
+        if ($Ctx.TiCount -gt 0) {
+            Write-Health 'INFO' 'Events' "$($own.Count) Windows Modules Installer service error(s) (7000, 7009, 7031) come from this script's TrustedInstaller helper, used $($Ctx.TiCount) time(s) in this run. This is expected and harmless."
         }
         else {
             Write-Health 'WARN' 'Events' "$($own.Count) Windows Modules Installer service error(s) since the last start. If you ran this script since the last restart they come from its TrustedInstaller helper and are harmless. Otherwise Windows servicing may have a problem."
@@ -642,9 +639,9 @@ function Invoke-HealthCheck {
         $w = $script:State.Run.When
         try { $applied = if ($w -is [DateTime]) { $w } else { [DateTime]::Parse([string]$w, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind) } } catch { }
     }
-    $script:AppliedAt = $applied
-    $script:SoftRuntime = $script:PostApply -or ($applied -and $boot -lt $applied)
-    Write-Log "Health check starting$(if ($script:SoftRuntime) { ' (no restart since the tweaks, so runtime state may lag)' })."
+    $Ctx.AppliedAt = $applied
+    $Ctx.SoftRuntime = $Ctx.PostApply -or ($applied -and $boot -lt $applied)
+    Write-Log "Health check starting$(if ($Ctx.SoftRuntime) { ' (no restart since the tweaks, so runtime state may lag)' })."
 
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
@@ -657,13 +654,13 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'System' { Test-HealthSystem }
     Invoke-HealthArea 'Events' { Test-HealthEvents }
     if ($HealthCheckLaunch) { Invoke-HealthArea 'Launch' { Test-HealthAppLaunch } }
-    if (-not $script:PostApply) { Invoke-HealthArea 'Drift' { Test-HealthDrift } }
+    if (-not $Ctx.PostApply) { Invoke-HealthArea 'Drift' { Test-HealthDrift } }
 
     $h = $script:Health
     Write-Log ("Health result: {0} passed, {1} warning(s), {2} failed, {3} note(s)." -f $h.PASS, $h.WARN, $h.FAIL, $h.INFO) $(if ($h.FAIL -gt 0) { 'ERROR' } elseif ($h.WARN -gt 0) { 'WARN' } else { 'OK' })
     if ($h.FAIL -gt 0) { Write-Log 'Failures mean something you asked to keep is broken. Undo one item with -Skip <Option>, or everything with -Revert.' 'ERROR' }
     if (-not $HealthCheckLaunch) { Write-Log 'Add -HealthCheckLaunch to also open Settings, Store, Photos, Paint and Xbox and confirm they start.' }
-    if (-not $script:DryRun) { Save-ResultJson -Kind 'health' -Counts $h -Items $script:HealthItems.ToArray() }
+    if (-not $Ctx.DryRun) { Save-ResultJson -Kind 'health' -Counts $h -Items $script:HealthItems.ToArray() }
 }
 
 function Test-RevertResult {

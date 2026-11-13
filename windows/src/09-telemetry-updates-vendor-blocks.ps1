@@ -1,7 +1,7 @@
 #region Telemetry, updates, vendor blocks -------------------------------------------------
 function Invoke-TelemetryTweaks {
     if ($Opt['TelemetryPolicy']) {
-        $script:JournalOption = 'TelemetryPolicy'
+        $Ctx.JournalOption = 'TelemetryPolicy'
         Set-TweakList $TelemetryRegs
         foreach ($s in $TelemetryServices) { Set-ServiceStart -Name $s -Mode Disabled }
         # Stop every logger under the DiagTrack autologger.
@@ -12,16 +12,16 @@ function Invoke-TelemetryTweaks {
             finally { $k.Close() }
         }
     }
-    if ($Opt['BiometricsPolicy']) { $script:JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
+    if ($Opt['BiometricsPolicy']) { $Ctx.JournalOption = 'BiometricsPolicy'; Set-TweakList $BiometricsRegs }
     if ($Opt['Cdp']) {
-        $script:JournalOption = 'Cdp'
+        $Ctx.JournalOption = 'Cdp'
         foreach ($s in $CdpServices) { Set-ServiceStart -Name $s -Mode Disabled }
         $cdpCache = Join-Path $env:LOCALAPPDATA 'ConnectedDevicesPlatform'
-        if (-not $script:Reapply -and (Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
+        if (-not $Ctx.Reapply -and (Test-Path -LiteralPath $cdpCache) -and -not (Test-DryRun "delete the Connected Devices Platform cache $cdpCache (not reversible, Windows rebuilds it)")) {
             Remove-Item -LiteralPath $cdpCache -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($Opt['TelemetryHosts']) { $script:JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
+    if ($Opt['TelemetryHosts']) { $Ctx.JournalOption = 'TelemetryHosts'; Set-HostsBlock -Name 'telemetry' -Domains $TelemetryDomains }
 }
 
 function Set-UpdatePolicies {
@@ -31,22 +31,22 @@ function Set-UpdatePolicies {
     $wu = 'HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate'
     $ux = 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings'
 
-    if ($Opt['DriverExclusion']) { $script:JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
+    if ($Opt['DriverExclusion']) { $Ctx.JournalOption = 'DriverExclusion'; Set-TweakList $DriverExclusionRegs }
     if ($Opt['SecurityUpdatesOnly']) {
-        $script:JournalOption = 'SecurityUpdatesOnly'
+        $Ctx.JournalOption = 'SecurityUpdatesOnly'
         Set-TweakList $SecurityUpdatesRegs
         Set-RegValue -Path $wu -Name 'ExcludeUpdateClassifications' -Value $classString -Type String
         Write-Log 'Update policy: long deferrals set and update classifications excluded (upstream behaviour).' 'WARN'
     }
     if ($Opt['PauseUpdates']) {
-        $script:JournalOption = 'PauseUpdates'
+        $Ctx.JournalOption = 'PauseUpdates'
         $fmt = 'yyyy-MM-ddTHH:mm:ssZ'
         $inv = [System.Globalization.CultureInfo]::InvariantCulture
         $now = [DateTime]::UtcNow
         $start = $now.ToString($fmt, $inv)
         $end = $now.AddDays($PauseDays).ToString($fmt, $inv)
         # -Reapply keeps the pause dates of the run: writing them again would extend the pause every time.
-        if (-not $script:Reapply) {
+        if (-not $Ctx.Reapply) {
             foreach ($n in 'PauseUpdatesStartTime', 'PauseFeatureUpdatesStartTime', 'PauseQualityUpdatesStartTime') { Set-RegValue -Path $ux -Name $n -Value $start -Type String }
             foreach ($n in 'PauseUpdatesExpiryTime', 'PauseFeatureUpdatesEndTime', 'PauseQualityUpdatesEndTime') { Set-RegValue -Path $ux -Name $n -Value $end -Type String }
         }
@@ -57,7 +57,7 @@ function Set-UpdatePolicies {
             if ($t.Name -in 'DeferFeatureUpdatesPeriodInDays', 'DeferQualityUpdatesPeriodInDays') { $v = $deferDays }
             Set-RegValue -Path $t.Path -Name $t.Name -Value $v -Type $t.Type
         }
-        if ($script:Reapply) {
+        if ($Ctx.Reapply) {
             # -Reapply keeps the pause of the run: after it ended, updates stay on; before, the policy and its end come back.
             $expiry = Get-PauseExpiry
             if ($expiry -and $expiry -gt [DateTime]::UtcNow) {
@@ -70,8 +70,8 @@ function Set-UpdatePolicies {
             Register-PauseEndTask -EndUtc $now.AddDays($PauseDays)
         }
         # ExcludeUpdateClassifications belongs to SecurityUpdatesOnly only: it never expires, unlike the pause.
-        if ($Opt['PauseStopsUpdateTasks']) { $script:JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
-        if (-not $script:DryRun -and -not $script:Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), with automatic update checks off for the same time (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
+        if ($Opt['PauseStopsUpdateTasks']) { $Ctx.JournalOption = 'PauseStopsUpdateTasks'; Disable-UpdateTasks }
+        if (-not $Ctx.DryRun -and -not $Ctx.Reapply) { Write-Log "Updates paused until $end (-PauseDays $PauseDays), with automatic update checks off for the same time (NoAutoUpdate). Security patches are delayed; Settings, Check for updates still works." 'WARN' }
     }
 }
 

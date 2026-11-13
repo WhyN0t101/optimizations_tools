@@ -37,6 +37,9 @@ foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Selec
 $wantedVars = '$UpdateKbsNotWindows', '$NotRevertedAlone', '$RevertOnlyExtra', '$WindowsAIRegs', '$VendorServicesDisable', '$VendorServicesManual', '$StartupKeepBuiltIn', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
+# The run context the functions read, built from the script's own definition (a dry run is off in the tests).
+$DryRun = $false
+Invoke-Expression ($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -eq '$Ctx' }, $true) | Select-Object -First 1).Extent.Text
 
 # The benchmarks live in tools/Measure-Performance.ps1: load their functions and data from there.
 $perfPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\Measure-Performance.ps1'
@@ -236,13 +239,13 @@ function Reset-TestState {
     Invoke-Expression $stateInit
     $script:RecordedReg = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $script:LogLines = [System.Collections.Generic.List[string]]::new()
-    $script:JournalSeq = 0; $script:StepId = 0; $script:StepName = ''; $script:JournalOption = ''; $script:StopRun = $false
-    $script:StepEvents = [System.Collections.Generic.List[object]]::new()
-    $script:Failures = 0
+    $script:JournalSeq = 0; $Ctx.StepId = 0; $Ctx.StepName = ''; $Ctx.JournalOption = ''; $Ctx.StopRun = $false
+    $Ctx.StepEvents = [System.Collections.Generic.List[object]]::new()
+    $Ctx.Failures = 0
 }
 function Get-JournalLines { @(Get-Content -LiteralPath $JournalFile -ErrorAction SilentlyContinue | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json }) }
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') $script:LogLines.Add("[$Level] $Message") }
-$script:DryRun = $false
+$Ctx.DryRun = $false
 $StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-state-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
 $StateFile = Join-Path $StateDir 'state.json'
@@ -279,7 +282,7 @@ try {
     Write-RegRaw -Full $scratch -Name 'V' -Value 1 -Kind 'DWord'
     Set-RegValue -Path $scratch -Name 'V' -Value 2
     Set-RegValue -Path $scratch -Name 'V' -Value 3
-    Check 'Journal: a second write of a value keeps the first original' (@($script:State.Registry | Where-Object { $_.Name -eq 'V' }).Count -eq 1 -and [int]@($script:State.Registry | Where-Object { $_.Name -eq 'V' })[0].Value -eq 1 -and $script:Failures -eq 0)
+    Check 'Journal: a second write of a value keeps the first original' (@($script:State.Registry | Where-Object { $_.Name -eq 'V' }).Count -eq 1 -and [int]@($script:State.Registry | Where-Object { $_.Name -eq 'V' })[0].Value -eq 1 -and $Ctx.Failures -eq 0)
     $lines = Get-JournalLines
     $changes = @($lines | Where-Object { $_.Op -eq 'Change' -and $_.Target -eq "$scratch\V" })
     $results = @($lines | Where-Object { $_.Op -eq 'Result' -and $_.Target -eq "$scratch\V" })
@@ -290,13 +293,13 @@ try {
     . ([scriptblock]::Create('function Write-RegRaw { param($Full, $Name, $Value, $Kind) throw "disk on fire" }'))
     Set-RegValue -Path $scratch -Name 'W' -Value 5
     $wLines = @(Get-JournalLines | Where-Object { $_.Target -eq "$scratch\W" })
-    Check 'Journal: the change line is written before the write, and a failed write is recorded as FAILED' ($script:Failures -eq 1 -and $wLines.Count -eq 2 -and $wLines[0].Op -eq 'Change' -and $wLines[1].Result -eq 'FAILED' -and $script:RecordedReg.Contains("$scratch|W"))
+    Check 'Journal: the change line is written before the write, and a failed write is recorded as FAILED' ($Ctx.Failures -eq 1 -and $wLines.Count -eq 2 -and $wLines[0].Op -eq 'Change' -and $wLines[1].Result -eq 'FAILED' -and $script:RecordedReg.Contains("$scratch|W"))
     . ([scriptblock]::Create('function Write-RegRaw { param($Full, $Name, $Value, $Kind) }'))
     Set-RegValue -Path $scratch -Name 'X' -Value 9
     $xResult = @(Get-JournalLines | Where-Object { $_.Op -eq 'Result' -and $_.Target -eq "$scratch\X" })
     Check 'Read back: a write that does not take is a MISMATCH in the journal and a warning in the log' ($xResult.Count -eq 1 -and $xResult[0].Result -eq 'MISMATCH' -and $xResult[0].Now -eq '<missing>' -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] MISMATCH: $scratch\X*" }).Count -eq 1)
     . ([scriptblock]::Create($realWriteRegRaw))
-    $script:Failures = 0
+    $Ctx.Failures = 0
 
     # A-01: a run that stops before the state file is saved loses nothing: the journal is replayed at the next start.
     Reset-TestState
@@ -342,14 +345,14 @@ try {
     Invoke-Step 'Rollback test' -Option 'MpoOff' { Set-RegValue -Path "$scratch\New\Deep" -Name 'A' -Value 1; Set-RegValue -Path $scratch -Name 'V' -Value 11; throw 'boom' }
     $now = Get-RegSnapshot -Full $scratch -Name 'V'
     $stepLines = @(Get-JournalLines | Where-Object { $_.StepName -eq 'Rollback test' })
-    Check 'Rollback: a failed step puts back its values and removes the keys it created' ([int]$now.Value -eq 10 -and $null -eq (Open-RegKey -Full "$scratch\New") -and -not $script:StopRun -and $script:Failures -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Rolled back 'Rollback test': 2 change(s)*" }).Count -eq 1)
+    Check 'Rollback: a failed step puts back its values and removes the keys it created' ([int]$now.Value -eq 10 -and $null -eq (Open-RegKey -Full "$scratch\New") -and -not $Ctx.StopRun -and $Ctx.Failures -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Rolled back 'Rollback test': 2 change(s)*" }).Count -eq 1)
     Check 'Journal: lines name the step and its option, and the rollback is recorded' ($stepLines.Count -gt 0 -and @($stepLines | Where-Object { $_.Option -ne 'MpoOff' -or $_.Step -ne 1 }).Count -eq 0 -and @($stepLines | Where-Object { $_.Op -eq 'Rollback' -and $_.Result -eq 'OK' }).Count -eq 1)
     Invoke-Step 'Clean step' { Set-RegValue -Path $scratch -Name 'V' -Value 12 }
-    Check 'Rollback: a step without failures is left as it is' ([int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 12 -and $script:Failures -eq 1)
+    Check 'Rollback: a step without failures is left as it is' ([int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 12 -and $Ctx.Failures -eq 1)
     Invoke-Step 'Unsafe step' { Set-RegValue -Path $scratch -Name 'V' -Value 13; Set-StateValue -Name 'Hibernate' -Value $true; throw 'boom' }
     $script:ranAfter = $false
     Invoke-Step 'After the stop' { $script:ranAfter = $true }
-    Check 'Rollback: a step that changed something the journal cannot put back stops the run' ($script:StopRun -and -not $script:ranAfter -and [int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 13 -and @($script:LogLines | Where-Object { $_ -like "``[ERROR``] Rollback of 'Unsafe step' is not safe: the step also changed Hibernate*" }).Count -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Skipped: After the stop*" }).Count -eq 1)
+    Check 'Rollback: a step that changed something the journal cannot put back stops the run' ($Ctx.StopRun -and -not $script:ranAfter -and [int](Get-RegSnapshot -Full $scratch -Name 'V').Value -eq 13 -and @($script:LogLines | Where-Object { $_ -like "``[ERROR``] Rollback of 'Unsafe step' is not safe: the step also changed Hibernate*" }).Count -eq 1 -and @($script:LogLines | Where-Object { $_ -like "``[WARN``] Skipped: After the stop*" }).Count -eq 1)
     Reset-TestState
 
     # A-02: every run exports the key again; revert imports all exports, newest first, so the original wins.
@@ -363,9 +366,9 @@ try {
     Write-RegRaw -Full $runKey -Name 'Shared' -Value 'changed' -Kind 'String'
     Remove-RegKey -Path $runKey
     $files = @($script:State.KeyBackups | ForEach-Object { $_.File })
-    Check 'Remove-RegKey on repeat: a second export with its own name holds the entries added since' ($null -eq (Open-RegKey -Full $runKey) -and $files.Count -eq 2 -and $files[0] -ne $files[1] -and [IO.File]::ReadAllText($files[1]) -match '"Second"="second\.exe"' -and $script:Failures -eq 0)
+    Check 'Remove-RegKey on repeat: a second export with its own name holds the entries added since' ($null -eq (Open-RegKey -Full $runKey) -and $files.Count -eq 2 -and $files[0] -ne $files[1] -and [IO.File]::ReadAllText($files[1]) -match '"Second"="second\.exe"' -and $Ctx.Failures -eq 0)
     Remove-RegKey -Path $runKey
-    Check 'Remove-RegKey: a key that is already gone is not an error and adds no export' ($script:Failures -eq 0 -and $script:State.KeyBackups.Count -eq 2)
+    Check 'Remove-RegKey: a key that is already gone is not an error and adds no export' ($Ctx.Failures -eq 0 -and $script:State.KeyBackups.Count -eq 2)
     Restore-KeyBackups
     $back = { param($n) (Get-RegSnapshot -Full $runKey -Name $n).Value }
     Check 'Revert: every export is imported and the oldest wins where they overlap' ((& $back 'First') -eq 'first.exe' -and (& $back 'Second') -eq 'second.exe' -and (& $back 'Shared') -eq 'original')
@@ -380,7 +383,7 @@ try {
     foreach ($k in 'FakeSvc', 'FakeSvc_1a2b3c', 'FakeSvcOther') { Write-RegRaw -Full "$ServicesRoot\$k" -Name 'Start' -Value 3 -Kind 'DWord' }
     Remove-ServiceKey -Name 'FakeSvc'
     Remove-ServiceKey -Name 'NoSuchSvc'
-    Check 'ServiceMode Delete: the service and its per user copies are exported and deleted, a similar name stays' ($null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc") -and $null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c") -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvcOther") -and $script:State.KeyBackups.Count -eq 2 -and $script:Failures -eq 0 -and @($script:LogLines | Where-Object { $_ -eq '[INFO] Service not present: NoSuchSvc' }).Count -eq 1)
+    Check 'ServiceMode Delete: the service and its per user copies are exported and deleted, a similar name stays' ($null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc") -and $null -eq (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c") -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvcOther") -and $script:State.KeyBackups.Count -eq 2 -and $Ctx.Failures -eq 0 -and @($script:LogLines | Where-Object { $_ -eq '[INFO] Service not present: NoSuchSvc' }).Count -eq 1)
     Check 'ServiceMode Delete: the health check counts only services this run deleted' ((Test-ServiceKeyDeletedByRun 'FakeSvc') -and -not (Test-ServiceKeyDeletedByRun 'FakeSvcOther') -and -not (Test-ServiceKeyDeletedByRun 'NoSuchSvc'))
     Restore-KeyBackups
     Check 'ServiceMode Delete: -Revert brings the deleted service keys back' ([int](Get-RegSnapshot -Full "$ServicesRoot\FakeSvc" -Name 'Start').Value -eq 3 -and $null -ne (Open-RegKey -Full "$ServicesRoot\FakeSvc_1a2b3c"))
@@ -393,7 +396,7 @@ try {
     $StartupKeep = @('KeepMe*')
     Remove-StartupEntries -Path $runTest
     $left = @((Open-RegKey -Full $runTest).GetValueNames() | Sort-Object)
-    Check 'RunKeys: startup entries are removed one by one, except -StartupKeep matches and Windows Security' (($left -join ',') -eq 'KeepMeAround,SecurityHealth' -and $script:State.Registry.Count -eq 2 -and $script:Failures -eq 0)
+    Check 'RunKeys: startup entries are removed one by one, except -StartupKeep matches and Windows Security' (($left -join ',') -eq 'KeepMeAround,SecurityHealth' -and $script:State.Registry.Count -eq 2 -and $Ctx.Failures -eq 0)
     foreach ($e in @($script:State.Registry)) { Restore-RegValue -Entry $e }
     Check 'RunKeys: -Revert puts each removed entry back with its value' ((Get-RegSnapshot -Full $runTest -Name 'Spotify').Value -eq 'Spotify.exe' -and (Get-RegSnapshot -Full $runTest -Name 'Discord').Value -eq 'Discord.exe')
     $StartupKeep = @()
@@ -401,20 +404,20 @@ try {
     # -Reapply: primitives skip what is already as the run set it, so the first pass counts only drifted items.
     Reset-TestState
     Write-RegRaw -Full $scratch -Name 'R' -Value 3 -Kind 'DWord'
-    $script:Reapply = $true; $script:DryRun = $true; $script:DryRunCount = 0
+    $Ctx.Reapply = $true; $Ctx.DryRun = $true; $Ctx.DryRunCount = 0
     Set-RegValue -Path $scratch -Name 'R' -Value 3
     Remove-RegValue -Path $scratch -Name 'NotThere'
     Remove-RegKey -Path "$scratch\NoSuchKey"
-    $sameCount = $script:DryRunCount
+    $sameCount = $Ctx.DryRunCount
     Set-RegValue -Path $scratch -Name 'R' -Value 4
     Set-RegValue -Path $scratch -Name 'R' -Value '3' -Type String
-    $script:Reapply = $false; $script:DryRun = $false
-    Check 'Reapply: values already as the run set them, and values or keys already gone, are not drift; a changed value or type is' ($sameCount -eq 0 -and $script:DryRunCount -eq 2 -and [int](Get-RegSnapshot -Full $scratch -Name 'R').Value -eq 3)
+    $Ctx.Reapply = $false; $Ctx.DryRun = $false
+    Check 'Reapply: values already as the run set them, and values or keys already gone, are not drift; a changed value or type is' ($sameCount -eq 0 -and $Ctx.DryRunCount -eq 2 -and [int](Get-RegSnapshot -Full $scratch -Name 'R').Value -eq 3)
     $savedRun = [pscustomobject]@{ Options = [pscustomobject]@{ RunKeys = $true; SvcOther = $true; SvcExtra = $true; Debloat = $false; ClearStartPins = $true } }
     $sel = Set-ReapplyOptions -Run $savedRun -SkipNames @('SvcExtra')
     Check 'Reapply: only options of the earlier run, minus the ones it leaves alone and -Skip; options it did not have stay off and are listed' ($Opt['SvcOther'] -and -not $Opt['SvcExtra'] -and -not $Opt['RunKeys'] -and -not $Opt['ClearStartPins'] -and -not $Opt['Debloat'] -and -not $Opt['TimerResolution'] -and (@($sel.LeftAlone) -join ',') -eq 'RunKeys,ClearStartPins' -and @($sel.New) -contains 'TimerResolution' -and @($sel.New) -notcontains 'SvcOther')
     $preFn = ($fns | Where-Object { $_.Name -eq 'Invoke-Preflight' } | Select-Object -First 1).Extent.Text
-    Check 'Reapply: a pending restart or servicing at work blocks it, and it keeps the pause dates of the run' ($preFn -match "\`$p\.Check -in 'PendingReboot', 'WindowsUpdate' -and \`$p\.Status -eq 'WARN'\) \{ \`$p\.Status = 'BLOCK'" -and $text -match '(?s)if \(-not \$script:Reapply\) \{\s+foreach \(\$n in .PauseUpdatesStartTime')
+    Check 'Reapply: a pending restart or servicing at work blocks it, and it keeps the pause dates of the run' ($preFn -match "\`$p\.Check -in 'PendingReboot', 'WindowsUpdate' -and \`$p\.Status -eq 'WARN'\) \{ \`$p\.Status = 'BLOCK'" -and $text -match '(?s)if \(-not \$Ctx\.Reapply\) \{\s+foreach \(\$n in .PauseUpdatesStartTime')
     foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
     # RemoveOneDrive: installs and uninstallers are found per user and per machine; with an account signed in it is
@@ -564,15 +567,15 @@ Check 'Exit codes: 0 ok, 1 failures, 2 cancelled, 3 pre flight refused, 4 state 
 $script:Health = @{ PASS = 3; WARN = 1; FAIL = 0; INFO = 0 }
 $script:HealthItems = [System.Collections.Generic.List[object]]::new(); $script:HealthItems.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = 'm' })
 $script:PreflightResults = @([pscustomobject]@{ Check = 'Managed'; Status = 'BLOCK'; Message = 'domain' })
-$script:Failures = 0; $script:Warnings = 2; $LogFile = 'C:\x\run.log'; $JournalFile = 'C:\nowhere\journal.jsonl'; $StateDir = 'C:\x'
-$Revert = $false; $RestoreTask = @(); $HealthCheck = $false; $Benchmark = $false; $StartupReview = $false; $script:DryRun = $false
+$Ctx.Failures = 0; $Ctx.Warnings = 2; $LogFile = 'C:\x\run.log'; $JournalFile = 'C:\nowhere\journal.jsonl'; $StateDir = 'C:\x'
+$Revert = $false; $RestoreTask = @(); $HealthCheck = $false; $Benchmark = $false; $StartupReview = $false; $Ctx.DryRun = $false
 $result = ConvertTo-Json -InputObject (Get-RunResult -Code 3 -Reason 'Refused by the pre flight check(s) Managed.') -Depth 6 | ConvertFrom-Json
 Check '-Json result: exit code, its meaning, reason, mode, counts, pre flight, health and file paths' ($result.ExitCode -eq 3 -and $result.Result -eq 'pre flight refused' -and $result.Reason -match 'Managed' -and $result.Mode -eq 'apply' -and $result.Warnings -eq 2 -and @($result.Preflight)[0].Status -eq 'BLOCK' -and $result.Health.Counts.PASS -eq 3 -and @($result.Health.Items).Count -eq 1 -and $result.Log -eq 'C:\x\run.log' -and $null -eq $result.Journal)
 $HealthCheck = $true; $modeHealth = Get-RunMode; $HealthCheck = $false; $Revert = $true; $modeRevert = Get-RunMode; $Revert = $false
 Check '-Json result: the mode names what ran' ($modeHealth -eq 'healthcheck' -and $modeRevert -eq 'revert')
 $entry = $text.Substring($text.IndexOf('#region Entry point'))
 Check 'Every exit after start up goes through Exit-Run, so -Json always prints one result' (@([regex]::Matches($entry, '(?m)(^|[;{]\s*)exit\b')).Count -eq 0 -and @([regex]::Matches($entry, 'Exit-Run ')).Count -ge 8)
-Check '-Json keeps the console to the result object, needs -Force for a real run and refuses without elevation' ($text -match "if \(-not \`$Json\) \{ Write-Host \`$line -ForegroundColor \`$colour \}" -and $text -match "if \(\`$Json -and -not \`$Force -and -not \`$script:DryRun\) \{ Exit-Run 2" -and $text -match "Reason = 'Administrator rights are needed\. Start the -Json run from an elevated PowerShell\.'")
+Check '-Json keeps the console to the result object, needs -Force for a real run and refuses without elevation' ($text -match "if \(-not \`$Json\) \{ Write-Host \`$line -ForegroundColor \`$colour \}" -and $text -match "if \(\`$Json -and -not \`$Force -and -not \`$Ctx.DryRun\) \{ Exit-Run 2" -and $text -match "Reason = 'Administrator rights are needed\. Start the -Json run from an elevated PowerShell\.'")
 
 # B-01: repeated samples with median and range, machine context that must match, settings that may differ.
 $odd = Get-Stats @(5, 1, 3); $even = Get-Stats @(4, 1, 3, 2)
@@ -608,6 +611,12 @@ $ocBoth = Get-OptionChanges -Options @('SvcBackground', 'PauseUpdates') -Lines $
 Check 'Revert -Only: naming both options that set a value undoes it' (@($ocBoth.Registry).Count -eq 2 -and @($ocBoth.Shared).Count -eq 0)
 Check 'Revert -Only: options the journal does not track per option are named, not silently skipped' ($NotRevertedAlone -contains 'Debloat' -and $NotRevertedAlone -contains 'RemoveEdge' -and $text -match 'Not undone on their own')
 
+# Step 3 of the split: the run's mode flags, counters and current step live in one object, $Ctx, made once.
+$ctxNames = 'DryRunCount', 'DryRun', 'Reapply', 'PostApply', 'SoftRuntime', 'AppliedAt', 'StopRun', 'ShellDirty', 'Failures', 'Warnings', 'TiCount', 'JournalOption', 'StepId', 'StepName', 'StepEvents'
+$oldFlags = @($ctxNames | Where-Object { $text -match ('\$script:' + $_ + '\b') })
+$ctxMade = @([regex]::Matches($text, '(?m)^\s*\$Ctx\s*=')).Count
+Check 'Run context: no script-level copy of a flag or counter is left, and $Ctx is made once, in the header' ($oldFlags.Count -eq 0 -and $ctxMade -eq 1 -and $Ctx.Failures -eq 0 -and $Ctx.StepEvents -is [System.Collections.Generic.List[object]]) ($oldFlags -join ', ')
+
 # The source is src/NN-name.ps1, one file per area; the old single template is gone, so nobody edits a stale copy.
 $srcDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'src'
 $srcFiles = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.ps1')
@@ -625,11 +634,11 @@ $px = Get-PauseExpiry -Text '2027-11-11T20:42:23Z'
 Check 'PauseUpdates: the pause end is read as UTC; nothing or rubbish gives no date' ($px -and $px.Kind -eq 'Utc' -and $px.ToString('yyyy-MM-dd HH:mm', $inv) -eq '2027-11-11 20:42' -and $null -eq (Get-PauseExpiry -Text '') -and $null -eq (Get-PauseExpiry -Text 'soon'))
 $regFn = ($fns | Where-Object { $_.Name -eq 'Register-PauseEndTask' } | Select-Object -First 1).Extent.Text
 Check 'PauseUpdates: the end task only deletes NoAutoUpdate as SYSTEM, is recorded before it is made, kept from task deletion and removed by -Revert' ($regFn.Contains("'System32\reg.exe') -Argument 'delete " + '"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f' + "'") -and $regFn.Contains("-UserId 'S-1-5-18'") -and $regFn.IndexOf("Set-StateValue -Name 'PauseEndTask'") -lt $regFn.IndexOf('Register-ScheduledTask') -and (Test-NameMatch '\FocusedTweaks\End update pause' $TaskKeepBuiltIn) -and $text -match "if \(\`$script:State\.PauseEndTask\) \{ Invoke-Step 'Remove the task that ends the update pause'" -and $RevertOnlyExtra['PauseUpdates'] -eq 'PauseEndTask')
-Check 'PauseUpdates: -Reapply sets NoAutoUpdate again only while the pause of the run lasts' ($text -match '(?s)if \(\$script:Reapply\) \{.{0,200}\$expiry = Get-PauseExpiry\s+if \(\$expiry -and \$expiry -gt \[DateTime\]::UtcNow\) \{\s+Set-TweakList \$NoAutoUpdateRegs')
+Check 'PauseUpdates: -Reapply sets NoAutoUpdate again only while the pause of the run lasts' ($text -match '(?s)if \(\$Ctx\.Reapply\) \{.{0,200}\$expiry = Get-PauseExpiry\s+if \(\$expiry -and \$expiry -gt \[DateTime\]::UtcNow\) \{\s+Set-TweakList \$NoAutoUpdateRegs')
 
 # Review of 12 Nov 2026: -Reapply must not report drift that is not drift, and the drift hint must ignore updates that
 # are not Windows (daily Defender definitions, Store apps).
-Check 'Reapply: Quick Assist still gone, the Cdp cache Windows refills and tasks Windows manages are not drift' ($text -match '(?s)function Remove-QuickAssist \{.{0,120}if \(\$script:Reapply -and -not \(Test-QuickAssistPresent\)\) \{ return \}' -and $text -match 'if \(-not \$script:Reapply -and \(Test-Path -LiteralPath \$cdpCache\)' -and $text -match 'if \(\$script:Reapply -and \(Test-NameMatch \$full \$WindowsManagedTasks\)\) \{ continue \}')
+Check 'Reapply: Quick Assist still gone, the Cdp cache Windows refills and tasks Windows manages are not drift' ($text -match '(?s)function Remove-QuickAssist \{.{0,120}if \(\$Ctx\.Reapply -and -not \(Test-QuickAssistPresent\)\) \{ return \}' -and $text -match 'if \(-not \$Ctx\.Reapply -and \(Test-Path -LiteralPath \$cdpCache\)' -and $text -match 'if \(\$Ctx\.Reapply -and \(Test-NameMatch \$full \$WindowsManagedTasks\)\) \{ continue \}')
 Check 'Drift hint: a Windows cumulative update counts; Defender definitions, the Defender platform, MSRT and Store apps do not' ((Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: 2026-11 Cumulative Update for Windows 11 Version 25H2 for x64-based Systems (KB5070773)') -and -not (Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.463.242.0)') -and -not (Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: 9WZDNCRFJBMP-MICROSOFT.WINDOWSSTORE') -and -not (Test-WindowsUpdateMessage 'Windows Malicious Software Removal Tool x64 - v5.130 (KB890830)'))
 Check 'Modes: -Reapply refuses -Only and other modes; a failed benchmark ends with exit code 1, not a stack trace; game names with spaces reach PresentMon whole' ($text -match "if \(\`$Reapply -and \`$Only\.Count -gt 0\) \{ throw" -and $text -match '\$Reapply -and \(\$Revert -or \$HealthCheck -or \$StartupReview -or \$RestoreTask' -and $perfText -match "if \(\`$FrameProcess\) \{ Invoke-FrameBenchmark \} else \{ Invoke-Benchmark \}" -and $perfText -match "Measurement stopped" -and $perfText -match "'--process_name', `"``\`"\`$Process``\`"`"")
 
@@ -690,7 +699,7 @@ Check 'Timer service: the skip is logged with its reason and the health check re
 # B-04: hardware accelerated GPU scheduling is its own option, on by default, and needs a WDDM 2.7 display driver.
 Check 'HAGS: its upstream group belongs to HardwareGpuScheduling, on by default and Documented' ((Get-RegGroupOption 'Turn on hardware accelerated GPU scheduling') -eq 'HardwareGpuScheduling' -and $OptionInfo['HardwareGpuScheduling'][0] -and $OptionInfo['HardwareGpuScheduling'][2] -eq 'Documented' -and @($ops | Where-Object { $_.Name -eq 'HwSchMode' -and (Get-RegOpOption $_) -eq 'HardwareGpuScheduling' }).Count -eq 1)
 Check 'HAGS: a WDDM 2.7 or later driver qualifies, older and basic display drivers do not, one capable adapter is enough' ((Test-HagsDriverSupport @('31.0.15.5222')) -and (Test-HagsDriverSupport @('27.21.14.6079')) -and -not (Test-HagsDriverSupport @('26.20.100.7262')) -and -not (Test-HagsDriverSupport @('10.0.26100.1')) -and -not (Test-HagsDriverSupport @()) -and (Test-HagsDriverSupport @('10.0.26100.1', '32.0.101.6078')))
-Check 'HAGS: an unsupported driver skips the value in the import and the health check, with the reason' ($text -match 'if \(\$gated\.ContainsKey\(\$script:JournalOption\)\) \{ \$byOption\+\+; continue \}' -and $text -match 'if \(\$gated\.ContainsKey\(\$optName\)\) \{ continue \}' -and $text -match "Write-Log `"\`$g skipped on this PC: ")
+Check 'HAGS: an unsupported driver skips the value in the import and the health check, with the reason' ($text -match 'if \(\$gated\.ContainsKey\(\$Ctx\.JournalOption\)\) \{ \$byOption\+\+; continue \}' -and $text -match 'if \(\$gated\.ContainsKey\(\$optName\)\) \{ continue \}' -and $text -match "Write-Log `"\`$g skipped on this PC: ")
 
 # B-05: memory compression is turned off only with 32 GB of RAM or more, in the run and in the health check alike.
 Check 'Memory compression: off from 32 GB of RAM, kept below; the run and the health check use the same rule' (-not (Test-MemoryCompressionTarget 8.5) -and -not (Test-MemoryCompressionTarget 16) -and -not (Test-MemoryCompressionTarget 31.9) -and (Test-MemoryCompressionTarget 32) -and (Test-MemoryCompressionTarget 64) -and @([regex]::Matches($text, 'Test-MemoryCompressionTarget -RamGB \$ram')).Count -eq 2 -and $text -notmatch '\$ram -(le|gt) 8\b')
@@ -726,7 +735,7 @@ Check 'Quoting keeps hostile text inside one string literal' ((Invoke-Expression
 
 # Cleanup must remove a junction as a link and leave its target alone (Windows PowerShell 5.1 -Recurse would follow it).
 function Write-Log { param([string]$Message, [string]$Level = 'INFO') }
-$script:DryRun = $false
+$Ctx.DryRun = $false
 $root = Join-Path ([IO.Path]::GetTempPath()) ('ft-test-' + [guid]::NewGuid().ToString('N'))
 $victim = Join-Path $root 'victim'; $target = Join-Path $root 'target'
 New-Item -ItemType Directory -Path $victim, (Join-Path $target 'sub'), (Join-Path $victim 'real\inner') -Force | Out-Null
