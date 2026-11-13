@@ -53,7 +53,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @"
-          Built from the template at $env:GITHUB_SHA with the pinned ZOICWARE commit.
+          Built from windows/src at $env:GITHUB_SHA with the pinned ZOICWARE commit.
 
           SHA256 of FocusedTweaks.ps1: ``$env:SHA256``
 

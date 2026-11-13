@@ -596,6 +596,12 @@ $ocBoth = Get-OptionChanges -Options @('SvcBackground', 'PauseUpdates') -Lines $
 Check 'Revert -Only: naming both options that set a value undoes it' (@($ocBoth.Registry).Count -eq 2 -and @($ocBoth.Shared).Count -eq 0)
 Check 'Revert -Only: options the journal does not track per option are named, not silently skipped' ($NotRevertedAlone -contains 'Debloat' -and $NotRevertedAlone -contains 'RemoveEdge' -and $text -match 'Not undone on their own')
 
+# The source is src/NN-name.ps1, one file per area; the old single template is gone, so nobody edits a stale copy.
+$srcDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'src'
+$srcFiles = @(Get-ChildItem -LiteralPath $srcDir -Filter '*.ps1')
+$srcBad = @($srcFiles | Where-Object { $_.Name -notmatch '^\d{2}-[a-z0-9-]+\.ps1$' -or [IO.File]::ReadAllText($_.FullName) -cnotmatch '^[\x00-\x7F]*$' })
+Check 'Source: src holds the NN-name.ps1 files (ASCII), starting with the header, and the old template is gone' ($srcFiles.Count -ge 10 -and $srcBad.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $srcDir '00-header.ps1')) -and -not (Test-Path -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\FocusedTweaks.template.ps1'))) ($srcBad.Name -join ', ')
+
 # docs/REGISTRY.md lists exactly what the script's own parser applies, one row per item.
 $regDoc = Join-Path (Split-Path $PSScriptRoot -Parent) 'docs\REGISTRY.md'
 $docRows = @(Get-Content -LiteralPath $regDoc | Where-Object { $_.StartsWith('| ' + [char]96 + 'HKEY_') }).Count
@@ -752,7 +758,7 @@ Check 'tools\Test-InVm.ps1 is ASCII and never starts FocusedTweaks on this PC' (
 
 # Every other script in the repo parses in this PowerShell and is ASCII.
 $windowsDir = Split-Path $PSScriptRoot -Parent
-foreach ($tool in @(Get-ChildItem -Path (Join-Path $windowsDir 'tools\*.ps1') | Where-Object { $_.Name -notin 'Test-InVm.ps1', 'FocusedTweaks.template.ps1' })) {
+foreach ($tool in @(Get-ChildItem -Path (Join-Path $windowsDir 'tools\*.ps1') | Where-Object { $_.Name -notin 'Test-InVm.ps1' })) {
     $tErrs = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($tool.FullName, [ref]$null, [ref]$tErrs)
     $tText = [IO.File]::ReadAllText($tool.FullName)

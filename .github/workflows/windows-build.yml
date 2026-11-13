@@ -1,4 +1,4 @@
-# Builds FocusedTweaks.ps1 from the template and the ZOICWARE copy in windows/upstream, checks that the committed script
+# Builds FocusedTweaks.ps1 from windows/src and the ZOICWARE copy in windows/upstream, checks that the committed script
 # and options reference match that build, and runs the static tests under Windows PowerShell 5.1 and PowerShell 7.
 # Nothing here runs FocusedTweaks.ps1 itself.
 name: windows build
