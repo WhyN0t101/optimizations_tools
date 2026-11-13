@@ -14,6 +14,16 @@ layout and the option structure. The generated script embeds this data; `tools/b
 of three ZOICWARE files kept in `upstream/zoicware/` together with ZOICWARE's own `LICENSE`, because the original
 repository is no longer available on GitHub (commit 2363922 of 24 Oct 2026).
 
+## winutil and Win11Debloat
+
+https://github.com/ChrisTitusTech/winutil (MIT License. Copyright (c) 2022 CT Tech Group LLC.)
+https://github.com/Raphire/Win11Debloat (MIT License. Copyright (c) 2020 Raphire.)
+
+Used for: registry values, Store app names and services that `tools/coverage.py` found in these projects and that
+were taken over, rewritten, into `TelemetryExtra`, `BrowserPolicies`, `WindowsAIOff`, `StartupDelayOff`,
+`NoDeviceEncryption`, `UpdateNoReboot`, `StandbyNetworkOff`, the service groups and the app list (Nov 2026).
+Sophia Script (MIT) and privacy.sexy (AGPL-3.0) were only compared against; nothing was copied from them.
+
 ## Ultimate
 
 https://github.com/FR33THYFR33THY/Ultimate

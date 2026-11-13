@@ -125,7 +125,13 @@ groups['SvcBackground'] = ['OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'ip
 # Opt in: still running after a full run too, but turning them off costs a visible feature (notifications, the data
 # usage page, AutoPlay and the scanners that depend on it).
 groups['SvcAggressive'] = ['WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection']
-order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+# From the coverage comparison (docs/COVERAGE.md, Nov 2026): error reporting and the diagnostics hub collectors join
+# the diagnostics group; the retail demo, Media Player network sharing and NVIDIA's old telemetry container join the
+# extra group; third party updaters get a group of their own. Services that are not installed are skipped.
+groups['SvcDiagnostics'] += ['WerSvc', 'wercplsupport', 'diagnosticshub.standardcollector.service', 'VSStandardCollectorService150']
+groups['SvcExtra'] += ['RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer']
+groups['SvcUpdaters'] = ['AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service']
+order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -255,21 +261,23 @@ OPTION_GROUPS = [
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
     ('Desktop, Start and sign in', ['NotificationSettings', 'RestartExplorer', 'ClearDesktopIcons', 'HideAllDesktopIcons',
-                                    'ClearStartPins', 'NoRecentDocsHistory', 'ForceDpi100', 'MouseAccel', 'LockScreenOff']),
+                                    'ClearStartPins', 'NoRecentDocsHistory', 'ForceDpi100', 'MouseAccel', 'LockScreenOff',
+                                    'StartupDelayOff']),
     ('Right click menu', ['MenuKillNotResponding', 'MenuRestartExplorer', 'MenuTakeOwnership', 'MenuRunAsAdmin',
                           'MenuNoShare', 'MenuNoGiveAccess', 'MenuNoCast', 'MenuNoLibrary', 'MenuNoQuickAccess',
                           'MenuNoPinToStart', 'MenuNoPrevVersions', 'MenuNoTroubleshoot', 'MenuNoDefenderScan',
                           'MenuNoOneDrive', 'MenuNoTerminal']),
-    ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryHosts', 'WindowsAIOff', 'BiometricsPolicy', 'Cdp', 'RazerAsusHosts',
-                                         'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'VendorServices', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryExtra', 'TelemetryHosts', 'WindowsAIOff', 'BrowserPolicies',
+                                         'BiometricsPolicy', 'Cdp', 'RazerAsusHosts', 'DefenderQuiet']),
+    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'VendorServices', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
-                        'KeepDefinitionUpdates', 'BlockFeatureUpgrades']),
+                        'KeepDefinitionUpdates', 'BlockFeatureUpgrades', 'UpdateNoReboot']),
     ('Power, devices and network', ['DisableHibernate', 'MsiMode', 'MemoryCompression', 'SleepStudy', 'NetAdapterPower',
                                     'NetAdapterEee', 'DevicePowerSaving', 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff',
-                                    'TimerResolution', 'HardwareGpuScheduling', 'NvmeNativeDriver', 'IPv4Only']),
-    ('Security trade-offs', ['SpectreMeltdownOff']),
+                                    'TimerResolution', 'HardwareGpuScheduling', 'NvmeNativeDriver', 'IPv4Only',
+                                    'StandbyNetworkOff']),
+    ('Security trade-offs', ['SpectreMeltdownOff', 'NoDeviceEncryption']),
     ('System and cleanup', ['NoAutoMaintenance', 'PasswordExpiry', 'FaultTolerantHeap', 'FastShutdown', 'TimeServerPool', 'EnableSystemRestore',
                             'TempCleanup', 'UpdateCacheCleanup', 'HealthCheckAfter']),
 ]

@@ -196,14 +196,14 @@ $OptionInfo = [ordered]@{
     BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)', 'n/a', '')
     Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache', 'Folklore', '')
     SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more', 'Folklore', '')
-    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate)', 'Folklore', '')
+    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container', 'Folklore', '')
     SvcBackground         = @($true, 'Disable background helpers: Mail and Calendar sync, Program Compatibility Assistant, link tracking, app inventory, IP Helper (IPv6 tunnels; WSL localhost forwarding uses it), file sharing from this PC (Server) and clipboard history (Win+V)', 'Folklore', '')
     SvcAggressive         = @($false, 'Also disable push notifications (no toasts; Store and Teams alerts stop), data usage (its Settings page and metered settings stop working) and Shell Hardware Detection (no AutoPlay; scanners and camera import through WIA stop). Off: each costs a visible feature', 'Folklore', '')
     VendorServices        = @($false, 'Laptops: disable Lenovo Vantage and its installer, and presence sensing (Lenovo, ELAN, Intel); set Lenovo standby, camera effects installer and Intel reporting, tuning telemetry and graphics panel services to Manual. Keeps thermal, power, Fn key, audio and display services. On in laptop.json', 'Folklore', '')
     SvcDefrag             = @($false, 'Disable the Optimize Drives service. Off: without it SSDs get no retrim and slow down over time', 'Folklore', '')
     SvcBiometrics         = @($true, 'Disable the Windows Biometric Service', 'Folklore', '')
     SvcSmartCard          = @($true, 'Disable smart card services', 'Folklore', '')
-    SvcDiagnostics        = @($true, 'Disable diagnostic policy and Wdi services (troubleshooters)', 'Folklore', '')
+    SvcDiagnostics        = @($true, 'Disable diagnostic policy and Wdi services (troubleshooters), Windows Error Reporting and the diagnostics hub collectors (Visual Studio profiling)', 'Folklore', '')
     SvcBluetooth          = @($false, 'Disable Bluetooth services. Off, you asked to keep Bluetooth', 'Folklore', '')
     SvcPrinting           = @($false, 'Disable print spooler services. Off, you asked to keep printing', 'Folklore', '')
     SvcDeliveryOpt        = @($true, 'Disable Delivery Optimization (peer to peer update sharing in the background)', 'Documented', 'https://learn.microsoft.com/en-us/windows/deployment/do/waas-delivery-optimization')
@@ -229,6 +229,8 @@ $OptionInfo = [ordered]@{
     LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
     HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
     WindowsAIOff          = @($true, 'Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), and the Edge sidebar with Copilot hidden (policy)', 'n/a', 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai')
+    TelemetryExtra        = @($true, 'More telemetry off by policy: error reporting, typing, inking and speech data, the advertising ID for your account, feedback prompts, feature trials, tips, Cortana and cloud results in search, location, NVIDIA, Office and Visual Studio telemetry (values for software that is not installed do nothing)', 'n/a', '')
+    BrowserPolicies       = @($true, 'Edge, Chrome, Brave and Firefox: ads, recommendations, telemetry and AI features (Copilot, Gemini) off by policy. A browser with policies says it is managed by your organisation', 'n/a', '')
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)', 'n/a', '')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
@@ -259,6 +261,11 @@ $OptionInfo = [ordered]@{
     MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu', 'n/a', '')
     MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu', 'n/a', '')
     MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
+    StartupDelayOff       = @($true, 'Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds)', 'Folklore', '')
+    NoDeviceEncryption    = @($true, 'Stop Windows turning on BitLocker device encryption by itself. A drive already encrypted stays encrypted; turn that off in Settings if wanted', 'n/a', '')
+    UpdateNoReboot        = @($true, 'No automatic restart for updates while you are signed in, and no early feature rollouts ("Get the latest updates as soon as they are available" off)', 'n/a', '')
+    StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
+    SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
     HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
@@ -1664,13 +1671,14 @@ $CdpServices = @('CDPSvc', 'CDPUserSvc')
 # Service groups from upstream disable-services. Each key is the option that switches the group on.
 $ServiceGroups = [ordered]@{
     SvcOther = @('Fax', 'shpamsvc', 'RemoteRegistry', 'PhoneSvc', 'wisvc', 'TabletInputService', 'AssignedAccessManagerSvc', 'MapsBroker', 'lfsvc', 'Netlogon', 'WpcMonSvc', 'WalletService', 'whesvc', 'wuqisvc', 'WSAIFabricSvc')
-    SvcExtra = @('PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc')
+    SvcExtra = @('PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc', 'RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer')
     SvcBackground = @('OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc')
     SvcAggressive = @('WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection')
+    SvcUpdaters = @('AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service')
     SvcDefrag = @('defragsvc')
     SvcBiometrics = @('WbioSrvc')
     SvcSmartCard = @('SCardSvr', 'ScDeviceEnum', 'SCPolicySvc')
-    SvcDiagnostics = @('diagsvc', 'DPS', 'WdiServiceHost', 'WdiSystemHost')
+    SvcDiagnostics = @('diagsvc', 'DPS', 'WdiServiceHost', 'WdiSystemHost', 'WerSvc', 'wercplsupport', 'diagnosticshub.standardcollector.service', 'VSStandardCollectorService150')
     SvcBluetooth = @('BTAGService', 'BthAvctpSvc', 'bthserv', 'BluetoothUserService')
     SvcPrinting = @('Spooler', 'PrintWorkflowUserSvc', 'PrintNotify')
     SvcDeliveryOpt = @('DoSvc')
@@ -1940,7 +1948,12 @@ $AppsToRemove = @(
     'Microsoft.WindowsAlarms', 'Microsoft.Windows.DevHome', 'Microsoft.MicrosoftTeamsforSurfaceHub',
     '*Spotify*', '*Disney*', '*Netflix*', '*TikTok*', '*Instagram*', '*Facebook*', '*Twitter*',
     '*LinkedIn*', '*CandyCrush*', 'king.com.*', '*AmazonPrimeVideo*', '*Amazon.com.Amazon*',
-    '*Hulu*', '*Duolingo*', '*Pinterest*', '*WhatsApp*'
+    '*Hulu*', '*Duolingo*', '*Pinterest*', '*WhatsApp*',
+    # From the coverage comparison (two or more other projects remove them). Microsoft.MSPaint is Paint 3D, not Paint;
+    # StartExperiencesApp is the Widgets board feed and Client.WebExperience the Widgets board itself.
+    'Microsoft.WindowsCamera', 'Microsoft.windowscommunicationsapps', 'Microsoft.Messaging', 'Microsoft.MSPaint',
+    'Microsoft.NetworkSpeedTest', 'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.RemoteDesktop',
+    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*'
 )
 
 # Never removed, whatever else is listed. Photos needs the image codec extensions kept below.
@@ -2189,6 +2202,167 @@ $WindowsAIRegs = @(
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 'DWord'
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0 'DWord'
+    # From the coverage comparison (docs/COVERAGE.md, Nov 2026): the newer Recall policy name next to the older
+    # DisableAIDataAnalysis, Paint's AI tools, and the Copilot pin screen after updates.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'TurnOffSavingSnapshots' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'TurnOffSavingSnapshots' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeErase' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableRemoveBackground' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCopilotPinScreen' 1 'DWord'
+)
+
+# More telemetry off, from the coverage comparison (docs/COVERAGE.md, Nov 2026): values two or more of winutil,
+# Win11Debloat, Sophia Script and privacy.sexy set that the upstream groups do not. Office, Visual Studio and NVIDIA
+# values only matter where those are installed; -Revert removes the keys this creates.
+$TelemetryExtraRegs = @(
+    # Windows Error Reporting off (upstream only stops the extra data). The services are in SvcDiagnostics.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' 'Disabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'Disabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'LoggingDisabled' 1 'DWord'
+    # Advertising ID for this account (upstream sets the machine value), typing, inking and online speech data.
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Input\TIPC' 'Enabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Input\TIPC' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' 'HasAccepted' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing' 1 'DWord'
+    # Customer experience program, feedback prompts, feature trials, licence check-ins, tips and suggestions.
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\SQMClient\Windows' 'CEIPEnable' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds' 'EnableConfigFlighting' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds' 'EnableExperimentation' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform' 'NoGenTicket' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System' 'AllowOnlineTips' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility' 'OptedIn' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.Suggested' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.BackupReminder' 'Enabled' 0 'DWord'
+    # Search: no Cortana, cloud results, highlights or location. The location policy matches SvcOther, which already
+    # stops the location service.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCortana' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCloudSearch' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowSearchToUseLocation' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchPrivacy' 3 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWebOverMeteredConnections' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'EnableDynamicContentInWSB' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1 'DWord'
+    # NVIDIA driver and control panel telemetry opt-out (next to NvidiaTelemetryStrip, which removes the files).
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'OptInOrOutPreference' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID44231' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID64640' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID66610' 0 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup' 'SendTelemetryData' 0 'DWord'
+    # Office (2016 and later) and Visual Studio telemetry, logging and feedback.
+    New-Tweak 'HKCU\Software\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\ClientTelemetry' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\ClientTelemetry' 'VerboseLogging' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\Feedback' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\Common' 'QMEnable' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\OSM' 'EnableLogging' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\OSM' 'EnableUpload' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\IntelliCode' 'DisableRemoteAnalysis' 1 'DWord'
+)
+
+# Browser ads, telemetry and AI off by policy (Edge, Chrome, Brave, Firefox), from the coverage comparison. Values
+# for a browser that is not installed do nothing. A browser with policies says it is managed by your organisation.
+$BrowserPolicyRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ConfigureDoNotTrack' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'AlternateErrorPagesEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowRecommendationsEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'SpotlightExperiencesAndRecommendationsEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeShoppingAssistantEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowMicrosoftRewards' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'WalletDonationEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowAcrobatSubscriptionButton' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'HideFirstRunExperience' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DefaultBrowserSettingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DefaultBrowserSettingsCampaignEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'MicrosoftEdgeInsiderPromotionEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageContentEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageHideDefaultTopSites' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeAssetDeliveryServiceEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'WebWidgetAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeEntraCopilotPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'Microsoft365CopilotChatIconEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageBingChatEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ComposeInlineEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeHistoryAISearchEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'GenAILocalFoundationalModelSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate' 'CreateDesktopShortcutDefault' 0 'DWord'
+    # Chrome: Gemini and the other AI features. Each *Settings policy has its own scale (1 or 2 is "not allowed").
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GeminiSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GeminiSparkSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'AIModeSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GenAILocalFoundationalModelSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'ChromeSuggestionsSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'SearchContentSharingSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'SmartTabSharingSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'ThirdPartyAiChatSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'AutofillPredictionSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'CreateThemesSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'DevToolsGenAiSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'FindAndFillWithGeminiSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'HelpMeWriteSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'HistorySearchSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'TabCompareSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'VoiceTypingSettings' 2 'DWord'
+    # Brave: rewards, wallet, VPN, news, Talk, AI chat, Tor windows and its usage pings.
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveRewardsDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveWalletDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveVPNDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveNewsDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveTalkDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveAIChatEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'TorDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveP3AEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveStatsPingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'MetricsReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'SafeBrowsingExtendedReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'UrlKeyedAnonymizedDataCollectionEnabled' 0 'DWord'
+    # Firefox: telemetry and the default browser agent's reports.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableDefaultBrowserAgent' 1 'DWord'
+)
+
+# Startup apps start at once instead of after Explorer's delay of about ten seconds.
+$StartupDelayRegs = @(
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState' 0 'DWord'
+)
+
+# Windows 11 turns on BitLocker device encryption by itself at setup or sign in on many PCs. This stops it doing
+# that; a drive that is already encrypted stays encrypted (turn it off in Settings if wanted).
+$NoDeviceEncryptionRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\BitLocker' 'PreventDeviceEncryption' 1 'DWord'
+)
+
+# No automatic restart for updates while someone is signed in, and no early feature rollouts ("Get the latest
+# updates as soon as they're available" off).
+$UpdateNoRebootRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoRebootWithLoggedOnUsers' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' 'IsContinuousInnovationOptedIn' 0 'DWord'
+)
+
+# Modern standby: no network while the PC sleeps (power setting "Networking connectivity in Standby", policy), so
+# nothing downloads or syncs in sleep. PCs with classic S3 sleep ignore it.
+$StandbyNetworkRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9' 'ACSettingIndex' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9' 'DCSettingIndex' 0 'DWord'
 )
 
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
@@ -5402,6 +5576,12 @@ function Test-HealthRegistry {
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
+    if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
+    if ($Opt['BrowserPolicies']) { Test-HealthTweakTable -Label 'Browser ads, telemetry and AI off' -Tweaks $BrowserPolicyRegs }
+    if ($Opt['StartupDelayOff']) { Test-HealthTweakTable -Label 'Startup delay off' -Tweaks $StartupDelayRegs }
+    if ($Opt['NoDeviceEncryption']) { Test-HealthTweakTable -Label 'Automatic device encryption off' -Tweaks $NoDeviceEncryptionRegs }
+    if ($Opt['UpdateNoReboot']) { Test-HealthTweakTable -Label 'No update restarts or early features' -Tweaks $UpdateNoRebootRegs }
+    if ($Opt['StandbyNetworkOff']) { Test-HealthTweakTable -Label 'Network in standby off' -Tweaks $StandbyNetworkRegs }
     if ($Opt['NvmeNativeDriver']) { Test-HealthTweakTable -Label 'Native NVMe driver' -Tweaks $NvmeRegs }
 }
 
@@ -6058,6 +6238,8 @@ function Get-PolicyTweaks {
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
         SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
         EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs; WindowsAIOff = $WindowsAIRegs
+        TelemetryExtra = $TelemetryExtraRegs; BrowserPolicies = $BrowserPolicyRegs; NoDeviceEncryption = $NoDeviceEncryptionRegs
+        UpdateNoReboot = $UpdateNoRebootRegs; StandbyNetworkOff = $StandbyNetworkRegs
     }
     foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
     if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
@@ -6171,6 +6353,12 @@ function Invoke-ApplySteps {
     if ($Opt['RemoveEdge']) { Invoke-Step 'Remove Edge' -Option 'RemoveEdge' { Remove-Edge } }
     if ($Opt['EdgeBackground']) { Invoke-Step 'Edge in the background' -Option 'EdgeBackground' { Set-TweakList $EdgeBackgroundRegs } }
     if ($Opt['WindowsAIOff']) { Invoke-Step 'Copilot and Windows AI' -Option 'WindowsAIOff' { Set-TweakList $WindowsAIRegs } }
+    if ($Opt['TelemetryExtra']) { Invoke-Step 'More telemetry off' -Option 'TelemetryExtra' { Set-TweakList $TelemetryExtraRegs } }
+    if ($Opt['BrowserPolicies']) { Invoke-Step 'Browser ads, telemetry and AI' -Option 'BrowserPolicies' { Set-TweakList $BrowserPolicyRegs } }
+    if ($Opt['StartupDelayOff']) { Invoke-Step 'Startup delay' -Option 'StartupDelayOff' { Set-TweakList $StartupDelayRegs } }
+    if ($Opt['NoDeviceEncryption']) { Invoke-Step 'Automatic device encryption' -Option 'NoDeviceEncryption' { Set-TweakList $NoDeviceEncryptionRegs } }
+    if ($Opt['UpdateNoReboot']) { Invoke-Step 'Update restarts and early features' -Option 'UpdateNoReboot' { Set-TweakList $UpdateNoRebootRegs } }
+    if ($Opt['StandbyNetworkOff']) { Invoke-Step 'Network in standby' -Option 'StandbyNetworkOff' { Set-TweakList $StandbyNetworkRegs } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.

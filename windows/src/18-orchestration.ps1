@@ -223,6 +223,8 @@ function Get-PolicyTweaks {
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
         SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
         EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs; WindowsAIOff = $WindowsAIRegs
+        TelemetryExtra = $TelemetryExtraRegs; BrowserPolicies = $BrowserPolicyRegs; NoDeviceEncryption = $NoDeviceEncryptionRegs
+        UpdateNoReboot = $UpdateNoRebootRegs; StandbyNetworkOff = $StandbyNetworkRegs
     }
     foreach ($option in $tables.Keys) { if ($Opt[$option]) { foreach ($t in $tables[$option]) { & $add $t.Path $t.Name $t.Value } } }
     if ($Opt['BlockFeatureUpgrades']) { foreach ($t in @(Get-FeatureUpgradeTweaks)) { & $add $t.Path $t.Name $t.Value } }
@@ -336,6 +338,12 @@ function Invoke-ApplySteps {
     if ($Opt['RemoveEdge']) { Invoke-Step 'Remove Edge' -Option 'RemoveEdge' { Remove-Edge } }
     if ($Opt['EdgeBackground']) { Invoke-Step 'Edge in the background' -Option 'EdgeBackground' { Set-TweakList $EdgeBackgroundRegs } }
     if ($Opt['WindowsAIOff']) { Invoke-Step 'Copilot and Windows AI' -Option 'WindowsAIOff' { Set-TweakList $WindowsAIRegs } }
+    if ($Opt['TelemetryExtra']) { Invoke-Step 'More telemetry off' -Option 'TelemetryExtra' { Set-TweakList $TelemetryExtraRegs } }
+    if ($Opt['BrowserPolicies']) { Invoke-Step 'Browser ads, telemetry and AI' -Option 'BrowserPolicies' { Set-TweakList $BrowserPolicyRegs } }
+    if ($Opt['StartupDelayOff']) { Invoke-Step 'Startup delay' -Option 'StartupDelayOff' { Set-TweakList $StartupDelayRegs } }
+    if ($Opt['NoDeviceEncryption']) { Invoke-Step 'Automatic device encryption' -Option 'NoDeviceEncryption' { Set-TweakList $NoDeviceEncryptionRegs } }
+    if ($Opt['UpdateNoReboot']) { Invoke-Step 'Update restarts and early features' -Option 'UpdateNoReboot' { Set-TweakList $UpdateNoRebootRegs } }
+    if ($Opt['StandbyNetworkOff']) { Invoke-Step 'Network in standby' -Option 'StandbyNetworkOff' { Set-TweakList $StandbyNetworkRegs } }
     foreach ($g in $FeatureGroups.Keys) { if ($Opt[$g]) { Invoke-Step "Optional features ($g)" -Option $g { Disable-FeatureGroup -Group $g } } }
     # Runs when any option that owns an upstream registry group is on, taken from the same mapping the import and the
     # health check use, so an option such as -Only NoAutoMaintenance cannot be left out of a hand-kept list.

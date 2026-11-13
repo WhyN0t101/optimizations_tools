@@ -318,6 +318,16 @@ have not run in the VM yet):
   pinned commits (`tools\references.json`) and writes `docs\COVERAGE.md`: what the others change that FocusedTweaks does
   not, items several projects agree on first, and what FocusedTweaks keeps on purpose. Reference only; privacy.sexy
   (AGPL-3.0) is a cross-check, never a source. First run: 685 registry values, 51 services and 147 Store apps to review.
+- From the coverage comparison (all on by default): `TelemetryExtra` (error reporting, typing, inking and speech data,
+  per account advertising ID, feedback, feature trials, tips, Cortana and cloud search, location, NVIDIA, Office and Visual
+  Studio telemetry), `BrowserPolicies` (Edge, Chrome, Brave, Firefox ads, telemetry and AI), `StartupDelayOff`,
+  `NoDeviceEncryption` (stops automatic BitLocker, decrypts nothing), `UpdateNoReboot`, `StandbyNetworkOff` and the
+  `SvcUpdaters` group (Adobe, Dropbox, Razer Game Scanner). `WindowsAIOff` gained the newer Recall policy, Paint AI and
+  the Copilot pin screen; SvcDiagnostics gained error reporting and the diagnostics hub, SvcExtra the retail demo, Media
+  Player sharing and the old NVIDIA container; the app list gained Camera, Mail and Calendar, Paint 3D, OneNote, Sway,
+  Remote Desktop, the Widgets board and its feed, and five more. Items two or more projects change that FocusedTweaks
+  does not went from 37 registry values, 2 services and 12 apps to 15, 1 and 0; what is left is interface taste or a
+  deliberate security choice.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

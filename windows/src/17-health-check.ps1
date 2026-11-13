@@ -291,6 +291,12 @@ function Test-HealthRegistry {
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
+    if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
+    if ($Opt['BrowserPolicies']) { Test-HealthTweakTable -Label 'Browser ads, telemetry and AI off' -Tweaks $BrowserPolicyRegs }
+    if ($Opt['StartupDelayOff']) { Test-HealthTweakTable -Label 'Startup delay off' -Tweaks $StartupDelayRegs }
+    if ($Opt['NoDeviceEncryption']) { Test-HealthTweakTable -Label 'Automatic device encryption off' -Tweaks $NoDeviceEncryptionRegs }
+    if ($Opt['UpdateNoReboot']) { Test-HealthTweakTable -Label 'No update restarts or early features' -Tweaks $UpdateNoRebootRegs }
+    if ($Opt['StandbyNetworkOff']) { Test-HealthTweakTable -Label 'Network in standby off' -Tweaks $StandbyNetworkRegs }
     if ($Opt['NvmeNativeDriver']) { Test-HealthTweakTable -Label 'Native NVMe driver' -Tweaks $NvmeRegs }
 }
 

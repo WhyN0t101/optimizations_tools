@@ -18,21 +18,18 @@ How many of each project's items FocusedTweaks also changes (kept: left alone on
 
 | Project | Registry values | Services | Store apps |
 |---|---|---|---|
-| winutil | 57 of 118 | 4 of 8 | 21 of 34 (10 kept) |
-| win11debloat | 77 of 215 | 0 of 0 | 48 of 164 (14 kept) |
-| sophia | 47 of 156 | 1 of 4 | 0 of 0 |
-| privacysexy | 95 of 516 | 9 of 56 | 33 of 111 (23 kept) |
+| winutil | 88 of 118 | 5 of 8 | 24 of 34 (10 kept) |
+| win11debloat | 143 of 215 | 0 of 0 | 61 of 164 (14 kept) |
+| sophia | 49 of 156 | 2 of 4 | 0 of 0 |
+| privacysexy | 142 of 516 | 21 of 56 | 43 of 111 (23 kept) |
 
-## Registry values the others change and FocusedTweaks does not (685)
+## Registry values the others change and FocusedTweaks does not (565)
 
-Changed by two or more projects (37):
+Changed by two or more projects (15):
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
-| winutil, win11debloat, sophia, privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo ! Enabled` | 0, 1, dword:00000000 | winutil: Telemetry - Disable; win11debloat: DisableTelemetry; sophia: AdvertisingID; pr... |
 | winutil, win11debloat, sophia | `HKCU\Control Panel\Desktop ! WindowArrangementActive` | "0", 1 | winutil: Window Snapping; win11debloat: DisableWindowSnapping; sophia: SnapAssist |
-| winutil, win11debloat, privacysexy | `HKCU\Software\Microsoft\Input\TIPC ! Enabled` | 0, dword:00000000 | winutil: Telemetry - Disable; win11debloat: DisableTelemetry; privacysexy: Disable typi... |
-| winutil, win11debloat, privacysexy | `HKCU\Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy ! HasAccepted` | 0, dword:00000000 | winutil: Telemetry - Disable; win11debloat: DisableTelemetry; privacysexy: Disable clou... |
 | winutil, win11debloat, sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced ! LaunchTo` | 1, 2, dword:00000001, dword:00000002,... | winutil: File Explorer Home and Gallery - Disable; win11debloat: ExplorerToHome, Explor... |
 | winutil, win11debloat, sophia | `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy ! 01` | 0, 1, dword:00000000 | winutil: Storage Sense - Disable; win11debloat: DisableStorageSense; sophia: StorageSense |
 | sophia, privacysexy | `HKCU\Control Panel\Keyboard ! PrintScreenKeyForSnippingEnabled` | 0, 1 | sophia: PrtScnSnippingTool; privacysexy: Disable Print Screen keyboard shortcut for Sni... |
@@ -46,28 +43,9 @@ Changed by two or more projects (37):
 | winutil, privacysexy | `HKCU\Software\Policies\Microsoft\Office\16.0\Outlook\Preferences ! NewOutlookMigrationUserSetting` | 0 | winutil: Microsoft Outlook New Version; privacysexy: Disable Outlook automatic migratio... |
 | winutil, privacysexy | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Overrides\{BFA794E4-F964-4FDB-90F6-51056BFE4B44} ! SensorPer...` | 0 | winutil: Location Tracking - Disable; privacysexy: Disable location (standard) |
 | sophia, privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer ! SmartScreenEnabled` | Off, Warn | sophia: AppsSmartScreen; privacysexy: Disable SmartScreen checks for apps and files (no... |
-| win11debloat, sophia | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings ! IsContinuousInnovationOptedIn` | 0, 1, dword:00000000 | win11debloat: DisableUpdateASAP; sophia: WindowsLatestUpdate |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveAIChatEnabled` | 0, dword:00000000 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveNewsDisabled` | 1, dword:00000001 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveRewardsDisabled` | 1, dword:00000001 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveTalkDisabled` | 1, dword:00000001 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveVPNDisabled` | 1, dword:00000001 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveWalletDisabled` | 1, dword:00000001 | winutil: Brave Browser - Debloat; win11debloat: DisableBraveBloat |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! AlternateErrorPagesEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! DefaultBrowserSettingsCampaignEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! DiagnosticData` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableTelemetry |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! EdgeShoppingAssistantEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! HideFirstRunExperience` | 1, dword:00000001 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! PersonalizationReportingEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableTelemetry |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! ShowMicrosoftRewards` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! ShowRecommendationsEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! UserFeedbackAllowed` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| winutil, win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! WalletDonationEnabled` | 0, dword:00000000 | winutil: Microsoft Edge - Debloat; win11debloat: DisableEdgeAds |
-| win11debloat, privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableLocation` | 1, dword:00000001 | win11debloat: DisableLocationServices; privacysexy: Disable location (standard) |
-| win11debloat, privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AllowCortana` | 0, dword:00000000 | win11debloat: DisableBing; privacysexy: Disable Cortana during search (standard) |
 | winutil, sophia | `HKU\.Default\Control Panel\Keyboard ! InitialKeyboardIndicators` | 2, 2147483648, 2147483650 | winutil: Num Lock on Startup; sophia: NumLock |
 
-<details><summary>Changed by one project (648)</summary>
+<details><summary>Changed by one project (550)</summary>
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
@@ -132,23 +110,17 @@ Changed by two or more projects (37):
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\15.0\Outlook\Options\Calendar ! EnableCalendarLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\15.0\Outlook\Options\Mail ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\15.0\Word\Options ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
-| privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Common\ClientTelemetry ! DisableTelemetry` | 1 | privacysexy: Disable Microsoft Office client telemetry (standard) |
-| privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Common\ClientTelemetry ! VerboseLogging` | 0 | privacysexy: Disable Microsoft Office client telemetry (standard) |
-| privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Common\Feedback ! Enabled` | 0 | privacysexy: Disable Microsoft Office feedback (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Outlook\Options\Calendar ! EnableCalendarLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Office\16.0\Outlook\Options\General ! DisablePreviewPlace` | 1 | privacysexy: Disable Outlook preview prompts (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Office\16.0\Outlook\Options\General ! DoNewOutlookAutoMigration` | 0 | privacysexy: Disable Outlook automatic migration (strict) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Outlook\Options\Mail ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Office\16.0\Outlook\Preferences ! EnablePreviewPlace` | 0 | privacysexy: Disable Outlook preview prompts (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\16.0\Word\Options ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
-| privacysexy | `HKCU\SOFTWARE\Microsoft\Office\Common\ClientTelemetry ! DisableTelemetry` | 1 | privacysexy: Disable Microsoft Office client telemetry (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\Office\Common\ClientTelemetry ! VerboseLogging` | 0 | privacysexy: Disable Microsoft Office client telemetry (standard) |
-| privacysexy | `HKCU\Software\Microsoft\Speech_OneCore\Preferences ! ModelDownloadAllowed` | 0 | privacysexy: Disable automatic update of speech data (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Speech_OneCore\Preferences ! VoiceActivationEnableAboveLockscreen` | 0 | privacysexy: Disable Cortana on locked device (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Speech_OneCore\Preferences ! VoiceActivationOn` | 0 | privacysexy: Disable "Hey Cortana" voice activation (standard) |
 | privacysexy | `HKCU\Software\Microsoft\Speech_OneCore\Settings\VoiceActivation\UserPreferenceForAllApps ! AgentActivationOnLockScree...` | 0 | privacysexy: Disable app access to voice activation on locked system (standard) |
 | winutil | `HKCU\SOFTWARE\Microsoft\Terminal Server Client ! RdpLaunchConsentAccepted` | 1 | winutil: RDP Unsigned File Warnings - Disable |
-| privacysexy | `HKCU\Software\Microsoft\VisualStudio\Telemetry ! TurnOffSwitch` | 1 | privacysexy: Disable Visual Studio telemetry (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\VSCommon\16.0\IntelliCode ! DisableRemoteAnalysis` | 1 | privacysexy: Disable participation in IntelliCode data collection (standard) |
 | privacysexy | `HKCU\SOFTWARE\Microsoft\VSCommon\17.0\IntelliCode ! DisableRemoteAnalysis` | 1 | privacysexy: Disable participation in IntelliCode data collection (standard) |
 | sophia | `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Windows ! LegacyDefaultPrinterMode` | 0, 1 | sophia: WindowsManageDefaultPrinter |
@@ -187,14 +159,9 @@ Changed by two or more projects (37):
 | win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel ! {2cc5ca98-6485-489a-920e-b3e...` | delete, dword:00000001 | win11debloat: EnableDesktopSpotlight, DisableDesktopSpotlight |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\NamingTemplates ! ShortcutNameTemplate` | %s.lnk | sophia: ShortcutsSuffix |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\OperationStatusManager ! EnthusiastMode` | 0, 1 | sophia: FileTransferDialog |
-| win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize ! Startupdelayinmsec` | dword:00000000 | win11debloat: DisableStartupDelay |
-| win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize ! WaitForIdleState` | dword:00000000 | win11debloat: DisableStartupDelay |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders ! {B7BEDE81-DF94-4682-A7D8-57A52620B86F}` | $DesktopFolder | sophia: WinPrtScrFolder |
 | privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility ! CrossDeviceEnabled` | 0 | privacysexy: Remove "Cross Device Experience Host" app (strict) |
-| win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility ! OptedIn` | dword:00000000 | win11debloat: DisableSuggestions |
 | privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings ! AutoOpenCopilotLargeScreens` | 0 | privacysexy: Disable Copilot auto-launch on start (strict) |
-| win11debloat | `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.BackupReminder ! Enabled` | dword:00000000 | win11debloat: DisableSuggestions |
-| win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.Suggested ! Enabled` | dword:00000000 | win11debloat: DisableSuggestions |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments ! SaveZoneInformation` | 1 | sophia: SaveZoneInformation |
 | privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer ! ClearRecentDocsOnExit` | 1 | privacysexy: Clear recently opened document history upon exit (strict) |
 | win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer ! NoStartMenuMorePrograms` | delete, dword:00000001 | win11debloat: DisableStartAllApps, StartAllAppsCategory |
@@ -230,9 +197,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKCU\Software\Policies\Microsoft\Office\15.0\Common ! QMEnable` | 0 | privacysexy: Disable user participation in Office Customer Experience Improvement Progr... |
 | privacysexy | `HKCU\SOFTWARE\Policies\Microsoft\Office\15.0\OSM ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\SOFTWARE\Policies\Microsoft\Office\15.0\OSM ! EnableUpload` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
-| privacysexy | `HKCU\Software\Policies\Microsoft\Office\16.0\Common ! QMEnable` | 0 | privacysexy: Disable user participation in Office Customer Experience Improvement Progr... |
-| privacysexy | `HKCU\SOFTWARE\Policies\Microsoft\Office\16.0\OSM ! EnableLogging` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
-| privacysexy | `HKCU\SOFTWARE\Policies\Microsoft\Office\16.0\OSM ! EnableUpload` | 0 | privacysexy: Disable Microsoft Office logging (standard) |
 | privacysexy | `HKCU\Software\Policies\Microsoft\Office\16.0\Outlook\Options ! HideNewOutlookToggle` | 1 | privacysexy: Remove "Try the new Outlook" toggle (strict) |
 | winutil | `HKCU\Software\Policies\Microsoft\Office\16.0\Outlook\Options\General ! DoNewOutlookAutoMigration` | 0 | winutil: Microsoft Outlook New Version |
 | winutil | `HKCU\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9 ! ACSettingIndex` | 1 | winutil: S0 Sleep Network Connectivity |
@@ -248,7 +212,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKCU\Software\Policies\Microsoft\WindowsMediaPlayer ! PreventMusicFileMetadataRetrieval` | 1 | privacysexy: Disable metadata retrieval (standard) |
 | privacysexy | `HKCU\Software\Policies\Microsoft\WindowsMediaPlayer ! PreventRadioPresetsRetrieval` | 1 | privacysexy: Disable metadata retrieval (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\EdgeUpdate ! DoNotUpdateToEdgeWithChromium` | 1 | privacysexy: Disable automatic installation of Edge (standard) |
-| privacysexy | `HKLM\SOFTWARE\Microsoft\Input\TIPC ! Enabled` | 0 | privacysexy: Disable typing feedback (sends typing data) (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Update ! ExcludeWUDriversInQualityUpdate` | 1 | privacysexy: Disable Windows Update driver downloads (strict) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\PolicyManager\default\Experience\AllowCortana ! value` | 0 | privacysexy: Disable Cortana experience (standard) |
 | sophia | `HKLM\SOFTWARE\Microsoft\PolicyManager\default\Search\DisableSearch ! value` | 0 | sophia: TaskbarSearch |
@@ -270,7 +233,6 @@ Changed by two or more projects (37):
 | sophia | `HKLM\SOFTWARE\Microsoft\PolicyManager\default\WindowsAI\DisableAIDataAnalysis ! value` | 0 | sophia: WindowsAI |
 | privacysexy | `HKLM\Software\Microsoft\Speech_OneCore\Preferences ! VoiceActivationDefaultOn` | 0 | privacysexy: Disable "Hey Cortana" voice activation (standard) |
 | privacysexy | `HKLM\Software\Microsoft\SQMClient ! UploadDisableFlag` | 0 | privacysexy: Disable Customer Experience Improvement Program data uploads (standard) |
-| privacysexy | `HKLM\Software\Microsoft\SQMClient\Windows ! CEIPEnable` | 0 | privacysexy: Disable Customer Experience Improvement Program data collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\VSCommon\14.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\VSCommon\15.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\VSCommon\16.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
@@ -350,8 +312,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer ! NoInternetOpenWith` | 1 | privacysexy: Disable "Internet File Association" service (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer ! NoOnlinePrintsWizard` | 1 | privacysexy: Disable "Order Prints" picture task (standard) |
 | privacysexy | `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer ! NoPhysicalCameraLED` | 1 | privacysexy: Enable camera on/off OSD notifications (not recommended by default) |
-| win11debloat | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint ! DisableGenerativeErase` | dword:00000001 | win11debloat: DisablePaintAI |
-| win11debloat | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint ! DisableRemoveBackground` | dword:00000001 | win11debloat: DisablePaintAI |
 | sophia | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System ! ConsentPromptBehaviorUser` | 3 | sophia: AdminApprovalMode |
 | sophia | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System ! EnableInstallerDetection` | 1 | sophia: AdminApprovalMode |
 | sophia | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System ! EnableSecureUIAPaths` | 1 | sophia: AdminApprovalMode |
@@ -372,9 +332,7 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WTDS\FeatureFlags ! BlockUxDisabled` | 1 | privacysexy: Disable SmartScreen Enhanced Phishing Protection warnings and prompts (not... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WTDS\FeatureFlags ! TelemetryCallsEnabled` | 0 | privacysexy: Disable SmartScreen Enhanced Phishing Protection telemetry (strict) |
 | privacysexy | `HKLM\Software\Microsoft\Windows\DriverSearching ! DriverUpdateWizardWuSearchEnabled` | 0 | privacysexy: Disable Windows Update driver installation wizard (strict) |
-| privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting ! Disabled` | 1 | privacysexy: Disable error reporting (standard) |
 | privacysexy | `HKLM\Software\Microsoft\Windows\Windows Error Reporting ! DontSendAdditionalData` | 1 | privacysexy: Disable error reporting (standard) |
-| privacysexy | `HKLM\Software\Microsoft\Windows\Windows Error Reporting ! LoggingDisabled` | 1 | privacysexy: Disable error reporting (standard) |
 | privacysexy | `HKLM\Software\Microsoft\Windows\Windows Error Reporting\Consent ! DefaultConsent` | 1 | privacysexy: Disable error reporting (standard) |
 | privacysexy | `HKLM\Software\Microsoft\Windows\Windows Error Reporting\Consent ! DefaultOverrideBehavior` | 1 | privacysexy: Disable error reporting (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\WindowsUpdate ! ExcludeWUDriversInQualityUpdate` | 1 | privacysexy: Disable Windows Update driver downloads (strict) |
@@ -397,78 +355,24 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings ! PauseUpdatesStartTime` | (Get-Date).ToString('yyyy-MM-ddTHH:mm... | privacysexy: Maximize update pause duration (not recommended by default) |
 | sophia | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings ! RestartNotificationsAllowed2` | 0, 1 | sophia: RestartNotification |
 | sophia | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings ! SmartActiveHoursState` | 0, 1 | sophia: ActiveHours |
-| privacysexy | `HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS ! EnableRID44231` | 0 | privacysexy: Disable participation in Nvidia telemetry (standard) |
-| privacysexy | `HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS ! EnableRID64640` | 0 | privacysexy: Disable participation in Nvidia telemetry (standard) |
-| privacysexy | `HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS ! EnableRID66610` | 0 | privacysexy: Disable participation in Nvidia telemetry (standard) |
-| privacysexy | `HKLM\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client ! OptInOrOutPreference` | 0 | privacysexy: Disable participation in Nvidia telemetry (standard) |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveP3AEnabled` | 0 | winutil: Brave Browser - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! BraveStatsPingEnabled` | 0 | winutil: Brave Browser - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! MetricsReportingEnabled` | 0 | winutil: Brave Browser - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! SafeBrowsingExtendedReportingEnabled` | 0 | winutil: Brave Browser - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! TorDisabled` | 1 | winutil: Brave Browser - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\BraveSoftware\Brave ! UrlKeyedAnonymizedDataCollectionEnabled` | 0 | winutil: Brave Browser - Debloat |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! AIModeSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! AutofillPredictionSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! ChromeSuggestionsSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! CreateThemesSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! DevToolsGenAiSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! FindAndFillWithGeminiSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! GeminiSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! GeminiSparkSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! GenAILocalFoundationalModelSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! HelpMeWriteSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! HistorySearchSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! SearchContentSharingSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! SmartTabSharingSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! TabCompareSettings` | dword:00000002 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! ThirdPartyAiChatSettings` | dword:00000001 | win11debloat: DisableChromeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Google\Chrome ! VoiceTypingSettings` | dword:00000002 | win11debloat: DisableChromeAI |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\AppHVSI ! AllowAppHVSI_ProviderSet` | 0 | privacysexy: Disable Defender Application Guard isolation (null) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\AppHVSI ! AuditApplicationGuard` | 0 | privacysexy: Disable auditing events in Defender Application Guard (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Biometrics\Credential Provider ! Enabled` | 0 | privacysexy: Disable biometric logon (strict) |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! ComposeInlineEnabled` | dword:00000000 | win11debloat: DisableEdgeAI |
-| winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! ConfigureDoNotTrack` | 1 | winutil: Microsoft Edge - Debloat |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! CopilotCDPPageContext` | dword:00000000 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! CopilotPageContext` | dword:00000000 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! DefaultBrowserSettingEnabled` | dword:00000000 | win11debloat: DisableEdgeAds |
-| winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! EdgeAssetDeliveryServiceEnabled` | 0 | winutil: Microsoft Edge - Debloat |
 | winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! EdgeCollectionsEnabled` | 0 | winutil: Microsoft Edge - Debloat |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! EdgeEntraCopilotPageContext` | dword:00000000 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! EdgeHistoryAISearchEnabled` | dword:00000000 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! GenAILocalFoundationalModelSettings` | dword:00000001 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! Microsoft365CopilotChatIconEnabled` | dword:00000000 | win11debloat: DisableEdgeAI |
-| winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! MicrosoftEdgeInsiderPromotionEnabled` | 0 | winutil: Microsoft Edge - Debloat |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! NewTabPageBingChatEnabled` | dword:00000000 | win11debloat: DisableEdgeAI |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! NewTabPageContentEnabled` | dword:00000000 | win11debloat: DisableEdgeAds |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! NewTabPageHideDefaultTopSites` | dword:00000001 | win11debloat: DisableEdgeAds |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! ShowAcrobatSubscriptionButton` | dword:00000000 | win11debloat: DisableEdgeAds |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! SpotlightExperiencesAndRecommendationsEnabled` | dword:00000000 | win11debloat: DisableEdgeAds |
 | win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! TabServicesEnabled` | dword:00000000 | win11debloat: DisableEdgeAds |
-| winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge ! WebWidgetAllowed` | 0 | winutil: Microsoft Edge - Debloat |
 | winutil | `HKLM\SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallBlocklist ! 1` | ofefcgjbeghpigppfmkologfjadafddi | winutil: Microsoft Edge - Debloat |
-| winutil | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcutDefault` | 0 | winutil: Microsoft Edge - Debloat |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{0D50BFEC-CD6A-4F9A-964C-C7416E3ACB10}` | 0 | sophia: PreventEdgeShortcutCreation |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}` | 0 | sophia: PreventEdgeShortcutCreation |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}` | 0 | sophia: PreventEdgeShortcutCreation |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{65C35B14-6C1D-4122-AC46-7148CC9D6497}` | 0 | sophia: PreventEdgeShortcutCreation |
 | win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\FindMyDevice ! AllowFindMyDevice` | dword:00000000 | win11debloat: DisableFindMyDevice |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization ! AllowInputPersonalization` | 0 | privacysexy: Disable text and handwriting data collection (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization ! RestrictImplicitInkCollection` | 1 | privacysexy: Disable text and handwriting data collection (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization ! RestrictImplicitTextCollection` | 1 | privacysexy: Disable text and handwriting data collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Internet Explorer\Safety\PrivacIE ! DisableLogging` | 1 | privacysexy: Disable Internet Explorer InPrivate logging (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Internet Explorer\SQM ! DisableCustomerImprovementProgram` | 0 | privacysexy: Disable Internet Explorer Customer Experience Improvement Program (CEIP) p... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Microsoft Antimalware ! AllowFastServiceStartup` | 0 | privacysexy: Disable Defender Antivirus service high-priority startup (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Microsoft Antimalware ! ServiceKeepAlive` | 0 | privacysexy: Disable Defender Antivirus service always-on state (strict) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Microsoft Antimalware\Signature Updates ! SignatureDisableNotification` | 0 | privacysexy: Disable Defender Antivirus cloud-based notifications (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\MRT ! DontOfferThroughWUAU` | 1 | privacysexy: Disable scheduled anti-malware scanner (MRT) (not recommended by default) |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9 ! ACSettingIndex` | dword:00000000 | win11debloat: DisableModernStandbyNetworking |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9 ! DCSettingIndex` | dword:00000000 | win11debloat: DisableModernStandbyNetworking |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\TabletPC ! DisableSnippingTool` | 1 | privacysexy: Disable outdated Snipping Tool (not recommended by default) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback ! DisableEmailInput` | 1 | privacysexy: Disable Visual Studio feedback (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback ! DisableFeedbackDialog` | 1 | privacysexy: Disable Visual Studio feedback (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback ! DisableScreenshotCapture` | 1 | privacysexy: Disable Visual Studio feedback (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\IntelliCode ! DisableRemoteAnalysis` | 1 | privacysexy: Disable participation in IntelliCode data collection (standard) |
-| privacysexy | `HKLM\Software\Policies\Microsoft\VisualStudio\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender ! AllowFastServiceStartup` | 0 | privacysexy: Disable Defender Antivirus service high-priority startup (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender ! DisableAntiSpyware` | 1 | privacysexy: Disable outdated Defender Antivirus (not recommended by default) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender ! DisableRoutinelyTakingAction` | 1 | privacysexy: Disable routine remediation (not recommended by default) |
@@ -563,14 +467,10 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\UX Configuration ! UILockdown` | 1 | privacysexy: Disable Defender Antivirus interface (not recommended by default) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Controlled Folder Access ! EnableCon...` | 0 | privacysexy: Disable controlled folder access (not recommended by default) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection ! EnableNetworkPr...` | 1 | privacysexy: Disable prevention of users and apps from accessing dangerous websites (no... |
-| privacysexy | `HKLM\Software\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform ! NoGenTicket` | 1 | privacysexy: Disable license telemetry (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services ! AllowBasic` | 0 | privacysexy: Disable Windows Remote Assistance feature (standard) |
 | winutil | `HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services\Client ! RedirectionWarningDialogVersion` | 1 | winutil: RDP Unsigned File Warnings - Disable |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows\AppCompat ! DisableEngine` | 1 | privacysexy: Disable Application Compatibility Engine (standard) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows\AppCompat ! DisablePropPage` | 1 | privacysexy: Remove "Program Compatibility" tab from file properties (context menu) (st... |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent ! DisableConsumerAccountStateContent` | dword:00000001 | win11debloat: DisableSettings365Ads |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent ! DisableCopilotPinScreen` | dword:00000001 | win11debloat: DisableSuggestions |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent ! DisableSoftLanding` | 1 | privacysexy: Disable Windows Tips (standard) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows\CloudContent ! DisableWindowsSpotlightFeatures` | 1 | privacysexy: Disable Windows Spotlight (shows random wallpapers on lock screen) (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\AppHost ! EnableWebContentEvaluation` | 0 | privacysexy: Disable SmartScreen web content checking for Store apps (not recommended b... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings ! CallLegacyWCMPolicies` | 0 | privacysexy: Disable legacy WCM policy calls (standard) |
@@ -585,7 +485,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! AllowUpdateComplianceProcessing` | 0 | privacysexy: Disable Update Compliance processing of diagnostics data (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! AllowWUfBCloudProcessing` | 0 | privacysexy: Disable diagnostics data processing for Business cloud (strict) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows\DataCollection ! DisableOneSettingsDownloads` | 1 | privacysexy: Disable automatic cloud configuration downloads (strict) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! DoNotShowFeedbackNotifications` | 1 | privacysexy: Disable Windows feedback collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! MicrosoftEdgeDataOptIn` | 0 | privacysexy: Disable collection of Edge browsing data for Desktop Analytics (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard ! ConfigureSystemGuardLaunch` | 2 | privacysexy: Disable System Guard startup verification (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard ! HVCIMATRequired` | 0 | privacysexy: Disable virtualization-based security (VBS) (not recommended by default) |
@@ -597,7 +496,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer ! NoAutoplayfornonVolume` | 1 | privacysexy: Disable AutoPlay and AutoRun (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer ! NoDataExecutionPrevention` | 0 | privacysexy: Enable Data Execution Prevention (DEP) (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer ! NoUseStoreOpenWith` | 1 | privacysexy: Disable the "Look For An App In The Store" option (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports ! PreventHandwritingErrorReports` | 1 | privacysexy: Disable text and handwriting data collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer ! AlwaysInstallElevated` | 0 | privacysexy: Disable "Always install with elevated privileges" in Windows Installer (st... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableLocationScripting` | 1 | privacysexy: Disable location scripting (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableSensors` | 1 | privacysexy: Disable device sensors (standard) |
@@ -612,35 +510,24 @@ Changed by two or more projects (37):
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames ! *` | * | sophia: EventViewerCustomView |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging ! EnableScriptBlockLogging` | 1 | sophia: EventViewerCustomView |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds ! AllowBuildPreview` | 0 | privacysexy: Disable receipt of Windows preview builds (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds ! EnableConfigFlighting` | 0 | privacysexy: Disable Microsoft feature trials (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds ! EnableExperimentation` | 0 | privacysexy: Disable Microsoft feature trials (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\SettingSync ! SyncPolicy` | 5 | privacysexy: Disable all settings synchronization (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! AllowOnlineTips` | 0 | privacysexy: Disable online tips (standard) |
 | winutil | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! DisableAcrylicBackgroundOnLogon` | 0 | winutil: Logon Screen Acrylic Blur |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! DisableHHDEP` | 0 | privacysexy: Enable Data Execution Prevention (DEP) (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! DisableLockScreenAppNotifications` | 1 | privacysexy: Disable lock screen app notifications (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! EnableSmartScreen` | 0 | privacysexy: Disable SmartScreen checks for apps and files (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\System ! ShellSmartScreenLevel` | Warn | privacysexy: Enable SmartScreen warning dismissal for apps (not recommended by default) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\TabletPC ! PreventHandwritingDataSharing` | 1 | privacysexy: Disable text and handwriting data collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars ! DisableFlashConfigRegistrar` | 0 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars ! DisableInBand802DOT11Registrar` | 0 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars ! DisableUPnPRegistrar` | 0 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars ! DisableWPDRegistrar` | 0 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WCN\Registrars ! EnableRegistrars` | 0 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows\WCN\UI ! DisableWcnUi` | 1 | privacysexy: Disable "Windows Connect Now" wizard (standard) |
-| privacysexy | `HKLM\Software\Policies\Microsoft\Windows\Windows Error Reporting ! Disabled` | 1 | privacysexy: Disable error reporting (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AllowCloudSearch` | 0 | privacysexy: Disable Cortana's access to cloud services such as OneDrive and SharePoint... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AllowCortanaAboveLock` | 0 | privacysexy: Disable Cortana speech interaction while the system is locked (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AllowIndexingEncryptedStoresOrItems` | 0 | privacysexy: Disable indexing of encrypted items (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AllowSearchToUseLocation` | 0 | privacysexy: Disable search's access to location (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! AlwaysUseAutoLangDetection` | 0 | privacysexy: Disable automatic language detection when indexing (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! ConnectedSearchPrivacy` | 3 | privacysexy: Disable sharing personal search data with Microsoft (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! ConnectedSearchUseWebOverMeteredConnections` | 0 | privacysexy: Disable web results in Windows Search (standard) |
 | win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! CortanaConsent` | dword:00000000 | win11debloat: DisableBing |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! EnableDynamicContentInWSB` | 0 | privacysexy: Disable Windows search highlights (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! PreventRemoteQueries` | 1 | privacysexy: Disable remote access to search index (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search ! PreventUnwantedAddIns` |  | privacysexy: Disable iFilters and protocol handlers (standard) |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI ! TurnOffSavingSnapshots` | dword:00000001 | win11debloat: DisableRecall |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot ! DisableAIDataAnalysis` | 1 | privacysexy: Disable Recall (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate ! DeferUpdate` | 1 | privacysexy: Maximize update duration on older Windows versions (not recommended by def... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate ! DeferUpdatePeriod` | 4 | privacysexy: Maximize update duration on older Windows versions (not recommended by def... |
@@ -654,14 +541,11 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate ! PauseQualityUpdates` | 1 | privacysexy: Maximize quality update duration (disables resuming updates from settings)... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate ! PauseQualityUpdatesStartTime` | (Get-Date).ToString('yyyy-MM-ddTHH:mm... | privacysexy: Maximize quality update duration (disables resuming updates from settings)... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU ! AUOptions` | 2 | privacysexy: Disable automatic installation of Windows updates without user consent (no... |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU ! NoAutoRebootWithLoggedOnUsers` | dword:00000001 | win11debloat: PreventUpdateAutoReboot |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client ! AllowBasic` | 0 | privacysexy: Disable basic authentication in WinRM (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\PrivateProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\PublicProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\StandardProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Mozilla\Firefox ! DisableDefaultBrowserAgent` | 1 | privacysexy: Disable Firefox default browser and system data reporting (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Mozilla\Firefox ! DisableTelemetry` | 1 | privacysexy: Disable Firefox telemetry data collection (standard) |
 | privacysexy | `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdateDev ! AllowUninstall` | 1 | privacysexy: Remove Edge through official installer (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Wow6432Node\Microsoft\VSCommon\14.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
 | privacysexy | `HKLM\SOFTWARE\Wow6432Node\Microsoft\VSCommon\15.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
@@ -669,8 +553,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SOFTWARE\Wow6432Node\Microsoft\VSCommon\17.0\SQM ! OptIn` | 0 | privacysexy: Disable participation in Visual Studio Customer Experience Improvement Pro... |
 | privacysexy | `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer ! SmartScreenEnabled` | Off | privacysexy: Disable SmartScreen checks for apps and files (not recommended by default) |
 | sophia | `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches\Thumbnail Cache ! Autorun` | 0, 3 | sophia: ThumbnailCacheRemoval |
-| winutil | `HKLM\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\3036241548 ! EnabledState` | 1 | winutil: Start Menu Previous Layout - Enable |
-| win11debloat | `HKLM\SYSTEM\CurrentControlSet\Control\BitLocker ! PreventDeviceEncryption` | dword:00000001 | win11debloat: DisableBitlockerAutoEncryption |
 | winutil | `HKLM\SYSTEM\CurrentControlSet\Control\CrashControl ! DisableEmoticon` | 1 | winutil: BSoD Verbose Mode |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard ! Locked` | 0 | privacysexy: Disable virtualization-based security (VBS) (not recommended by default) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard ! NoLock` | 1 | privacysexy: Disable virtualization-based security (VBS) (not recommended by default) |
@@ -680,7 +562,7 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity ! Locked` | 0 | privacysexy: Disable virtualization-based security (VBS) (not recommended by default) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\SystemGuard ! Enabled` | 0 | privacysexy: Disable System Guard startup verification (not recommended by default) |
 | win11debloat | `HKLM\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\14\4055089295 ! EnabledState` | dword:00000001 | win11debloat: RevertContextMenu |
-| win11debloat | `HKLM\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\1694661260 ! EnabledState` | dword:00000001 | win11debloat: DisableStartWebView2 |
+| winutil | `HKLM\SYSTEM\CurrentControlSet\Control\FeatureManagement\Overrides\8\3036241548 ! EnabledState` | 1 | winutil: Start Menu Previous Layout - Enable |
 | winutil | `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers ! DisableOverlays` |  | winutil: Multiplane Overlay |
 | sophia | `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout ! Scancode Map` | ([byte[]](0,0,0,0,0,0,0,0,2,0,0,0,0,0... | sophia: CapsLock |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\Lsa ! LmCompatibilityLevel` | 5 | privacysexy: Disable insecure "LM & NTLM" protocols (standard) |
@@ -696,7 +578,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL ! DisableRenegoOnClient` | 1 | privacysexy: Disable insecure renegotiation (strict) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL ! DisableRenegoOnServer` | 1 | privacysexy: Disable insecure renegotiation (strict) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL ! UseScsvForTls` | 1 | privacysexy: Disable insecure renegotiation (strict) |
-| winutil | `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager ! DisableWpbtExecution` | 1 | winutil: Windows Platform Binary Table (WPBT) - Disable |
 | sophia | `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Configuration Manager ! EnablePeriodicBackup` | 1 | sophia: RegistryBackup |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel ! DisableExceptionChainValidation` | 0 | privacysexy: Enable Structured Exception Handling Overwrite Protection (SEHOP) (standard) |
 | win11debloat | `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power ! HiberbootEnabled` | dword:00000000 | win11debloat: DisableFastStartup |
@@ -711,7 +592,6 @@ Changed by two or more projects (37):
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\lfsvc\Service\Configuration ! Status` | 0 | privacysexy: Disable app access to location (standard) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet ! EnableActiveProbing` | 0 | privacysexy: >- (not recommended by default) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet ! PassivePollPeriod` | 0 | privacysexy: >- (not recommended by default) |
-| privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup ! SendTelemetryData` | 0 | privacysexy: Disable participation in Nvidia telemetry (standard) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PrivateProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
 | privacysexy | `HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\PublicProfile ! EnableFirewall` | 0 | privacysexy: Disable Firewall via registry (not recommended by default) |
@@ -722,25 +602,19 @@ Changed by two or more projects (37):
 
 </details>
 
-## Services the others change and FocusedTweaks does not (51)
+## Services the others change and FocusedTweaks does not (39)
 
-Changed by two or more projects (2):
+Changed by two or more projects (1):
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
-| winutil, sophia, privacysexy | `WerSvc` | Disabled, Manual | winutil: Telemetry - Disable; sophia: ErrorReporting, RecommendedTroubleshooting; priva... |
 | sophia, privacysexy | `VSS` | Disabled, Manual | sophia: CreateRestorePoint; privacysexy: Disable Shadow Copy (breaks System Restore and... |
 
-<details><summary>Changed by one project (49)</summary>
+<details><summary>Changed by one project (38)</summary>
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
-| privacysexy | `AdobeARMservice` | Disabled | privacysexy: Disable "Adobe Acrobat Update Service" service (standard) |
-| privacysexy | `adobeupdateservice` | Disabled | privacysexy: Disable "Adobe Update Service" service (standard) |
 | winutil | `CscService` | Disabled | winutil: Services - Set to Manual |
-| privacysexy | `dbupdate` | Disabled | privacysexy: Disable "Dropbox Update Service" services (standard) |
-| privacysexy | `dbupdatem` | Disabled | privacysexy: Disable "Dropbox Update Service" services (standard) |
-| privacysexy | `diagnosticshub.standardcollector.service` | Disabled | privacysexy: Disable "Diagnostics Hub Standard Collector" service (not recommended by d... |
 | privacysexy | `edgeupdate` | Disabled | privacysexy: Disable Edge automatic update services (standard) |
 | privacysexy | `edgeupdatem` | Disabled | privacysexy: Disable Edge automatic update services (standard) |
 | privacysexy | `gupdate` | Disabled | privacysexy: Disable "Google Update Service" services (standard) |
@@ -755,9 +629,6 @@ Changed by two or more projects (2):
 | privacysexy | `MsSecWfp` | Disabled | privacysexy: Disable Microsoft Security WFP callout driver (not recommended by default) |
 | privacysexy | `netprofm` | Disabled | privacysexy: >- (not recommended by default) |
 | privacysexy | `NlaSvc` | Disabled | privacysexy: >- (not recommended by default) |
-| privacysexy | `NvTelemetryContainer` | Disabled | privacysexy: Disable "Nvidia Telemetry Container" service (not recommended by default) |
-| privacysexy | `Razer Game Scanner Service` | Disabled | privacysexy: Disable "Razer Game Scanner Service (standard) |
-| privacysexy | `RetailDemo` | Disabled | privacysexy: Disable Microsoft Retail Demo (standard) |
 | privacysexy | `SecurityHealthService` | Disabled | privacysexy: Disable "Windows Security Service" service (not recommended by default) |
 | privacysexy | `Sense` | Disabled | privacysexy: Disable "Windows Defender Advanced Threat Protection Service" service (not... |
 | privacysexy | `SgrmAgent` | Disabled | privacysexy: Disable System Guard kernel monitoring (not recommended by default) |
@@ -766,17 +637,14 @@ Changed by two or more projects (2):
 | winutil | `StorSvc` | Manual | winutil: Services - Set to Manual |
 | sophia | `swprv` | Manual | sophia: CreateRestorePoint |
 | privacysexy | `UsoSvc` | Disabled | privacysexy: Disable "Update Orchestrator Service" (`UsoSvc`) (not recommended by default) |
-| privacysexy | `VSStandardCollectorService150` | Disabled | privacysexy: Disable "Visual Studio Standard Collector Service (standard) |
 | privacysexy | `WaaSMedicSvc` | Disabled | privacysexy: Disable "Windows Update Medic Service" (`WaaSMedicSvc`) (not recommended b... |
 | privacysexy | `WdBoot` | Disabled | privacysexy: Disable Defender Antivirus boot driver (not recommended by default) |
 | privacysexy | `WdFilter` | Disabled | privacysexy: Disable Defender Antivirus minifilter driver (not recommended by default) |
 | privacysexy | `WdNisDrv` | Disabled | privacysexy: Disable "Microsoft Defender Antivirus Network Inspection System Driver" se... |
 | privacysexy | `WdNisSvc` | Disabled | privacysexy: Disable Defender Antivirus network inspection service (not recommended by ... |
 | privacysexy | `webthreatdefsvc` | Disabled | privacysexy: Disable SmartScreen Enhanced Phishing Protection Web background services (... |
-| privacysexy | `wercplsupport` | Disabled | privacysexy: Disable error reporting (standard) |
 | privacysexy | `WinDefend` | Disabled | privacysexy: >- (not recommended by default) |
 | privacysexy | `wlidsvc` | Disabled | privacysexy: Disable Microsoft Account Sign-in Assistant (breaks Microsoft Store and Mi... |
-| privacysexy | `WMPNetworkSvc` | Disabled | privacysexy: Disable "Windows Media Player Network Sharing Service" (`WMPNetworkSvc`) (... |
 | privacysexy | `wscsvc` | Disabled | privacysexy: Disable Windows Security service (not recommended by default) |
 | privacysexy | `wuauserv` | Disabled | privacysexy: Disable "Windows Update" (`wuauserv`) service (not recommended by default) |
 | privacysexy | `XblAuthManager` | Disabled | privacysexy: Disable Xbox Live Auth Manager (standard) |
@@ -787,26 +655,14 @@ Changed by two or more projects (2):
 
 </details>
 
-## Store apps the others change and FocusedTweaks does not (147)
+## Store apps the others change and FocusedTweaks does not (134)
 
-Changed by two or more projects (12):
+Changed by two or more projects (0):
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
-| winutil, win11debloat, privacysexy | `Microsoft.WindowsCamera` | remove | winutil: Camera; win11debloat: optional; privacysexy: Remove "Windows Camera" app (not ... |
-| win11debloat, privacysexy | `AdobeSystemsIncorporated.AdobePhotoshopExpress` | remove | win11debloat: selected by default; privacysexy: Remove "Adobe Photoshop Express" app (n... |
-| win11debloat, privacysexy | `Microsoft.Messaging` | remove | win11debloat: selected by default; privacysexy: Remove "Microsoft Messaging" app (not r... |
-| win11debloat, privacysexy | `Microsoft.MSPaint` | remove | win11debloat: optional; privacysexy: Remove "Paint 3D" app (not recommended by default) |
-| win11debloat, privacysexy | `Microsoft.NetworkSpeedTest` | remove | win11debloat: selected by default; privacysexy: Remove "Network Speed Test" app (standard) |
-| win11debloat, privacysexy | `Microsoft.Office.OneNote` | remove | win11debloat: selected by default; privacysexy: Remove "OneNote" app (not recommended b... |
-| win11debloat, privacysexy | `Microsoft.Office.Sway` | remove | win11debloat: selected by default; privacysexy: Remove "Sway" app (not recommended by d... |
-| win11debloat, privacysexy | `Microsoft.RemoteDesktop` | remove | win11debloat: optional; privacysexy: Remove "Microsoft Remote Desktop" app (not recomme... |
-| winutil, win11debloat | `Microsoft.StartExperiencesApp` | remove | winutil: Start Experiences App; win11debloat: optional |
-| win11debloat, privacysexy | `Microsoft.windowscommunicationsapps` | remove | win11debloat: optional; privacysexy: Remove "Mail and Calendar" app (outdated) (strict) |
-| winutil, win11debloat | `MicrosoftCorporationII.QuickAssist` | remove | winutil: Quick Assist; win11debloat: selected by default |
-| win11debloat, privacysexy | `MicrosoftWindows.Client.WebExperience` | remove | win11debloat: optional; privacysexy: Remove "Windows Web Experience Pack" (breaks Widge... |
 
-<details><summary>Changed by one project (135)</summary>
+<details><summary>Changed by one project (134)</summary>
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
@@ -881,7 +737,6 @@ Changed by two or more projects (12):
 | privacysexy | `Microsoft.CommsPhone` | remove | privacysexy: Remove "Microsoft Phone" app (outdated) (standard) |
 | privacysexy | `Microsoft.CredDialogHost` | remove | privacysexy: Remove "Credentials Dialog Host" app (not recommended by default) |
 | privacysexy | `Microsoft.ECApp` | remove | privacysexy: Remove "EC" app (not recommended by default) |
-| win11debloat | `Microsoft.Edge` | remove | win11debloat: optional |
 | privacysexy | `Microsoft.GroupMe10` | remove | privacysexy: Remove "GroupMe" app (not recommended by default) |
 | privacysexy | `Microsoft.LockApp` | remove | privacysexy: Remove "Lock" app (shows lock screen) (not recommended by default) |
 | win11debloat | `Microsoft.M365Companions` | remove | win11debloat: optional |

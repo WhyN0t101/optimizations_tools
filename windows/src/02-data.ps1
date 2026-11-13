@@ -70,7 +70,12 @@ $AppsToRemove = @(
     'Microsoft.WindowsAlarms', 'Microsoft.Windows.DevHome', 'Microsoft.MicrosoftTeamsforSurfaceHub',
     '*Spotify*', '*Disney*', '*Netflix*', '*TikTok*', '*Instagram*', '*Facebook*', '*Twitter*',
     '*LinkedIn*', '*CandyCrush*', 'king.com.*', '*AmazonPrimeVideo*', '*Amazon.com.Amazon*',
-    '*Hulu*', '*Duolingo*', '*Pinterest*', '*WhatsApp*'
+    '*Hulu*', '*Duolingo*', '*Pinterest*', '*WhatsApp*',
+    # From the coverage comparison (two or more other projects remove them). Microsoft.MSPaint is Paint 3D, not Paint;
+    # StartExperiencesApp is the Widgets board feed and Client.WebExperience the Widgets board itself.
+    'Microsoft.WindowsCamera', 'Microsoft.windowscommunicationsapps', 'Microsoft.Messaging', 'Microsoft.MSPaint',
+    'Microsoft.NetworkSpeedTest', 'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.RemoteDesktop',
+    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*'
 )
 
 # Never removed, whatever else is listed. Photos needs the image codec extensions kept below.
@@ -319,6 +324,167 @@ $WindowsAIRegs = @(
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableAIDataAnalysis' 1 'DWord'
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'DisableClickToDo' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 0 'DWord'
+    # From the coverage comparison (docs/COVERAGE.md, Nov 2026): the newer Recall policy name next to the older
+    # DisableAIDataAnalysis, Paint's AI tools, and the Copilot pin screen after updates.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsAI' 'TurnOffSavingSnapshots' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\WindowsAI' 'TurnOffSavingSnapshots' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeErase' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableRemoveBackground' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCopilotPinScreen' 1 'DWord'
+)
+
+# More telemetry off, from the coverage comparison (docs/COVERAGE.md, Nov 2026): values two or more of winutil,
+# Win11Debloat, Sophia Script and privacy.sexy set that the upstream groups do not. Office, Visual Studio and NVIDIA
+# values only matter where those are installed; -Revert removes the keys this creates.
+$TelemetryExtraRegs = @(
+    # Windows Error Reporting off (upstream only stops the extra data). The services are in SvcDiagnostics.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Error Reporting' 'Disabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'Disabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting' 'LoggingDisabled' 1 'DWord'
+    # Advertising ID for this account (upstream sets the machine value), typing, inking and online speech data.
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Input\TIPC' 'Enabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Input\TIPC' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' 'HasAccepted' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Speech_OneCore\Preferences' 'ModelDownloadAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'AllowInputPersonalization' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\HandwritingErrorReports' 'PreventHandwritingErrorReports' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\TabletPC' 'PreventHandwritingDataSharing' 1 'DWord'
+    # Customer experience program, feedback prompts, feature trials, licence check-ins, tips and suggestions.
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\SQMClient\Windows' 'CEIPEnable' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DoNotShowFeedbackNotifications' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds' 'EnableConfigFlighting' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\PreviewBuilds' 'EnableExperimentation' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform' 'NoGenTicket' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\System' 'AllowOnlineTips' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSoftLanding' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableConsumerAccountStateContent' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility' 'OptedIn' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.Suggested' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\Windows.SystemToast.BackupReminder' 'Enabled' 0 'DWord'
+    # Search: no Cortana, cloud results, highlights or location. The location policy matches SvcOther, which already
+    # stops the location service.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCortana' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowCloudSearch' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'AllowSearchToUseLocation' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchPrivacy' 3 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWebOverMeteredConnections' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'EnableDynamicContentInWSB' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1 'DWord'
+    # NVIDIA driver and control panel telemetry opt-out (next to NvidiaTelemetryStrip, which removes the files).
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'OptInOrOutPreference' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID44231' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID64640' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID66610' 0 'DWord'
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\Startup' 'SendTelemetryData' 0 'DWord'
+    # Office (2016 and later) and Visual Studio telemetry, logging and feedback.
+    New-Tweak 'HKCU\Software\Microsoft\Office\Common\ClientTelemetry' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\ClientTelemetry' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\ClientTelemetry' 'VerboseLogging' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Office\16.0\Common\Feedback' 'Enabled' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\Common' 'QMEnable' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\OSM' 'EnableLogging' 0 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Office\16.0\OSM' 'EnableUpload' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\VisualStudio\Telemetry' 'TurnOffSwitch' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\SQM' 'OptIn' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableFeedbackDialog' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableEmailInput' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\Feedback' 'DisableScreenshotCapture' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\VisualStudio\IntelliCode' 'DisableRemoteAnalysis' 1 'DWord'
+)
+
+# Browser ads, telemetry and AI off by policy (Edge, Chrome, Brave, Firefox), from the coverage comparison. Values
+# for a browser that is not installed do nothing. A browser with policies says it is managed by your organisation.
+$BrowserPolicyRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DiagnosticData' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'PersonalizationReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'UserFeedbackAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ConfigureDoNotTrack' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'AlternateErrorPagesEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowRecommendationsEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'SpotlightExperiencesAndRecommendationsEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeShoppingAssistantEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowMicrosoftRewards' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'WalletDonationEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ShowAcrobatSubscriptionButton' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'HideFirstRunExperience' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DefaultBrowserSettingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'DefaultBrowserSettingsCampaignEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'MicrosoftEdgeInsiderPromotionEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageContentEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageHideDefaultTopSites' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeAssetDeliveryServiceEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'WebWidgetAllowed' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'CopilotPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'CopilotCDPPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeEntraCopilotPageContext' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'Microsoft365CopilotChatIconEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'NewTabPageBingChatEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'ComposeInlineEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'EdgeHistoryAISearchEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Edge' 'GenAILocalFoundationalModelSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate' 'CreateDesktopShortcutDefault' 0 'DWord'
+    # Chrome: Gemini and the other AI features. Each *Settings policy has its own scale (1 or 2 is "not allowed").
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GeminiSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GeminiSparkSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'AIModeSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'GenAILocalFoundationalModelSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'ChromeSuggestionsSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'SearchContentSharingSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'SmartTabSharingSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'ThirdPartyAiChatSettings' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'AutofillPredictionSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'CreateThemesSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'DevToolsGenAiSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'FindAndFillWithGeminiSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'HelpMeWriteSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'HistorySearchSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'TabCompareSettings' 2 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Google\Chrome' 'VoiceTypingSettings' 2 'DWord'
+    # Brave: rewards, wallet, VPN, news, Talk, AI chat, Tor windows and its usage pings.
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveRewardsDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveWalletDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveVPNDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveNewsDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveTalkDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveAIChatEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'TorDisabled' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveP3AEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'BraveStatsPingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'MetricsReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'SafeBrowsingExtendedReportingEnabled' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\BraveSoftware\Brave' 'UrlKeyedAnonymizedDataCollectionEnabled' 0 'DWord'
+    # Firefox: telemetry and the default browser agent's reports.
+    New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableTelemetry' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableDefaultBrowserAgent' 1 'DWord'
+)
+
+# Startup apps start at once instead of after Explorer's delay of about ten seconds.
+$StartupDelayRegs = @(
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState' 0 'DWord'
+)
+
+# Windows 11 turns on BitLocker device encryption by itself at setup or sign in on many PCs. This stops it doing
+# that; a drive that is already encrypted stays encrypted (turn it off in Settings if wanted).
+$NoDeviceEncryptionRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\BitLocker' 'PreventDeviceEncryption' 1 'DWord'
+)
+
+# No automatic restart for updates while someone is signed in, and no early feature rollouts ("Get the latest
+# updates as soon as they're available" off).
+$UpdateNoRebootRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoRebootWithLoggedOnUsers' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' 'IsContinuousInnovationOptedIn' 0 'DWord'
+)
+
+# Modern standby: no network while the PC sleeps (power setting "Networking connectivity in Standby", policy), so
+# nothing downloads or syncs in sleep. PCs with classic S3 sleep ignore it.
+$StandbyNetworkRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9' 'ACSettingIndex' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9' 'DCSettingIndex' 0 'DWord'
 )
 
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.

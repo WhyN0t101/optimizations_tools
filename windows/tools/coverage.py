@@ -92,6 +92,8 @@ def reg_path(p):
             p = short + p[len(long):]
     p = re.sub(r'^(HKLM|HKCU|HKCR|HKU):', r'\1', p, flags=re.I)
     p = re.sub(r'\\+', r'\\', p).rstrip('\\')
+    # ControlSet001 is what CurrentControlSet points to on a normal boot; upstream writes one, others the other.
+    p = re.sub(r'^HKLM\\SYSTEM\\ControlSet001\\', r'HKLM\\SYSTEM\\CurrentControlSet\\', p, flags=re.I)
     return p
 
 
@@ -305,7 +307,13 @@ def ours():
     for var in ('TelemetryServices', 'CdpServices', 'VendorServicesDisable', 'VendorServicesManual'):
         services.update(s.lower() for s in ps_array(lines, var))
     services.update(s.lower() for s in re.findall(r"Set-ServiceStart (?:-Name )?'([\w.-]+)'", text))
-    return {'reg': reg, 'service': services, 'remove': ps_array(lines, 'AppsToRemove'),
+    # Packages removed by their own step (Quick Assist, OneDrive, Edge) are named in the script, not in $AppsToRemove.
+    named_packages = set(re.findall(r"'((?:Microsoft|MicrosoftCorporationII|MicrosoftWindows)\.[\w.]+)'", text))
+    for line in lines:
+        if 'Get-AppxPackage' in line:
+            named_packages.update(re.findall(r"\$_\.Name -like '([^']+)'", line))
+    named_packages -= set(ps_array(lines, 'KeepApps')) | set(ps_array(lines, 'PackageIds'))   # kept, or installed by winget
+    return {'reg': reg, 'service': services, 'remove': ps_array(lines, 'AppsToRemove') + sorted(named_packages),
             'keep': ps_array(lines, 'KeepApps'), 'taskkeep': ps_array(lines, 'TaskKeepBuiltIn')}
 
 
