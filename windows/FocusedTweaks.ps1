@@ -4701,6 +4701,22 @@ function Get-EnabledFeatureNames {
         })
 }
 
+function Get-FeaturesNotBackOn {
+    # For the revert check: the named features that are neither on nor turning on at the next restart, as
+    # "Name (State)". The light query settles the ones that are on; the rest, usually the few -Revert just turned
+    # back on, are asked by name through servicing, which knows EnablePending. Listing every feature took 82 s on
+    # the Windows 11 ARM runner (CI step times, 13 Nov 2026).
+    param([string[]]$Names)
+    $filter = (@($Names) | ForEach-Object { "Name='$($_ -replace "'", "''")'" }) -join ' OR '
+    $on = @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter $filter -ErrorAction SilentlyContinue | Where-Object { $_.InstallState -eq 1 } | ForEach-Object { $_.Name })
+    return @(foreach ($name in $Names) {
+            if ($on -contains $name) { continue }
+            $f = Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction SilentlyContinue
+            $state = if ($f) { [string]$f.State } else { 'not found' }
+            if ($state -notin 'Enabled', 'EnablePending') { "$name ($state)" }
+        })
+}
+
 function Disable-FeatureGroup {
     param([Parameter(Mandatory)][string]$Group)
     $on = @(Get-EnabledFeatureNames -Names $FeatureGroups[$Group])
@@ -6138,10 +6154,8 @@ function Test-RevertResult {
         }
     }
     if ($script:State.Features.Count -gt 0) {
-        $states = @{}
-        foreach ($f in @(Get-WindowsOptionalFeature -Online -ErrorAction SilentlyContinue)) { $states[$f.FeatureName] = [string]$f.State }
-        foreach ($name in @($script:State.Features)) {
-            if ($states[$name] -notin 'Enabled', 'EnablePending') { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Features'; Message = "Optional feature not back on: $name ($($states[$name]))" }) }
+        foreach ($miss in @(Get-FeaturesNotBackOn -Names @($script:State.Features))) {
+            $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Features'; Message = "Optional feature not back on: $miss" })
         }
     }
     $hosts = [IO.File]::ReadAllText($HostsPath)

@@ -9,6 +9,8 @@ Nothing yet.
 
 ## v8.0 (13 Nov 2026)
 
+- Revert check: the optional features are checked with the same light query, and only features not on are asked by
+  name through servicing (EnablePending counts as restored), instead of listing every feature (82 s on ARM).
 - Optional feature status: one `Win32_OptionalFeature` query for just the script's feature names (0.6 s here) instead
   of listing every feature through Windows servicing (about a minute on the Windows 11 ARM runner, in every dry run, run
   and -Reapply pass). A feature it calls on is confirmed by name through servicing, which tells DisablePending from on.

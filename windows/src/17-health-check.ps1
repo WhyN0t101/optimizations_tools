@@ -715,10 +715,8 @@ function Test-RevertResult {
         }
     }
     if ($script:State.Features.Count -gt 0) {
-        $states = @{}
-        foreach ($f in @(Get-WindowsOptionalFeature -Online -ErrorAction SilentlyContinue)) { $states[$f.FeatureName] = [string]$f.State }
-        foreach ($name in @($script:State.Features)) {
-            if ($states[$name] -notin 'Enabled', 'EnablePending') { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Features'; Message = "Optional feature not back on: $name ($($states[$name]))" }) }
+        foreach ($miss in @(Get-FeaturesNotBackOn -Names @($script:State.Features))) {
+            $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Features'; Message = "Optional feature not back on: $miss" })
         }
     }
     $hosts = [IO.File]::ReadAllText($HostsPath)
