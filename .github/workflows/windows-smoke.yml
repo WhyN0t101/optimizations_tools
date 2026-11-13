@@ -8,6 +8,11 @@ on:
     paths: ['windows/**', '.github/workflows/windows-smoke.yml', '.github/workflows/windows-build.yml']
   workflow_dispatch:
 
+# A newer push to the same branch cancels this run: only the newest commit's result matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

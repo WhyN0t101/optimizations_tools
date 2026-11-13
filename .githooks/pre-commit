@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs windows/tools/Check.ps1 -Staged before a commit that touches windows/: the build, the generated files in the
+# commit, and Test-Parse under PowerShell 5.1 and 7. Turn it on once per clone: git config core.hooksPath .githooks
+git diff --cached --quiet -- windows/ && exit 0
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File windows/tools/Check.ps1 -Staged

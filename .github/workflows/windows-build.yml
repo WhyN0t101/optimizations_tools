@@ -10,6 +10,12 @@ on:
     paths: ['windows/**', '.github/workflows/windows-build.yml']
   workflow_call:
 
+# A newer push to the same branch cancels this run; tags (releases) are never cancelled. When another workflow calls
+# this one, github.workflow is the caller's name, so its group never collides with the caller or a standalone build.
+concurrency:
+  group: ${{ github.workflow }}-build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 # Actions are pinned to the commit their release tag pointed to (the tag is in the comment), so a moved or
 # hijacked tag cannot change what runs. Update both together.
 permissions:

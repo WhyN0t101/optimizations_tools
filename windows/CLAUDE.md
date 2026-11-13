@@ -46,7 +46,8 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
    for run state, and never name a local variable `$ctx` (names are case-insensitive). `Test-Parse` checks this.
 
 ## Workflow for a change
-Edit the file in `src/`, rebuild, run `tests/Test-Parse.ps1`, then let the user run `tools/Test-InVm.ps1` (see
+Edit the file in `src/`, then run `tools/Check.ps1` (build plus `Test-Parse` under 5.1 and 7, stops at the first
+failure; the pre-commit hook in `.githooks/` runs it with `-Staged`, on after `git config core.hooksPath .githooks`), then let the user run `tools/Test-InVm.ps1` (see
 `docs/VM-TESTING.md`). It drives the VM with vmrun through dry run, real run, restart, health check and `-Revert`, and
 copies logs and JSON results to `test-results/<time>/`. Read `summary.txt` there first.
 
