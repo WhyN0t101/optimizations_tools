@@ -3,7 +3,11 @@
 Newest first. Add a line under Unreleased with every change; a release moves them under its tag.
 Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
-## Unreleased (after v7.9)
+## Unreleased
+
+Nothing yet.
+
+## v8.0 (13 Nov 2026)
 
 - Optional feature status: one `Win32_OptionalFeature` query for just the script's feature names (0.6 s here) instead
   of listing every feature through Windows servicing (about a minute on the Windows 11 ARM runner, in every dry run, run
