@@ -1,5 +1,10 @@
 # FocusedTweaks audit (Phase 1, read only)
 
+> **Historical record.** This is the audit of v7.4 as it stood on 9 November 2026. Its findings were worked through in
+> v7.5 to v7.9; what was done with each (fixed, revised or kept by design) is in [CHANGELOG.md](CHANGELOG.md) under
+> v7.5, and the current state is in [SUMMARY.md](SUMMARY.md). Code comments refer to its finding numbers (A-03, C-3
+> and so on), so it stays here unchanged below this note.
+
 Date: 9 November 2026. Auditor: Claude Code. Scope: the `windows/` folder and `.github/workflows`.
 This phase wrote this file only. Nothing was applied, reverted or restored on any machine.
 

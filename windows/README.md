@@ -148,4 +148,5 @@ Third party licence notices are in `NOTICE.md`.
 Every push builds the script, runs the static tests and runs it for real on a throwaway Windows Server 2025
 runner (dry runs, apply, health check, task restore, revert); see `.github/workflows`. For a full Windows 11 check,
 `tools\Test-InVm.ps1` automates a VMware Workstation VM, see `docs/VM-TESTING.md`. See `docs/SUMMARY.md` for
-what it does and how far it has been tested, and `CLAUDE.md` for how the repo is built.
+what it does and how far it has been tested, `docs/CHANGELOG.md` for what changed in each version, and `CLAUDE.md`
+for how the repo is built.

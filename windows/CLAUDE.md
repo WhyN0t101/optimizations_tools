@@ -1,6 +1,8 @@
 # FocusedTweaks: guide for Claude Code
 
-A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first.
+A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first (what it is, safety model, decisions,
+test status); `docs/CHANGELOG.md` holds the history, newest first. Every change gets a line under its Unreleased
+heading.
 
 ## Layout
 - `src/NN-name.ps1` is the SOURCE OF TRUTH: one file per area (00 header and parameters, 01 options, 02 data,
