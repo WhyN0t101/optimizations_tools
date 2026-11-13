@@ -1734,7 +1734,7 @@ Option: `Registry`
 |---|---|---|---|---|
 | `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection` | AllowTelemetry | DWord | 1 (0x00000001) | policy |
 | `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection` | MaxTelemetryAllowed | DWord | 1 (0x00000001) | policy |
-| `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry` | Value | DWord | 1 (0x00000001) |  |
+| `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry` | Value | DWord | 1 (0x00000001) | Windows sets it itself |
 
 <a id="g145"></a>
 ### 145. Disable start menu recommended section

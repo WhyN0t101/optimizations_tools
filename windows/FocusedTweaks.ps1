@@ -261,6 +261,7 @@ $OptionInfo = [ordered]@{
     MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu', 'n/a', '')
     MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu', 'n/a', '')
     MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
+    MouseFullRateBackground = @($true, 'Windows 11: give windows in the background the mouse at its full polling rate instead of about 125 Hz (a game on a second screen, overlays). Check with tools\Test-Mouse.ps1', 'Folklore', '')
     StartupDelayOff       = @($true, 'Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds)', 'Folklore', '')
     NoDeviceEncryption    = @($true, 'Stop Windows turning on BitLocker device encryption by itself. A drive already encrypted stays encrypted; turn that off in Settings if wanted', 'n/a', '')
     UpdateNoReboot        = @($true, 'No automatic restart for updates while you are signed in, and no early feature rollouts ("Get the latest updates as soon as they are available" off)', 'n/a', '')
@@ -1903,6 +1904,7 @@ $PackageIds = @(
     'Mozilla.Firefox'
     'Orbmu2k.nvidiaProfileInspector'
     'Microsoft.Sysinternals.Autoruns'
+    'REALiX.HWiNFO'
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
@@ -2339,6 +2341,12 @@ $BrowserPolicyRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableDefaultBrowserAgent' 1 'DWord'
 )
 
+# Windows 11 caps mouse raw input to windows in the background at about 125 reports a second; 0 lifts the cap (idea
+# from FR33THY Ultimate, "Background Polling Rate Cap"). Check with tools/Test-Mouse.ps1.
+$MouseFullRateRegs = @(
+    New-Tweak 'HKCU\Control Panel\Mouse' 'RawMouseThrottleEnabled' 0 'DWord'
+)
+
 # Startup apps start at once instead of after Explorer's delay of about ten seconds.
 $StartupDelayRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
@@ -2432,6 +2440,9 @@ $WindowsRewrittenValues = @(
     # The USB 3 root hub driver saves its own idle setting: in both VM tests (8 and 11 Nov 2026) every other device
     # took the original back on -Revert, the root hub kept the run's 0. Wildcard: the instance ID differs per PC.
     'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\ROOT_HUB30\*\Device Parameters\WDF|IdleInWorkingState'
+    # The policy store cache: Windows recomputes it from the policies in force. On the Windows 11 ARM runner (13 Nov
+    # 2026) -Revert wrote the original 1 back and Windows had set it to 0 again from that image's own policy.
+    'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry|Value'
 )
 
 function Test-WindowsRewritten {
@@ -3931,6 +3942,22 @@ function Disable-TelemetryTasks {
     }
 }
 
+function Test-TaskAccountExists {
+    # A task whose account was deleted cannot run, and Task Scheduler refuses to register it again from its export
+    # ("No mapping between account names and security IDs"), so deleting it could never be undone. Seen on the
+    # Windows 11 ARM runner: a Visual Studio per user task of the account that built the image.
+    param([Parameter(Mandatory)]$Task)
+    if (-not $Task.PSObject.Properties['Principal'] -or -not $Task.Principal) { return $true }
+    $id = [string]$Task.Principal.UserId
+    if (-not $id) { return $true }
+    try {
+        if ($id -match '^S-\d-') { [void]([Security.Principal.SecurityIdentifier]::new($id)).Translate([Security.Principal.NTAccount]) }
+        else { [void]([Security.Principal.NTAccount]::new($id)).Translate([Security.Principal.SecurityIdentifier]) }
+        return $true
+    }
+    catch { return $false }
+}
+
 function Remove-AllScheduledTasks {
     # Upstream behaviour: unregister every task except three. Each task is exported first so -Revert can restore it.
     # The built-in keep list survives on top: deleting those gains no speed but stops time sync, TPM upkeep,
@@ -3948,6 +3975,7 @@ function Remove-AllScheduledTasks {
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
         if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
         if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
+        if (-not (Test-TaskAccountExists -Task $t)) { Write-Log "Task $full kept: its account ($($t.Principal.UserId)) no longer exists, so it cannot run and could not be restored."; continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++
@@ -5579,6 +5607,7 @@ function Test-HealthRegistry {
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
     if ($Opt['BrowserPolicies']) { Test-HealthTweakTable -Label 'Browser ads, telemetry and AI off' -Tweaks $BrowserPolicyRegs }
     if ($Opt['StartupDelayOff']) { Test-HealthTweakTable -Label 'Startup delay off' -Tweaks $StartupDelayRegs }
+    if ($Opt['MouseFullRateBackground']) { Test-HealthTweakTable -Label 'Mouse full rate in the background' -Tweaks $MouseFullRateRegs }
     if ($Opt['NoDeviceEncryption']) { Test-HealthTweakTable -Label 'Automatic device encryption off' -Tweaks $NoDeviceEncryptionRegs }
     if ($Opt['UpdateNoReboot']) { Test-HealthTweakTable -Label 'No update restarts or early features' -Tweaks $UpdateNoRebootRegs }
     if ($Opt['StandbyNetworkOff']) { Test-HealthTweakTable -Label 'Network in standby off' -Tweaks $StandbyNetworkRegs }
@@ -6356,6 +6385,7 @@ function Invoke-ApplySteps {
     if ($Opt['TelemetryExtra']) { Invoke-Step 'More telemetry off' -Option 'TelemetryExtra' { Set-TweakList $TelemetryExtraRegs } }
     if ($Opt['BrowserPolicies']) { Invoke-Step 'Browser ads, telemetry and AI' -Option 'BrowserPolicies' { Set-TweakList $BrowserPolicyRegs } }
     if ($Opt['StartupDelayOff']) { Invoke-Step 'Startup delay' -Option 'StartupDelayOff' { Set-TweakList $StartupDelayRegs } }
+    if ($Opt['MouseFullRateBackground']) { Invoke-Step 'Mouse rate in the background' -Option 'MouseFullRateBackground' { Set-TweakList $MouseFullRateRegs } }
     if ($Opt['NoDeviceEncryption']) { Invoke-Step 'Automatic device encryption' -Option 'NoDeviceEncryption' { Set-TweakList $NoDeviceEncryptionRegs } }
     if ($Opt['UpdateNoReboot']) { Invoke-Step 'Update restarts and early features' -Option 'UpdateNoReboot' { Set-TweakList $UpdateNoRebootRegs } }
     if ($Opt['StandbyNetworkOff']) { Invoke-Step 'Network in standby' -Option 'StandbyNetworkOff' { Set-TweakList $StandbyNetworkRegs } }

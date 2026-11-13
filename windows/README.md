@@ -103,6 +103,9 @@ svchost, which vendor each process belongs to, which app started each WebView, a
 for common Windows, Lenovo, Intel, Dolby, Realtek and Synaptics services. Compare two machines with
 `-SaveSnapshot desktop.json` on one, then `-Compare desktop.json, laptop.json`.
 
+`tools\Test-Mouse.ps1` checks Enhance pointer precision, pointer speed and the background polling cap, then measures
+the mouse's real polling rate and steadiness while you move it. It only reads.
+
 Building it yourself needs only Python: `python tools/build.py --out FocusedTweaks.ps1` in this folder. The ZOICWARE
 data comes from the copy in `upstream/zoicware/`, checked against pinned SHA256 values.
 

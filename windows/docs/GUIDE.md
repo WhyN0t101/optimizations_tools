@@ -199,6 +199,15 @@ Update, Check for updates still works when you want to update by hand; Defender 
 **What is running and why.** `tools\Explain-Processes.ps1` (it only reads) groups every process by origin, shows the
 services inside each svchost and gives Keep, Manual or Remove advice.
 
+**The mouse.** `tools\Test-Mouse.ps1` (it only reads) says whether Enhance pointer precision is off, the pointer speed
+is the 1:1 middle notch and the background polling cap is lifted (`MouseFullRateBackground`), then opens a window:
+move the mouse in fast circles in it and it measures the real polling rate and how steady it is from the raw input
+games read. Below 1000 Hz or unsteady, it says what to try (mouse software, another USB port, wired). For a second
+opinion in the browser, with button and sensor tests, https://control.openmouse.app/ runs a hardware test.
+
+**Temperatures and clocks.** The default packages install HWiNFO (`REALiX.HWiNFO`); run it in sensors only mode to
+watch CPU and GPU temperatures, clocks and throttling while you game.
+
 ## 9. Undoing
 
 | Command | Undoes |

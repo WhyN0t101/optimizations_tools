@@ -137,6 +137,22 @@ function Disable-TelemetryTasks {
     }
 }
 
+function Test-TaskAccountExists {
+    # A task whose account was deleted cannot run, and Task Scheduler refuses to register it again from its export
+    # ("No mapping between account names and security IDs"), so deleting it could never be undone. Seen on the
+    # Windows 11 ARM runner: a Visual Studio per user task of the account that built the image.
+    param([Parameter(Mandatory)]$Task)
+    if (-not $Task.PSObject.Properties['Principal'] -or -not $Task.Principal) { return $true }
+    $id = [string]$Task.Principal.UserId
+    if (-not $id) { return $true }
+    try {
+        if ($id -match '^S-\d-') { [void]([Security.Principal.SecurityIdentifier]::new($id)).Translate([Security.Principal.NTAccount]) }
+        else { [void]([Security.Principal.NTAccount]::new($id)).Translate([Security.Principal.SecurityIdentifier]) }
+        return $true
+    }
+    catch { return $false }
+}
+
 function Remove-AllScheduledTasks {
     # Upstream behaviour: unregister every task except three. Each task is exported first so -Revert can restore it.
     # The built-in keep list survives on top: deleting those gains no speed but stops time sync, TPM upkeep,
@@ -154,6 +170,7 @@ function Remove-AllScheduledTasks {
         # -Reapply deletes only tasks the earlier run deleted and Windows registered again, never ones added since.
         if ($Ctx.Reapply -and -not (Get-TaskRecord -Path $t.TaskPath -Name $t.TaskName)) { continue }
         if ($Ctx.Reapply -and (Test-NameMatch $full $WindowsManagedTasks)) { continue }
+        if (-not (Test-TaskAccountExists -Task $t)) { Write-Log "Task $full kept: its account ($($t.Principal.UserId)) no longer exists, so it cannot run and could not be restored."; continue }
         if (Test-DryRun "delete task $full (exported first)") { continue }
         # Each task takes about a second (export, then delete), so say that the step is still working.
         $seen++

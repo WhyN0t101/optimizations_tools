@@ -328,6 +328,13 @@ have not run in the VM yet):
   Remote Desktop, the Widgets board and its feed, and five more. Items two or more projects change that FocusedTweaks
   does not went from 37 registry values, 2 services and 12 apps to 15, 1 and 0; what is left is interface taste or a
   deliberate security choice.
+- Mouse and sensors: `tools\Test-Mouse.ps1` (reads only) checks Enhance pointer precision, pointer speed and the
+  background polling cap, then measures the polling rate and its steadiness from raw input in a small window.
+  `MouseFullRateBackground` (on) lifts Windows 11's cap of about 125 Hz for windows in the background (idea from FR33THY
+  Ultimate). HWiNFO joins the default packages.
+- Windows 11 ARM smoke run (13 Nov 2026): TaskMode Delete now keeps a task whose account no longer exists (it cannot run,
+  and Windows refuses to register it again, so -Revert could not bring it back), and the policy store cache
+  `CPSS\Store\AllowTelemetry` joined the values Windows recomputes after a revert.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

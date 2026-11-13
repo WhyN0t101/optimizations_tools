@@ -25,6 +25,7 @@ $PackageIds = @(
     'Mozilla.Firefox'
     'Orbmu2k.nvidiaProfileInspector'
     'Microsoft.Sysinternals.Autoruns'
+    'REALiX.HWiNFO'
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
@@ -461,6 +462,12 @@ $BrowserPolicyRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Mozilla\Firefox' 'DisableDefaultBrowserAgent' 1 'DWord'
 )
 
+# Windows 11 caps mouse raw input to windows in the background at about 125 reports a second; 0 lifts the cap (idea
+# from FR33THY Ultimate, "Background Polling Rate Cap"). Check with tools/Test-Mouse.ps1.
+$MouseFullRateRegs = @(
+    New-Tweak 'HKCU\Control Panel\Mouse' 'RawMouseThrottleEnabled' 0 'DWord'
+)
+
 # Startup apps start at once instead of after Explorer's delay of about ten seconds.
 $StartupDelayRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
@@ -554,6 +561,9 @@ $WindowsRewrittenValues = @(
     # The USB 3 root hub driver saves its own idle setting: in both VM tests (8 and 11 Nov 2026) every other device
     # took the original back on -Revert, the root hub kept the run's 0. Wildcard: the instance ID differs per PC.
     'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USB\ROOT_HUB30\*\Device Parameters\WDF|IdleInWorkingState'
+    # The policy store cache: Windows recomputes it from the policies in force. On the Windows 11 ARM runner (13 Nov
+    # 2026) -Revert wrote the original 1 back and Windows had set it to 0 again from that image's own policy.
+    'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry|Value'
 )
 
 function Test-WindowsRewritten {

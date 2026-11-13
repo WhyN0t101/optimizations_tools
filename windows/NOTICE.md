@@ -31,7 +31,8 @@ https://github.com/FR33THYFR33THY/Ultimate
 MIT License. Copyright (c) FR33THY.
 
 Used for: the ideas and registry values behind network adapter power saving and Energy Efficient Ethernet, Spectre and
-Meltdown mitigations, Data Execution Prevention and the timer resolution service (reduced and rewritten here).
+Meltdown mitigations, Data Execution Prevention and the timer resolution service (reduced and rewritten here), and the
+background mouse polling cap (`MouseFullRateBackground`). `tools/Test-Mouse.ps1` is written here and downloads nothing.
 
 ## MIT License text
 

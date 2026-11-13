@@ -341,6 +341,7 @@ function Invoke-ApplySteps {
     if ($Opt['TelemetryExtra']) { Invoke-Step 'More telemetry off' -Option 'TelemetryExtra' { Set-TweakList $TelemetryExtraRegs } }
     if ($Opt['BrowserPolicies']) { Invoke-Step 'Browser ads, telemetry and AI' -Option 'BrowserPolicies' { Set-TweakList $BrowserPolicyRegs } }
     if ($Opt['StartupDelayOff']) { Invoke-Step 'Startup delay' -Option 'StartupDelayOff' { Set-TweakList $StartupDelayRegs } }
+    if ($Opt['MouseFullRateBackground']) { Invoke-Step 'Mouse rate in the background' -Option 'MouseFullRateBackground' { Set-TweakList $MouseFullRateRegs } }
     if ($Opt['NoDeviceEncryption']) { Invoke-Step 'Automatic device encryption' -Option 'NoDeviceEncryption' { Set-TweakList $NoDeviceEncryptionRegs } }
     if ($Opt['UpdateNoReboot']) { Invoke-Step 'Update restarts and early features' -Option 'UpdateNoReboot' { Set-TweakList $UpdateNoRebootRegs } }
     if ($Opt['StandbyNetworkOff']) { Invoke-Step 'Network in standby' -Option 'StandbyNetworkOff' { Set-TweakList $StandbyNetworkRegs } }

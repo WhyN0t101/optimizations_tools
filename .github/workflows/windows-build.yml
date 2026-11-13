@@ -83,4 +83,5 @@ jobs:
             windows/docs/GUIDE.md
             windows/tools/Measure-Performance.ps1
             windows/tools/Explain-Processes.ps1
+            windows/tools/Test-Mouse.ps1
             windows/profiles/*.json

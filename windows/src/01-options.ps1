@@ -93,6 +93,7 @@ $OptionInfo = [ordered]@{
     MenuNoDefenderScan    = @($false, 'Remove "Scan with Microsoft Defender" from the right click menu', 'n/a', '')
     MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu', 'n/a', '')
     MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
+    MouseFullRateBackground = @($true, 'Windows 11: give windows in the background the mouse at its full polling rate instead of about 125 Hz (a game on a second screen, overlays). Check with tools\Test-Mouse.ps1', 'Folklore', '')
     StartupDelayOff       = @($true, 'Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds)', 'Folklore', '')
     NoDeviceEncryption    = @($true, 'Stop Windows turning on BitLocker device encryption by itself. A drive already encrypted stays encrypted; turn that off in Settings if wanted', 'n/a', '')
     UpdateNoReboot        = @($true, 'No automatic restart for updates while you are signed in, and no early feature rollouts ("Get the latest updates as soon as they are available" off)', 'n/a', '')
