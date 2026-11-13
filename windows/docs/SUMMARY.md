@@ -306,6 +306,10 @@ have not run in the VM yet):
   `-StartupReview`, `-RestoreTask`, `-Revert` and `-Reapply` are refused together instead of the first one winning;
   `-Revert -Only` is its own mode (`revertonly` in `-Json`). Tests check the combinations and that every mode has an
   action.
+- Behaviour tests: five text checks (about 30 of the 197 checks matched source text) now run the real functions with
+  the Windows calls stubbed: Quick Assist and deleted tasks under `-Reapply` (only what the run removed and came back
+  is drift), `PauseUpdates` writing `NoAutoUpdate` and scheduling its end (and `-Reapply` only during the pause), the
+  end task itself (SYSTEM, `reg.exe` deleting only that value, recorded first), and the strict pre flight check.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

@@ -32,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-RegValueIs', 'Set-ReapplyOptions', 'Get-EdgeState', 'Get-EdgeRemovalBlock', 'Test-StartupKept', 'Remove-StartupEntries', 'Get-OptionChanges', 'Test-WindowsUpdateMessage', 'Get-PauseExpiry', 'Get-ModeConflict', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText'
+$wantedFns = 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-RegValueIs', 'Set-ReapplyOptions', 'Get-EdgeState', 'Get-EdgeRemovalBlock', 'Test-StartupKept', 'Remove-StartupEntries', 'Get-OptionChanges', 'Test-WindowsUpdateMessage', 'Get-PauseExpiry', 'Get-ModeConflict', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText', 'Remove-QuickAssist', 'Remove-AllScheduledTasks', 'Set-UpdatePolicies', 'Register-PauseEndTask', 'Invoke-Preflight'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$UpdateKbsNotWindows', '$NotRevertedAlone', '$RevertOnlyExtra', '$WindowsAIRegs', '$VendorServicesDisable', '$VendorServicesManual', '$StartupKeepBuiltIn', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$PauseEndTaskPath', '$PauseEndTaskName', '$UpdateKbsNotWindows', '$NotRevertedAlone', '$RevertOnlyExtra', '$WindowsAIRegs', '$VendorServicesDisable', '$VendorServicesManual', '$StartupKeepBuiltIn', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 # The run context the functions read, built from the script's own definition (a dry run is off in the tests).
@@ -416,8 +416,6 @@ try {
     $savedRun = [pscustomobject]@{ Options = [pscustomobject]@{ RunKeys = $true; SvcOther = $true; SvcExtra = $true; Debloat = $false; ClearStartPins = $true } }
     $sel = Set-ReapplyOptions -Run $savedRun -SkipNames @('SvcExtra')
     Check 'Reapply: only options of the earlier run, minus the ones it leaves alone and -Skip; options it did not have stay off and are listed' ($Opt['SvcOther'] -and -not $Opt['SvcExtra'] -and -not $Opt['RunKeys'] -and -not $Opt['ClearStartPins'] -and -not $Opt['Debloat'] -and -not $Opt['TimerResolution'] -and (@($sel.LeftAlone) -join ',') -eq 'RunKeys,ClearStartPins' -and @($sel.New) -contains 'TimerResolution' -and @($sel.New) -notcontains 'SvcOther')
-    $preFn = ($fns | Where-Object { $_.Name -eq 'Invoke-Preflight' } | Select-Object -First 1).Extent.Text
-    Check 'Reapply: a pending restart or servicing at work blocks it, and it keeps the pause dates of the run' ($preFn -match "\`$p\.Check -in 'PendingReboot', 'WindowsUpdate' -and \`$p\.Status -eq 'WARN'\) \{ \`$p\.Status = 'BLOCK'" -and $text -match '(?s)if \(-not \$Ctx\.Reapply\) \{\s+foreach \(\$n in .PauseUpdatesStartTime')
     foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = [bool]$OptionInfo[$k][0] }
 
     # RemoveOneDrive: installs and uninstallers are found per user and per machine; with an account signed in it is
@@ -632,13 +630,90 @@ Check 'docs/REGISTRY.md has one row per upstream registry item the script parses
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $px = Get-PauseExpiry -Text '2027-11-11T20:42:23Z'
 Check 'PauseUpdates: the pause end is read as UTC; nothing or rubbish gives no date' ($px -and $px.Kind -eq 'Utc' -and $px.ToString('yyyy-MM-dd HH:mm', $inv) -eq '2027-11-11 20:42' -and $null -eq (Get-PauseExpiry -Text '') -and $null -eq (Get-PauseExpiry -Text 'soon'))
-$regFn = ($fns | Where-Object { $_.Name -eq 'Register-PauseEndTask' } | Select-Object -First 1).Extent.Text
-Check 'PauseUpdates: the end task only deletes NoAutoUpdate as SYSTEM, is recorded before it is made, kept from task deletion and removed by -Revert' ($regFn.Contains("'System32\reg.exe') -Argument 'delete " + '"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f' + "'") -and $regFn.Contains("-UserId 'S-1-5-18'") -and $regFn.IndexOf("Set-StateValue -Name 'PauseEndTask'") -lt $regFn.IndexOf('Register-ScheduledTask') -and (Test-NameMatch '\FocusedTweaks\End update pause' $TaskKeepBuiltIn) -and $text -match "if \(\`$script:State\.PauseEndTask\) \{ Invoke-Step 'Remove the task that ends the update pause'" -and $RevertOnlyExtra['PauseUpdates'] -eq 'PauseEndTask')
-Check 'PauseUpdates: -Reapply sets NoAutoUpdate again only while the pause of the run lasts' ($text -match '(?s)if \(\$Ctx\.Reapply\) \{.{0,200}\$expiry = Get-PauseExpiry\s+if \(\$expiry -and \$expiry -gt \[DateTime\]::UtcNow\) \{\s+Set-TweakList \$NoAutoUpdateRegs')
 
 # Review of 12 Nov 2026: -Reapply must not report drift that is not drift, and the drift hint must ignore updates that
 # are not Windows (daily Defender definitions, Store apps).
-Check 'Reapply: Quick Assist still gone, the Cdp cache Windows refills and tasks Windows manages are not drift' ($text -match '(?s)function Remove-QuickAssist \{.{0,120}if \(\$Ctx\.Reapply -and -not \(Test-QuickAssistPresent\)\) \{ return \}' -and $text -match 'if \(-not \$Ctx\.Reapply -and \(Test-Path -LiteralPath \$cdpCache\)' -and $text -match 'if \(\$Ctx\.Reapply -and \(Test-NameMatch \$full \$WindowsManagedTasks\)\) \{ continue \}')
+Check 'Reapply: the Connected Devices Platform cache, which Windows refills all the time, is never drift' ($text -match 'if \(-not \$Ctx\.Reapply -and \(Test-Path -LiteralPath \$cdpCache\)')
+
+# Step 5 of the split: behaviour, not text. These run the real functions, with the Windows calls they make replaced
+# by stubs that record what would have happened (each in its own & {} scope, so the stubs vanish afterwards).
+& {
+    # -Reapply: Quick Assist that is still gone is no drift; one that came back is.
+    function Test-QuickAssistPresent { $script:qaPresent }
+    function Get-WindowsCapability { throw 'not reached in a dry run' }
+    $Ctx.Reapply = $true; $Ctx.DryRun = $true; $Ctx.DryRunCount = 0
+    $script:qaPresent = $false; Remove-QuickAssist; $whenGone = $Ctx.DryRunCount
+    $script:qaPresent = $true; Remove-QuickAssist; $whenBack = $Ctx.DryRunCount
+    $Ctx.Reapply = $false; $Ctx.DryRun = $false
+    Check 'Behaviour, Reapply: Quick Assist still gone is no drift, Quick Assist back is one item' ($whenGone -eq 0 -and $whenBack -eq 1)
+}
+& {
+    # -Reapply and TaskMode Delete: only tasks the run deleted that came back, never Windows-managed or new ones.
+    $StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-tasks-' + [guid]::NewGuid().ToString('N'))
+    $TaskKeep = @()
+    function New-FakeTask([string]$Path, [string]$Name) { [pscustomobject]@{ TaskPath = $Path; TaskName = $Name; State = 'Ready' } }
+    function Get-ScheduledTask { @((New-FakeTask '\Microsoft\Windows\UpdateOrchestrator\' 'Schedule Scan'), (New-FakeTask '\Microsoft\Windows\Application Experience\' 'ProgramDataUpdater'), (New-FakeTask '\Vendor\' 'NewTask')) }
+    Reset-TestState
+    foreach ($t in @(Get-ScheduledTask)[0..1]) { $script:State.Tasks.Add([pscustomobject]@{ Path = $t.TaskPath; Name = $t.TaskName; Action = 'Deleted'; WasEnabled = $true; XmlFile = 'x.xml' }) }
+    $Ctx.Reapply = $true; $Ctx.DryRun = $true; $Ctx.DryRunCount = 0
+    Remove-AllScheduledTasks
+    $Ctx.Reapply = $false; $Ctx.DryRun = $false
+    $lines = @($script:LogLines | Where-Object { $_ -like '*DRY RUN, would: delete task*' })
+    Remove-Item -LiteralPath $StateDir -Recurse -Force -ErrorAction SilentlyContinue
+    Check 'Behaviour, Reapply: of three tasks only the one the run deleted that came back is drift (not Windows-managed, not new)' ($Ctx.DryRunCount -eq 1 -and $lines.Count -eq 1 -and $lines[0] -like '*ProgramDataUpdater*')
+}
+& {
+    # PauseUpdates: NoAutoUpdate and its end task follow the pause; -Reapply keeps the run's pause dates.
+    $script:writes = [System.Collections.Generic.List[string]]::new(); $script:ends = [System.Collections.Generic.List[object]]::new()
+    function Set-RegValue { param($Path, $Name, $Value, $Type) $script:writes.Add($Name) }
+    function Set-TweakList { param($Tweaks) foreach ($t in $Tweaks) { $script:writes.Add($t.Name) } }
+    function Set-ServiceStart { param($Name, $Mode) }
+    function Disable-UpdateTasks { }
+    function Get-ScheduledTask { $null }
+    function Register-PauseEndTask { param($EndUtc) $script:ends.Add($EndUtc) }
+    function Get-PauseExpiry { $script:expiry }
+    $PauseDays = 60
+    $saved = $Opt.Clone()
+    foreach ($k in @($OptionInfo.Keys)) { $Opt[$k] = $false }
+    $Opt['PauseUpdates'] = $true
+    Set-UpdatePolicies
+    $normal = @($script:writes); $normalEnd = @($script:ends)
+    $script:writes.Clear(); $script:ends.Clear()
+    $Ctx.Reapply = $true
+    $script:expiry = [DateTime]::UtcNow.AddDays(10); Set-UpdatePolicies
+    $during = @($script:writes); $duringEnd = @($script:ends)
+    $script:writes.Clear(); $script:ends.Clear()
+    $script:expiry = [DateTime]::UtcNow.AddDays(-1); Set-UpdatePolicies
+    $after = @($script:writes); $afterEnd = @($script:ends)
+    $Ctx.Reapply = $false
+    foreach ($k in @($saved.Keys)) { $Opt[$k] = $saved[$k] }
+    $inDays = { param($d) $d -and [Math]::Abs(($d - [DateTime]::UtcNow).TotalDays - 60) -lt 1 }
+    Check 'Behaviour, PauseUpdates: a run writes the pause dates and NoAutoUpdate, and schedules its end at the end of the pause' ($normal -contains 'PauseUpdatesExpiryTime' -and $normal -contains 'NoAutoUpdate' -and $normalEnd.Count -eq 1 -and (& $inDays $normalEnd[0]))
+    Check 'Behaviour, PauseUpdates: -Reapply during the pause sets NoAutoUpdate and its end again without new dates; after the pause, neither' ($during -contains 'NoAutoUpdate' -and $during -notcontains 'PauseUpdatesExpiryTime' -and $duringEnd.Count -eq 1 -and $after -notcontains 'NoAutoUpdate' -and $after -notcontains 'PauseUpdatesExpiryTime' -and $afterEnd.Count -eq 0)
+}
+& {
+    # The end task: SYSTEM, reg.exe deleting only NoAutoUpdate, recorded in the state before it is registered.
+    $script:calls = [System.Collections.Generic.List[string]]::new(); $script:task = @{}
+    function New-ScheduledTaskAction { param($Execute, $Argument) $script:task.Execute = $Execute; $script:task.Argument = $Argument; 'action' }
+    function New-ScheduledTaskTrigger { param([switch]$Once, $At) $script:task.At = $At; 'trigger' }
+    function New-ScheduledTaskSettingsSet { param([switch]$StartWhenAvailable, [switch]$AllowStartIfOnBatteries, [switch]$DontStopIfGoingOnBatteries) $script:task.WhenAvailable = [bool]$StartWhenAvailable; 'settings' }
+    function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) $script:task.User = $UserId; 'principal' }
+    function Register-ScheduledTask { param($TaskPath, $TaskName, $Action, $Trigger, $Settings, $Principal, [switch]$Force) $script:calls.Add("register $TaskPath$TaskName") }
+    function Set-StateValue { param($Name, $Value) $script:calls.Add("state $Name") }
+    Register-PauseEndTask -EndUtc ([DateTime]::UtcNow.AddDays(30))
+    Check 'Behaviour, PauseUpdates: the end task runs reg.exe as SYSTEM to delete only NoAutoUpdate, also after the PC was off, and is recorded before it is made' ($script:task.Execute -like '*\System32\reg.exe' -and $script:task.Argument -eq 'delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f' -and $script:task.User -eq 'S-1-5-18' -and $script:task.WhenAvailable -and (@($script:calls) -join ';') -eq 'state PauseEndTask;register \FocusedTweaks\End update pause' -and (Test-NameMatch '\FocusedTweaks\End update pause' $TaskKeepBuiltIn) -and $RevertOnlyExtra['PauseUpdates'] -eq 'PauseEndTask')
+}
+& {
+    # -Reapply's strict pre flight: a pending restart blocks it; the same facts only warn a normal run.
+    $script:facts = New-TestFacts @{ RebootPending = $true }
+    function Get-PreflightFacts { $script:facts }
+    $SkipCheck = @(); $AllowManaged = $false
+    $strict = Invoke-Preflight -Strict
+    $normal = Invoke-Preflight
+    $script:facts = New-TestFacts @{ Servicing = $true }
+    $servicing = Invoke-Preflight -Strict
+    Check 'Behaviour, Reapply: a pending restart or Windows servicing at work blocks it, where a normal run only warns' ($strict -eq $false -and $normal -eq $true -and $servicing -eq $false)
+}
 Check 'Drift hint: a Windows cumulative update counts; Defender definitions, the Defender platform, MSRT and Store apps do not' ((Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: 2026-11 Cumulative Update for Windows 11 Version 25H2 for x64-based Systems (KB5070773)') -and -not (Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: Security Intelligence Update for Microsoft Defender Antivirus - KB2267602 (Version 1.463.242.0)') -and -not (Test-WindowsUpdateMessage 'Installation Successful: Windows successfully installed the following update: 9WZDNCRFJBMP-MICROSOFT.WINDOWSSTORE') -and -not (Test-WindowsUpdateMessage 'Windows Malicious Software Removal Tool x64 - v5.130 (KB890830)'))
 $noFlags = @{ Revert = $false; DryRun = $false; Reapply = $false; HealthCheck = $false; StartupReview = $false; RestoreTask = $false; Only = $false; Benchmark = $false; FrameBenchmark = $false }
 function Get-Flags([hashtable]$Set) { $f = $noFlags.Clone(); foreach ($k in $Set.Keys) { $f[$k] = $Set[$k] }; $f }
