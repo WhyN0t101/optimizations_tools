@@ -5,3 +5,5 @@ __pycache__/
 /ZOICWARE-main/
 /ZOICWARE/
 test-results/
+# downloaded reference projects for tools/coverage.py
+.cache/

@@ -1,0 +1,33 @@
+{
+  "_comment": "Other Windows tweak projects that tools/coverage.py compares FocusedTweaks with. Reference only: nothing here is copied into the script. Pinned by commit; python tools/coverage.py --update moves the pins to each repository's newest commit.",
+  "repos": [
+    {
+      "id": "winutil",
+      "repo": "ChrisTitusTech/winutil",
+      "license": "MIT",
+      "commit": "74607a0613d817eeb5cb35d187b5d7b31e23f386",
+      "files": ["config/tweaks.json", "config/appx.json"]
+    },
+    {
+      "id": "win11debloat",
+      "repo": "Raphire/Win11Debloat",
+      "license": "MIT",
+      "commit": "516fe42d47a57ef3f12e505b2bf260f215677ed9",
+      "files": ["Config/Features.json", "Config/Apps.json", "Regfiles/*.reg"]
+    },
+    {
+      "id": "sophia",
+      "repo": "farag2/Sophia-Script-for-Windows",
+      "license": "MIT",
+      "commit": "b9010fced373be52f0ac0618edb2c55e3dd255e6",
+      "files": ["src/Sophia_Script_for_Windows_11/Module/Sophia.psm1"]
+    },
+    {
+      "id": "privacysexy",
+      "repo": "undergroundwires/privacy.sexy",
+      "license": "AGPL-3.0 (cross-check only: never copy its scripts)",
+      "commit": "7b956f3d8c8b80bbb2b5d0f77912431bf98fdafb",
+      "files": ["src/application/collections/windows.yaml"]
+    }
+  ]
+}

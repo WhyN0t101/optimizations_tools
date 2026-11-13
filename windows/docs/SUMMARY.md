@@ -314,6 +314,10 @@ have not run in the VM yet):
   `.githooks/` runs it and refuses stale generated files. CI cancels runs for older pushes. A release is a tag only:
   the workflow checks that the smoke test passed on the tagged commit and stamps the tag into the script header
   (`build.py --version`); the committed script says it is a development build.
+- Coverage: `tools\coverage.py` compares the script with winutil, Win11Debloat, Sophia Script and privacy.sexy at
+  pinned commits (`tools\references.json`) and writes `docs\COVERAGE.md`: what the others change that FocusedTweaks does
+  not, items several projects agree on first, and what FocusedTweaks keeps on purpose. Reference only; privacy.sexy
+  (AGPL-3.0) is a cross-check, never a source. First run: 685 registry values, 51 services and 147 Store apps to review.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

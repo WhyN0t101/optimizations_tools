@@ -53,6 +53,13 @@ failure; the pre-commit hook in `.githooks/` runs it with `-Staged`, on after `g
 `docs/VM-TESTING.md`). It drives the VM with vmrun through dry run, real run, restart, health check and `-Revert`, and
 copies logs and JSON results to `test-results/<time>/`. Read `summary.txt` there first.
 
+## Other projects (reference only)
+`python tools/coverage.py` compares the built script with winutil, Win11Debloat, Sophia Script and privacy.sexy at
+the commits pinned in `tools/references.json` (`--update` moves the pins) and writes `docs/COVERAGE.md`. It downloads
+into `.cache/` (ignored) and needs the network, so CI does not run it. Its rows are leads: check each in `src/` and
+add it the usual way (option, journal, health check). Never copy from privacy.sexy (AGPL-3.0); credit an MIT project
+in NOTICE.md if its data is taken over, as with ZOICWARE.
+
 ## When upstream changes
 Only if ZOICWARE becomes available again (or a fork is chosen): build once with `--zoicware <new checkout>
 --allow-other-commit` (the build asserts the expected list sizes and fails loudly), copy its three files into
