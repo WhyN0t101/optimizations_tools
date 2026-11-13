@@ -331,7 +331,8 @@ have not run in the VM yet):
 - Mouse and sensors: `tools\Test-Mouse.ps1` (reads only) checks Enhance pointer precision, pointer speed and the
   background polling cap, then measures the polling rate and its steadiness from raw input in a small window.
   `MouseFullRateBackground` (on) lifts Windows 11's cap of about 125 Hz for windows in the background (idea from FR33THY
-  Ultimate). HWiNFO joins the default packages.
+  Ultimate). HWiNFO was added to the default packages and dropped again: winget's link breaks after each HWiNFO release
+  (404 in the VM run of 13 Nov 2026); the guide links it instead.
 - Windows 11 ARM smoke run (13 Nov 2026): TaskMode Delete now keeps a task that names an account which no longer exists, in its principal or its logon trigger (it cannot run,
   and Windows refuses to register it again, so -Revert could not bring it back), and the policy store cache
   `CPSS\Store\AllowTelemetry` joined the values Windows recomputes after a revert.

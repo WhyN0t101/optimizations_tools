@@ -205,8 +205,10 @@ move the mouse in fast circles in it and it measures the real polling rate and h
 games read. Below 1000 Hz or unsteady, it says what to try (mouse software, another USB port, wired). For a second
 opinion in the browser, with button and sensor tests, https://control.openmouse.app/ runs a hardware test.
 
-**Temperatures and clocks.** The default packages install HWiNFO (`REALiX.HWiNFO`); run it in sensors only mode to
-watch CPU and GPU temperatures, clocks and throttling while you game.
+**Temperatures and clocks.** Install HWiNFO from https://www.hwinfo.com/download/ (or `winget install -e --id
+REALiX.HWiNFO`, which fails for a while after each HWiNFO release until winget's entry catches up, so it is not in
+the default packages). Run it in sensors only mode to watch CPU and GPU temperatures, clocks and throttling while you
+game.
 
 ## 9. Undoing
 

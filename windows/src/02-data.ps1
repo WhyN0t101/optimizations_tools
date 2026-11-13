@@ -25,7 +25,8 @@ $PackageIds = @(
     'Mozilla.Firefox'
     'Orbmu2k.nvidiaProfileInspector'
     'Microsoft.Sysinternals.Autoruns'
-    'REALiX.HWiNFO'
+    # Not HWiNFO: its site removes each old installer on release, and winget's link breaks until its entry catches
+    # up (HTTP 404 on 13 Nov 2026, version 8.60 out, winget still on 8.54). docs/GUIDE.md says how to get it.
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
