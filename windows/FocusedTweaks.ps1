@@ -4688,9 +4688,17 @@ $FeatureGroups = [ordered]@{
 }
 
 function Get-EnabledFeatureNames {
+    # Listing every feature through Windows servicing took about a minute on the Windows 11 ARM runner, in every dry
+    # run, run and -Reapply pass (CI step times, 13 Nov 2026). Win32_OptionalFeature answers for just these names in
+    # about a second. It may still call a feature turned off before the restart "enabled", so each one it calls enabled
+    # is confirmed by name through servicing, which tells Enabled from DisablePending.
     param([string[]]$Names)
-    $present = @(Get-WindowsOptionalFeature -Online -ErrorAction Stop | Where-Object { $Names -contains $_.FeatureName -and $_.State -eq 'Enabled' })
-    return @($present | ForEach-Object { $_.FeatureName })
+    $filter = (@($Names) | ForEach-Object { "Name='$($_ -replace "'", "''")'" }) -join ' OR '
+    $maybe = @(Get-CimInstance -ClassName Win32_OptionalFeature -Filter $filter -ErrorAction Stop | Where-Object { $_.InstallState -eq 1 } | ForEach-Object { $_.Name })
+    return @(foreach ($name in $maybe) {
+            $f = Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction Stop
+            if ($f -and [string]$f.State -eq 'Enabled') { $name }
+        })
 }
 
 function Disable-FeatureGroup {

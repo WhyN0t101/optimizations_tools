@@ -5,6 +5,10 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased (after v7.9)
 
+- Optional feature status: one `Win32_OptionalFeature` query for just the script's feature names (0.6 s here) instead
+  of listing every feature through Windows servicing (about a minute on the Windows 11 ARM runner, in every dry run, run
+  and -Reapply pass). A feature it calls on is confirmed by name through servicing, which tells DisablePending from on.
+  The revert check keeps the full servicing query (it needs EnablePending).
 - Step times in CI: every smoke run times each step from its run log and lists every stage with its slowest steps in the
   summary, next to the previous run on the same runner (kept in the Actions cache, saved only by passing runs on main).
   A step at least 50 % and 30 s slower than before is a warning annotation, not a failure. `steps.json` is in the
