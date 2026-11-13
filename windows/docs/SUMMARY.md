@@ -310,6 +310,10 @@ have not run in the VM yet):
   the Windows calls stubbed: Quick Assist and deleted tasks under `-Reapply` (only what the run removed and came back
   is drift), `PauseUpdates` writing `NoAutoUpdate` and scheduling its end (and `-Reapply` only during the pause), the
   end task itself (SYSTEM, `reg.exe` deleting only that value, recorded first), and the strict pre flight check.
+- Development (v7.9 on): `tools\Check.ps1` builds and runs Test-Parse under 5.1 and 7 in one go; the pre-commit hook in
+  `.githooks/` runs it and refuses stale generated files. CI cancels runs for older pushes. A release is a tag only:
+  the workflow checks that the smoke test passed on the tagged commit and stamps the tag into the script header
+  (`build.py --version`); the committed script says it is a development build.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

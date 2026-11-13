@@ -10,8 +10,28 @@ permissions:
   contents: write
 
 jobs:
+  # A release is only made from a commit the smoke test passed on (a real run, health check and revert on Windows).
+  # Tag too early and this fails; re-run the release workflow once the smoke test is green.
+  smoke-passed:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: The tagged commit passed the smoke test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/windows-smoke.yml/runs?head_sha=$GITHUB_SHA&status=success" --jq '.total_count')
+          if [ "$count" -lt 1 ]; then
+            echo "::error::No successful smoke test for $GITHUB_SHA. Wait for it to pass, then re-run this workflow."
+            exit 1
+          fi
+
   build:
+    needs: smoke-passed
     uses: ./.github/workflows/windows-build.yml
+    with:
+      version: ${{ github.ref_name }}
 
   release:
     needs: build
@@ -54,7 +74,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @"
-          Built from windows/src at $env:GITHUB_SHA with the pinned ZOICWARE commit.
+          Built from windows/src at $env:GITHUB_SHA with the pinned ZOICWARE commit, after the smoke test passed on it.
 
           SHA256 of FocusedTweaks.ps1: ``$env:SHA256``
 

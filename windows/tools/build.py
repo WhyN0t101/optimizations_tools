@@ -20,7 +20,12 @@ ap.add_argument('--src', default=os.path.join(HERE, '..', 'src'), help='folder w
 ap.add_argument('--out', default='FocusedTweaks.ps1')
 ap.add_argument('--allow-other-commit', action='store_true',
                 help='accept ZOICWARE files that differ from the pinned ones (when updating upstream)')
+ap.add_argument('--version', default='',
+                help='release tag to stamp into the script, like v8.0 (the release workflow passes the tag); '
+                     'without it the script says it is a development build')
 args = ap.parse_args()
+if args.version and not re.fullmatch(r'v\d+(\.\d+){1,2}', args.version):
+    sys.exit(f'--version must look like v8.0 or v8.0.1, not {args.version!r}')
 SRC = os.path.join(args.zoicware, 'src')
 
 # Only the exact upstream data makes a build reproducible. The three files are pinned by SHA256 of their text with
@@ -50,6 +55,10 @@ reg = read('RegTweaks.txt')
 src_files = sorted(f for f in os.listdir(args.src) if re.match(r'^\d{2}-[a-z0-9-]+\.ps1$', f))
 assert src_files and src_files[0].startswith('00-'), src_files
 tpl = ''.join(open(os.path.join(args.src, f), encoding='utf-8').read() for f in src_files)
+# The version comes from the release tag, so a release needs no version commit. The committed script, built without
+# --version, says it is a development build.
+assert tpl.count('__FT_VERSION__') == 1, 'src/00-header.ps1 must hold the __FT_VERSION__ placeholder once'
+tpl = tpl.replace('__FT_VERSION__', args.version or 'Development build; releases carry their tag here')
 
 def ps_str(s):
     return "'" + s.replace("'", "''") + "'"

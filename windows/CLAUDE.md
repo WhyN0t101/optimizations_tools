@@ -15,7 +15,8 @@ A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first
   Never edit those files.
 - CI (`.github/workflows/windows-build.yml`) builds on every push, fails if the committed `FocusedTweaks.ps1` or
   `docs/OPTIONS.md` differ from the build, and runs `Test-Parse` under 5.1 and 7. Pushing a `v*` tag runs
-  `windows-release.yml`, which publishes the built script, its SHA256 and NOTICE.md as a GitHub release, with a
+  `windows-release.yml`, which refuses a commit without a successful smoke test run, stamps the tag into the header
+(`build.py --version`; there is no version commit, `src/00-header.ps1` holds `__FT_VERSION__`), and publishes the built script, its SHA256 and NOTICE.md as a GitHub release, with a
   build provenance attestation. Actions are pinned by commit SHA with the tag in a comment (`Test-Parse` checks it).
 - `windows-smoke.yml` runs the script for real on a throwaway Windows Server 2025 runner through
   `tools/Test-Smoke.ps1` (dry runs, apply, health check, revert) and uploads the results as `smoke-results`.
