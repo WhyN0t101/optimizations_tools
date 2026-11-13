@@ -18,7 +18,10 @@ param(
     [Parameter(Mandatory)][string]$Script,
     [string]$LaptopProfile,
     [string]$OutDir = 'smoke',
-    [int]$StageMinutes = 12
+    [int]$StageMinutes = 12,
+    # steps.json of an earlier run on the same runner: each step's time is compared with it, and a step that got much
+    # slower is flagged. The workflow keeps the last one in the Actions cache.
+    [string]$PreviousTimes
 )
 
 if ($env:GITHUB_ACTIONS -ne 'true') {
@@ -91,7 +94,63 @@ foreach ($stage in $stages) {
     Get-ChildItem -LiteralPath $StateDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $start -and $_.Extension -in '.log', '.json' } |
         Copy-Item -Destination $dest
-    $results.Add([pscustomobject]@{ Name = $label; Dir = $dest; Code = $code })
+    $results.Add([pscustomobject]@{ Name = $label; Dir = $dest; Code = $code; Seconds = [int]((Get-Date) - $start).TotalSeconds })
+}
+
+function Get-StepTimes {
+    # Seconds per step, from the "Starting: X" and "Completed: X" (or "Failed: X. ...") lines of the stage's run log.
+    param([string]$Dir, [string]$Stage)
+    $log = Get-ChildItem -Path (Join-Path $Dir 'run-*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+    if (-not $log) { return @() }
+    $open = @{}
+    $out = [System.Collections.Generic.List[object]]::new()
+    $last = $null; $dayOffset = 0
+    foreach ($line in [IO.File]::ReadLines($log.FullName)) {
+        if ($line -notmatch '^(\d\d):(\d\d):(\d\d) \[\w+\]\s+(Starting|Completed|Failed): (.+)$') { continue }
+        $t = ([int]$Matches[1] * 3600) + ([int]$Matches[2] * 60) + [int]$Matches[3]
+        if ($null -ne $last -and $t + $dayOffset -lt $last) { $dayOffset += 86400 }   # past midnight
+        $t += $dayOffset; $last = $t
+        $kind = $Matches[4]; $text = $Matches[5].Trim()
+        if ($kind -eq 'Starting') { $open[$text] = $t; continue }
+        # "Failed: Packages. 1 change(s) in it failed" names the step at the start of its text.
+        $name = @($open.Keys | Where-Object { $text -eq $_ -or $text.StartsWith("$_.") }) | Select-Object -First 1
+        if (-not $name) { continue }
+        # -Reapply runs its steps twice (scan, then repair): the second one is "Step (2)", so both compare correctly.
+        $label = $name; $n = 2
+        while (@($out | Where-Object { $_.Step -eq $label }).Count -gt 0) { $label = "$name ($n)"; $n++ }
+        $out.Add([pscustomobject]@{ Stage = $Stage; Step = $label; Seconds = [int]($t - $open[$name]) })
+        $open.Remove($name)
+    }
+    return $out
+}
+
+function Get-TimeFindings {
+    # The step time lines for the summary, and the steps that got much slower than in the previous run: at least 50 %
+    # and 30 seconds more, so normal noise on a shared runner does not count.
+    param([object[]]$Stages, [object[]]$Steps, $Previous)
+    $before = @{}
+    if ($Previous) {
+        foreach ($p in @($Previous.Stages)) { $before["stage|$($p.Stage)"] = [int]$p.Seconds }
+        foreach ($p in @($Previous.Steps)) { $before["$($p.Stage)|$($p.Step)"] = [int]$p.Seconds }
+    }
+    $show = { param($key, $now) if ($before.ContainsKey($key)) { "$now s (was $($before[$key]) s)" } else { "$now s" } }
+    $slower = { param($key, $now) $before.ContainsKey($key) -and $now -ge $before[$key] * 1.5 -and $now - $before[$key] -ge 30 }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $flags = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('Time per stage, with its slowest steps' + $(if ($Previous) { ' (previous run in brackets):' } else { ' (no previous run to compare with):' }))
+    foreach ($s in $Stages) {
+        $lines.Add("  $($s.Stage): $(& $show "stage|$($s.Stage)" $s.Seconds)")
+        if (& $slower "stage|$($s.Stage)" $s.Seconds) { $flags.Add("$($s.Stage) took $($s.Seconds) s, was $($before["stage|$($s.Stage)"]) s") }
+        foreach ($st in @($Steps | Where-Object { $_.Stage -eq $s.Stage -and $_.Seconds -ge 5 } | Sort-Object Seconds -Descending | Select-Object -First 5)) {
+            $key = "$($st.Stage)|$($st.Step)"
+            $lines.Add("      $($st.Step): $(& $show $key $st.Seconds)")
+        }
+        foreach ($st in @($Steps | Where-Object { $_.Stage -eq $s.Stage })) {
+            $key = "$($st.Stage)|$($st.Step)"
+            if (& $slower $key $st.Seconds) { $flags.Add("$($st.Stage) / $($st.Step) took $($st.Seconds) s, was $($before[$key]) s") }
+        }
+    }
+    return [pscustomobject]@{ Lines = $lines; Slower = $flags }
 }
 
 function Get-StageJson {
@@ -146,6 +205,21 @@ foreach ($r in $results) {
     Write-Annotation -Level $level -Title $r.Name -Body $stageLines
     $lines.AddRange($stageLines)
 }
+# Step times: kept as steps.json for the next run to compare with, and shown in the summary. A much slower step is a
+# warning, not a failure: shared runners vary, but a step that doubles is worth a look on the push that caused it.
+$stageTimes = @($results | ForEach-Object { [pscustomobject]@{ Stage = $_.Name; Seconds = $_.Seconds } })
+$stepTimes = @(foreach ($r in $results) { Get-StepTimes -Dir $r.Dir -Stage $r.Name })
+[pscustomobject]@{ Stages = $stageTimes; Steps = $stepTimes } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'steps.json') -Encoding UTF8
+$previous = $null
+if ($PreviousTimes -and (Test-Path -LiteralPath $PreviousTimes)) {
+    try { $previous = Get-Content -LiteralPath $PreviousTimes -Raw | ConvertFrom-Json } catch { Write-Host "Previous step times unreadable: $($_.Exception.Message)" }
+}
+$timing = Get-TimeFindings -Stages $stageTimes -Steps $stepTimes -Previous $previous
+Write-Annotation -Level 'notice' -Title 'Step times' -Body $timing.Lines
+if ($timing.Slower.Count -gt 0) { Write-Annotation -Level 'warning' -Title 'Slower than the previous run' -Body $timing.Slower }
+$lines.Add('')
+$lines.AddRange($timing.Lines)
+foreach ($f in $timing.Slower) { $lines.Add("  SLOWER: $f") }
 $lines | Set-Content -LiteralPath (Join-Path $OutDir 'summary.txt') -Encoding UTF8
 if ($env:GITHUB_STEP_SUMMARY) { @('```') + $lines + @('```') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8 }
 Write-Host ''

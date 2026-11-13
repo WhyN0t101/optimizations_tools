@@ -698,8 +698,9 @@ function Test-RevertResult {
     }
     if ($rewritten -gt 0) { Write-Log "Revert check: $rewritten value(s) that Windows sets itself (accent colours, Start view, Game Bar, USB root hub idle) differ, as expected." }
     $badReg = $items.Count
+    $index = Get-TaskIndex
     foreach ($t in @($script:State.Tasks)) {
-        $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
+        $now = $index["$($t.Path)$($t.Name)"]
         if (-not $now) {
             if ($t.Action -eq 'Deleted') { $items.Add([pscustomobject]@{ Status = 'WARN'; Area = 'Tasks'; Message = "Task not restored: $($t.Path)$($t.Name)" }) }
             continue

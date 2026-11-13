@@ -45,11 +45,33 @@ jobs:
           name: FocusedTweaks
           path: dist
 
+      # The step times of the last run on this runner, so the summary shows each step against it and flags one that
+      # got much slower. Restoring by prefix picks the newest saved copy.
+      - name: Previous step times
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: step-times
+          key: step-times-${{ matrix.runner }}-${{ github.run_id }}
+          restore-keys: step-times-${{ matrix.runner }}-
+
       - name: Dry runs, real run, health check, reapply, revert
         shell: powershell
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Test-Smoke.ps1 -Script dist\FocusedTweaks.ps1 -OutDir smoke
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Test-Smoke.ps1 -Script dist\FocusedTweaks.ps1 -OutDir smoke -PreviousTimes step-times\steps.json
           if ($LASTEXITCODE -ne 0) { throw 'Smoke test failed: see the job summary and the smoke-results artifact.' }
+
+      # Only main sets the baseline, and only a passing run: a failed run stops early and would look fast.
+      - name: Keep these step times for the next run
+        if: success() && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path step-times -Force | Out-Null
+          Copy-Item -LiteralPath smoke\steps.json -Destination step-times\steps.json -Force
+      - if: success() && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: step-times
+          key: step-times-${{ matrix.runner }}-${{ github.run_id }}
 
       - name: Keep the results
         if: always()

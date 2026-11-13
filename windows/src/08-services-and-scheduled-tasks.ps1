@@ -143,6 +143,14 @@ function Disable-TelemetryTasks {
 # uses. The ScheduledTasks cmdlets go through WMI instead: in the VM run of 13 Nov 2026 WMI Provider Host took most of
 # the CPU and deleting or restoring a task took 2 seconds or more each. The full task list is still read once with
 # Get-ScheduledTask, and protected tasks still go through TrustedInstaller with the cmdlets.
+function Get-TaskIndex {
+    # Every task, by full path (case-insensitive), from one query. Checking 220 tasks one Get-ScheduledTask at a time
+    # took 8 minutes in the revert check of the VM run of 13 Nov 2026.
+    $index = @{}
+    foreach ($x in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) { $index["$($x.TaskPath)$($x.TaskName)"] = $x }
+    return $index
+}
+
 function Get-TaskSchedulerService {
     # Get-Variable, not $script:..., which strict mode refuses to read before the first assignment.
     if (-not (Get-Variable -Name TaskSchedulerService -Scope Script -ValueOnly -ErrorAction SilentlyContinue)) {
@@ -343,8 +351,9 @@ function Restore-ProtectedTasks {
     try { [void](Invoke-AsTI -PsCommand ". ([scriptblock]::Create((Get-Content -LiteralPath $(ConvertTo-PsLiteral $file) -Raw)))") }
     finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
     $restored = 0
+    $index = Get-TaskIndex
     foreach ($t in $Tasks) {
-        $now = Get-ScheduledTask -TaskPath $t.Path -TaskName $t.Name -ErrorAction SilentlyContinue
+        $now = $index["$($t.Path)$($t.Name)"]
         if ($now -and (($now.State -ne 'Disabled') -eq [bool]$t.WasEnabled)) { $restored++ }
         elseif ($now) { Write-Log "Task $($t.Path)$($t.Name) is back but still $($now.State), not even TrustedInstaller could change it." 'WARN' }
         else { Write-Log "Could not restore task $($t.Path)$($t.Name), not even as TrustedInstaller." 'WARN' }
