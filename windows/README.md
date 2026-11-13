@@ -56,7 +56,7 @@ else; the log file still gets every line. Exit codes, with or without `-Json`:
 
 | Code | Meaning |
 |---|---|
-| 0 | Finished without errors (or a dry run, `-Benchmark`, `-FrameBenchmark`, `-StartupReview`, or `-Reapply` with nothing drifted) |
+| 0 | Finished without errors (or a dry run, `-StartupReview`, or `-Reapply` with nothing drifted) |
 | 1 | Some changes failed, or the health check reported a failure |
 | 2 | Cancelled: not confirmed, no restore point and not confirmed, or `-Json` without `-Force` |
 | 3 | Refused by a pre flight check, or `-Json` without administrator rights |
@@ -65,8 +65,11 @@ else; the log file still gets every line. Exit codes, with or without `-Json`:
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.
 
-Two modes change nothing: `-Benchmark` and `-StartupReview`, which lists everything that starts with Windows.
-`-Benchmark` repeats each short measurement (timer, `Sleep(1)`, kernel call cost, a CPU loop) `-BenchmarkRuns` times
+`-StartupReview` changes nothing: it lists everything that starts with Windows.
+
+Measuring is a separate tool, `tools\Measure-Performance.ps1`, which changes nothing either (it used to be the
+`-Benchmark` and `-FrameBenchmark` modes of the script, with the same parameters; they say where it moved). Without
+parameters it repeats each short measurement (timer, `Sleep(1)`, kernel call cost, a CPU loop) `-BenchmarkRuns` times
 (5) and reports median, minimum and maximum; it then samples the idle PC for `-BenchmarkIdleSeconds` (60): CPU use,
 the share of CPU time spent in DPCs and interrupts (a time share, not their latency), processes, running services
 and committed memory, plus the last boot times. It compares with the previous benchmark, or with a named one kept with
@@ -74,7 +77,7 @@ and committed memory, plus the last boot times. It compares with the previous be
 settings the options change, such as VBS or the power plan, are listed instead. Results from a virtual machine are
 marked as not valid for performance.
 
-`-FrameBenchmark -FrameProcess game.exe` measures how smooth a game runs. Start the game, go to a scene you can
+`tools\Measure-Performance.ps1 -FrameProcess game.exe` measures how smooth a game runs. Start the game, go to a scene you can
 repeat (a built-in benchmark is best), then run it: after a 15 second warm-up it records `-FrameRuns` (3) times
 `-FrameSeconds` (60) with [Intel PresentMon](https://github.com/GameTechDev/PresentMon) and reports average FPS, 1 %
 and 0.1 % lows (the 99th and 99.9th percentile frame time), frame time spread, stutters per minute and frames never

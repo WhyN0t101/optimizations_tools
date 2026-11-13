@@ -292,6 +292,12 @@ have not run in the VM yet):
   names options it cannot undo alone. The run record stops expecting the undone options; a later full `-Revert`
   still restores every original.
 - `Test-Smoke.ps1` runs `-Reapply` after the health check.
+- Source split (13 Nov 2026): the template became `src/NN-name.ps1`, one file per area; `build.py` joins them and the
+  built script stayed byte for byte the same. The benchmarks moved to `tools\Measure-Performance.ps1` (same
+  parameters; `-FrameProcess` selects the frame benchmark), with their own small logging and administrators only
+  folder handling, so the tweak script lost about 450 lines and two modes. `FocusedTweaks.ps1 -Benchmark` and
+  `-FrameBenchmark` now say where they went. The release zip carries `tools\` (Measure-Performance and
+  Explain-Processes); `Test-InVm.ps1` runs the benchmark stages with the tool.
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

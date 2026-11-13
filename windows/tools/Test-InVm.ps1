@@ -42,6 +42,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $scriptFile = Join-Path $repo 'FocusedTweaks.ps1'
 $explainFile = Join-Path $PSScriptRoot 'Explain-Processes.ps1'
+$measureFile = Join-Path $PSScriptRoot 'Measure-Performance.ps1'
 $guestDir = 'C:\FT'
 $guestPs = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not $OutDir) { $OutDir = Join-Path $repo ('test-results\{0:yyyyMMdd-HHmmss}' -f (Get-Date)) }
@@ -279,7 +280,8 @@ $(Get-GuestPackText -Name $Name)
 
 function Invoke-GuestStage {
     # $After is extra guest code run once the script is done, before the results are packed (it may use $out).
-    param([string]$Name, [string]$Arguments, [string]$After = '')
+    # $Script is the file in the guest folder that the stage runs.
+    param([string]$Name, [string]$Arguments, [string]$After = '', [string]$Script = 'FocusedTweaks.ps1')
     $runner = Join-Path $OutDir "run-$Name.ps1"
     $done = "$guestDir\done-$Name.txt"
     # The runner keeps all quoting inside one PowerShell file, so lists such as -Only A,B work. It is started without
@@ -292,7 +294,7 @@ New-Item -ItemType Directory -Path `$out -Force | Out-Null
 Set-Content -LiteralPath (Join-Path `$out 'start.txt') -Value `$start.ToString('o')
 `$code = 0
 try {
-    & '$guestDir\FocusedTweaks.ps1' $Arguments *> (Join-Path `$out 'console.txt')
+    & '$guestDir\$Script' $Arguments *> (Join-Path `$out 'console.txt')
     if (`$null -ne `$LASTEXITCODE) { `$code = `$LASTEXITCODE }
 }
 catch {
@@ -471,6 +473,7 @@ Write-Step "Copying the script into $guestDir"
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $scriptFile, "$guestDir\FocusedTweaks.ps1") -Guest)
 if ($ProfilePath) { [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, (Resolve-Path -LiteralPath $ProfilePath).Path, "$guestDir\profile.json") -Guest) }
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $explainFile, "$guestDir\Explain-Processes.ps1") -Guest)
+[void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $measureFile, "$guestDir\Measure-Performance.ps1") -Guest)
 $diagFile = Join-Path $OutDir 'collect-diag.ps1'
 $guestDiagScript | Set-Content -LiteralPath $diagFile -Encoding ASCII
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $diagFile, "$guestDir\collect-diag.ps1") -Guest)
@@ -492,7 +495,7 @@ foreach ($stage in $Stages) {
             # Which processes and services run, by name, so a later comparison shows what a run removed and what is
             # left. Explain-Processes only reads.
             $snapshot = "try { & '$guestDir\Explain-Processes.ps1' -SaveSnapshot (Join-Path `$out 'processes.json') *> (Join-Path `$out 'processes.txt') } catch { Add-Content -LiteralPath (Join-Path `$out 'processes.txt') -Value ('SNAPSHOT FAILED: ' + `$_.Exception.Message) }"
-            try { Invoke-GuestStage -Name $label -Arguments '-Benchmark' -After $snapshot }
+            try { Invoke-GuestStage -Name $label -Script 'Measure-Performance.ps1' -Arguments '' -After $snapshot }
             finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
         }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }

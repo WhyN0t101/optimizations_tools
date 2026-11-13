@@ -59,4 +59,6 @@ jobs:
             windows/NOTICE.md
             windows/README.md
             windows/docs/GUIDE.md
+            windows/tools/Measure-Performance.ps1
+            windows/tools/Explain-Processes.ps1
             windows/profiles/*.json

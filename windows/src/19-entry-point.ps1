@@ -1,6 +1,7 @@
 #region Entry point -----------------------------------------------------------------------
 if ($Revert -and $DryRun) { throw '-DryRun is not supported together with -Revert.' }
-if ($Reapply -and ($Revert -or $HealthCheck -or $Benchmark -or $FrameBenchmark -or $StartupReview -or $RestoreTask.Count -gt 0)) { throw '-Reapply cannot be combined with -Revert, -HealthCheck, -Benchmark, -FrameBenchmark, -StartupReview or -RestoreTask.' }
+if ($Benchmark -or $FrameBenchmark) { throw 'The benchmarks moved to their own tool, with the same parameters: .\tools\Measure-Performance.ps1 (system), or .\tools\Measure-Performance.ps1 -FrameProcess game.exe (game frame times).' }
+if ($Reapply -and ($Revert -or $HealthCheck -or $StartupReview -or $RestoreTask.Count -gt 0)) { throw '-Reapply cannot be combined with -Revert, -HealthCheck, -StartupReview or -RestoreTask.' }
 if ($Reapply -and $Only.Count -gt 0) { throw '-Reapply uses the options of the earlier run. Leave some out with -Skip; -Only does not apply here.' }
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
@@ -8,14 +9,6 @@ try { Import-State }
 catch { Write-Log $_.Exception.Message 'ERROR'; Exit-Run 4 $_.Exception.Message }
 try { Repair-TrustedInstallerPath }
 catch { $script:Failures++; Write-Log $_.Exception.Message 'ERROR' }
-if ($Benchmark) {
-    try { Invoke-Benchmark } catch { Write-Log "Benchmark stopped: $($_.Exception.Message)" 'ERROR'; Exit-Run 1 $_.Exception.Message }
-    Exit-Run 0
-}
-if ($FrameBenchmark) {
-    try { Invoke-FrameBenchmark } catch { Write-Log "Frame benchmark stopped: $($_.Exception.Message)" 'ERROR'; Exit-Run 1 $_.Exception.Message }
-    Exit-Run ([int]($script:Failures -gt 0))
-}
 if ($StartupReview) { Show-StartupReview; Exit-Run 0 }
 if ($HealthCheck) {
     Restore-SavedRunSettings

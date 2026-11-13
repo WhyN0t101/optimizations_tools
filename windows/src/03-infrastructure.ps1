@@ -69,8 +69,6 @@ function Get-RunMode {
     if ($RestoreTask.Count -gt 0) { return 'restoretask' }
     if ($HealthCheck) { return 'healthcheck' }
     if ($Reapply) { return 'reapply' }
-    if ($Benchmark) { return 'benchmark' }
-    if ($FrameBenchmark) { return 'framebenchmark' }
     if ($StartupReview) { return 'startupreview' }
     if ($script:DryRun) { return 'dryrun' }
     return 'apply'

@@ -30,7 +30,7 @@ It asks for the guest password (or reads `FT_VM_PASSWORD`), then:
 | Stage | What runs in the VM |
 |---|---|
 | Dry | `-DryRun -Force` |
-| Benchmark | `-Benchmark` (runs before and after by default, the second one compares) |
+| Benchmark | `tools\Measure-Performance.ps1` (runs before and after by default, the second one compares) |
 | Apply | `-Force` (real run, no prompts), then a restart |
 | Health | `-HealthCheck` |
 | Reapply | `-Reapply -Force` (puts back what Windows changed after the restart) |

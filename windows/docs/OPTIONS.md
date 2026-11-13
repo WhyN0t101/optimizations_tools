@@ -170,13 +170,11 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | `-StartupKeep` | startup entry name wildcards | none | Startup entries `RunKeys` keeps (Windows Security is always kept); `-StartupReview` lists the names |
 | `-Revert -Only` | option names | none | Undo only these options from the change journal; values another option also set are kept |
 | `-Reapply` | switch | off | Put back what Windows changed since the last run: lists drifted items, then asks (`-DryRun` only lists, `-Force` does not ask). Uses the options of that run; leaves alone Packages, RunKeys, Start pins, desktop icons, app permissions, cleanup and other one shot options |
-| `-FrameBenchmark` | switch | off | Frame times of a running game with PresentMon: `-FrameProcess game.exe`, `-FrameSeconds` (60), `-FrameRuns` (3), `-FrameLabel` for the game settings |
 | `-SkipCheck` | PendingReboot, WindowsUpdate, PowerSource, Managed, Edition, TamperProtection, SystemProtection | none | Pre flight checks to skip by name |
 | `-AllowManaged` | switch | off | Run on a PC joined to a domain or Entra ID, enrolled in MDM or under domain Group Policy (refused otherwise) |
-| `-BenchmarkRuns` | 1 to 50 | 5 | Repetitions of each short benchmark measurement (median, minimum and maximum) |
-| `-BenchmarkIdleSeconds` | 10 to 600 | 60 | Length of the idle sampling window of `-Benchmark` |
-| `-BenchmarkBaseline` | name | none | Keep the first benchmark under this name and compare later ones with it |
 | `-Json` | switch | off | Print one JSON result object and nothing else on the console; a real run also needs `-Force` |
 
-Modes that change nothing: `-DryRun`, `-ListOptions`, `-ListRegGroups`, `-HealthCheck`, `-Benchmark`,
-`-StartupReview`. `-Revert` undoes the last run.
+Modes that change nothing: `-DryRun`, `-ListOptions`, `-ListRegGroups`, `-HealthCheck`,
+`-StartupReview`. `-Revert` undoes the last run. Measuring before and after (system benchmark, game frame
+times) is `tools\Measure-Performance.ps1`, with the parameters `-BenchmarkRuns`, `-BenchmarkIdleSeconds`,
+`-BenchmarkBaseline`, `-FrameProcess`, `-FrameSeconds`, `-FrameRuns` and `-FrameLabel`.

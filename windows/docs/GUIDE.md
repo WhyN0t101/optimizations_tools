@@ -44,12 +44,12 @@ Measure before, so you can see what changed afterwards. Close other programs.
 
 **System benchmark** (timer, kernel call cost, idle CPU, processes, services, memory, boot time):
 
-    .\FocusedTweaks.ps1 -Benchmark -BenchmarkBaseline before
+    .\tools\Measure-Performance.ps1 -BenchmarkBaseline before
 
 **Game frame times** with PresentMon (average FPS, 1 % and 0.1 % lows, stutters). Start the game, go to a scene you
 can repeat (a built-in benchmark is best), then:
 
-    .\FocusedTweaks.ps1 -FrameBenchmark -FrameProcess Cyberpunk2077.exe -FrameLabel 1440p-high
+    .\tools\Measure-Performance.ps1 -FrameProcess Cyberpunk2077.exe -FrameLabel 1440p-high
 
 The process name is in Task Manager, Details tab. It records a 15 second warm-up, then three 60 second runs. Use the
 same scene, settings and label later. Turn V-Sync, G-Sync or a frame cap off for the test if you want the average FPS
@@ -164,8 +164,8 @@ that option, see section 9). Add `-HealthCheckLaunch` to also open Settings, Sto
 
 Measure again and compare:
 
-    .\FocusedTweaks.ps1 -Benchmark -BenchmarkBaseline before
-    .\FocusedTweaks.ps1 -FrameBenchmark -FrameProcess Cyberpunk2077.exe -FrameLabel 1440p-high
+    .\tools\Measure-Performance.ps1 -BenchmarkBaseline before
+    .\tools\Measure-Performance.ps1 -FrameProcess Cyberpunk2077.exe -FrameLabel 1440p-high
 
 The second run of each prints a before and after table (median and range; "within noise" when the ranges overlap). A
 comparison is refused when the hardware, resolution, refresh rate or power source differ, and flagged when Windows was
