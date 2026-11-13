@@ -570,10 +570,8 @@ function Invoke-RevertOptions {
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
                 'PauseEndTask' { Remove-PauseEndTask }
                 'Features' {
-                    foreach ($f in @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })) {
-                        try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "Optional feature turned back on: $f (finishes at the next restart)." 'OK' }
-                        catch { Write-Log "Could not turn the optional feature $f back on. $($_.Exception.Message)" 'WARN' }
-                    }
+                    $f = @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })
+                    if ($f.Count -gt 0) { Set-FeatureState -Names $f -Enable $true }
                 }
             }
         }

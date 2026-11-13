@@ -13,9 +13,13 @@ with `vmrun`; nothing runs on the host.
 4. Make it sign in on its own after a restart with Sysinternals Autologon (it stores the password encrypted).
    Username `Administrator`, Domain = the VM's `hostname`, then Enable.
 5. Install every pending Windows update and restart until Settings shows nothing pending, so Windows Update has
-   almost nothing to do after each revert. Then restart once more, wait for the desktop, and take a snapshot of the
-   running VM named `ft-base`. Repeat this every month or two; an old snapshot means downloads, installs and maybe
-   a restart request in the middle of a test.
+   almost nothing to do after each revert. Then restart once more, wait for the desktop, and wait until Task Manager
+   shows no TiWorker (Windows Modules Installer Worker): a snapshot taken while it works keeps it working in every test
+   (the run of 13 Nov 2026 spent 17 minutes waiting on it and -Reapply refused to start). Pause updates in Settings,
+   turn off Tamper Protection (otherwise Defender may ignore the Defender options) and turn on System Protection for C:
+   (otherwise the restore point step is never tested). Then take a snapshot of the running VM named `ft-base`. Repeat
+   this every month or two; an old snapshot means downloads, installs and maybe a restart request in the middle of a
+   test. The harness also waits, up to 30 minutes, for TiWorker to finish before the Dry, Apply and Reapply stages.
 
 Use a password for this VM only: `vmrun` receives it on its command line.
 

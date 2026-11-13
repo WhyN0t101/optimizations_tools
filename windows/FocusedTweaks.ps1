@@ -4621,27 +4621,47 @@ function Disable-FeatureGroup {
     param([Parameter(Mandatory)][string]$Group)
     $on = @(Get-EnabledFeatureNames -Names $FeatureGroups[$Group])
     if ($on.Count -eq 0) { Write-Log "$Group`: none of $($FeatureGroups[$Group] -join ', ') is turned on."; return }
-    foreach ($name in $on) {
-        if (Test-DryRun "turn off the optional feature $name") { continue }
-        if (@($script:State.Features) -notcontains $name) { Add-StateRecord -Section 'Features' -Item $name }
-        try {
-            Disable-WindowsOptionalFeature -Online -FeatureName $name -NoRestart -ErrorAction Stop | Out-Null
-            Write-Log "Optional feature turned off: $name (finishes at the next restart)." 'OK'
-        }
-        catch { Write-Log "Could not turn off the optional feature $name. $($_.Exception.Message)" 'WARN' }
+    $todo = @($on | Where-Object { -not (Test-DryRun "turn off the optional feature $_") })
+    if ($todo.Count -eq 0) { return }
+    foreach ($name in $todo) { if (@($script:State.Features) -notcontains $name) { Add-StateRecord -Section 'Features' -Item $name } }
+    Set-FeatureState -Names $todo -Enable $false
+}
+
+function Set-FeatureState {
+    # All names in one call: each call is one Windows servicing session and waits its turn in the servicing queue,
+    # which took minutes per feature in the VM test of 13 Nov 2026. If the joint call fails, each name is tried alone
+    # so the log says which one failed.
+    param([Parameter(Mandatory)][string[]]$Names, [Parameter(Mandatory)][bool]$Enable)
+    $verb = if ($Enable) { 'turned back on' } else { 'turned off' }
+    $call = {
+        param([string[]]$n)
+        if ($Enable) { Enable-WindowsOptionalFeature -Online -FeatureName $n -All -NoRestart -ErrorAction Stop | Out-Null }
+        else { Disable-WindowsOptionalFeature -Online -FeatureName $n -NoRestart -ErrorAction Stop | Out-Null }
+    }
+    try {
+        & $call $Names
+        foreach ($name in $Names) { Write-Log "Optional feature $verb`: $name (finishes at the next restart)." 'OK' }
+        return
+    }
+    catch {
+        if ($Names.Count -eq 1) { Write-Log "Could not change the optional feature $($Names[0]). $($_.Exception.Message)" 'WARN'; return }
+        Write-Log "Changing the optional features $($Names -join ', ') together failed ($($_.Exception.Message)); trying one at a time."
+    }
+    foreach ($name in $Names) {
+        try { & $call @(, $name); Write-Log "Optional feature $verb`: $name (finishes at the next restart)." 'OK' }
+        catch { Write-Log "Could not change the optional feature $name. $($_.Exception.Message)" 'WARN' }
     }
 }
 
 function Restore-Features {
+    # Only names this script knows, never whatever a state file says.
+    $known = @($FeatureGroups.Values | ForEach-Object { $_ })
+    $names = @()
     foreach ($name in @($script:State.Features)) {
-        # Only names this script knows, never whatever a state file says.
-        if (-not (@($FeatureGroups.Values | ForEach-Object { $_ }) -contains $name)) { Write-Log "Unexpected feature '$name' in the state file, not restoring it." 'WARN'; continue }
-        try {
-            Enable-WindowsOptionalFeature -Online -FeatureName $name -All -NoRestart -ErrorAction Stop | Out-Null
-            Write-Log "Optional feature turned back on: $name (finishes at the next restart)." 'OK'
-        }
-        catch { Write-Log "Could not turn the optional feature $name back on. $($_.Exception.Message)" 'WARN' }
+        if ($known -notcontains $name) { Write-Log "Unexpected feature '$name' in the state file, not restoring it." 'WARN'; continue }
+        $names += $name
     }
+    if ($names.Count -gt 0) { Set-FeatureState -Names $names -Enable $true }
 }
 
 function Test-QuickAssistPresent {
@@ -6625,10 +6645,8 @@ function Invoke-RevertOptions {
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
                 'PauseEndTask' { Remove-PauseEndTask }
                 'Features' {
-                    foreach ($f in @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })) {
-                        try { Enable-WindowsOptionalFeature -Online -FeatureName $f -All -NoRestart -ErrorAction Stop | Out-Null; Write-Log "Optional feature turned back on: $f (finishes at the next restart)." 'OK' }
-                        catch { Write-Log "Could not turn the optional feature $f back on. $($_.Exception.Message)" 'WARN' }
-                    }
+                    $f = @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })
+                    if ($f.Count -gt 0) { Set-FeatureState -Names $f -Enable $true }
                 }
             }
         }

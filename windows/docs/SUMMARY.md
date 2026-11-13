@@ -337,6 +337,11 @@ have not run in the VM yet):
   `CPSS\Store\AllowTelemetry` joined the values Windows recomputes after a revert.
   The health check fails only for a core service the run disabled; one already disabled before it (that image ships
   StorSvc disabled) is a warning.
+- VM run of 13 Nov 2026: revert check 1414 values, 0 differ; health 0 failed. Apply took 25 minutes, 17 of them in
+  LegacyFeatures waiting behind Windows servicing (the snapshot was taken while TiWorker was busy; Windows Update
+  installed an update mid run). Optional features are now turned off, and back on, in one call (one servicing session;
+  one at a time only if that fails), and Test-InVm waits for TiWorker before the Dry, Apply and Reapply stages.
+  HWiNFO failed with HTTP 404 from winget's own manifest (0x80190194).
 - `PauseUpdates`: `NoAutoUpdate` now ends with the pause. A one-off task, `\FocusedTweaks\End update pause`, runs as
   SYSTEM at the pause end (or at the next start when the PC was off) and only deletes that value with `reg.exe`. It is
   on the never-delete list, recorded before it is made, and removed by `-Revert` and `-Revert -Only PauseUpdates`.

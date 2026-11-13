@@ -374,6 +374,28 @@ exit 0
     else { Write-Step 'The VM did not go idle within 10 minutes; benchmarking anyway (the benchmark flags a busy run)' }
 }
 
+function Wait-GuestServicing {
+    # Windows servicing (TiWorker) handles one job at a time: a stage that starts while it installs an update waits in
+    # its queue (optional features took 17 minutes in the run of 13 Nov 2026) and -Reapply refuses to run. Waits until
+    # TiWorker has been gone for 20 seconds, for up to 30 minutes, then runs the stage either way.
+    $file = Join-Path $OutDir 'wait-servicing.ps1'
+    @'
+$deadline = (Get-Date).AddMinutes(30); $quiet = 0
+while ((Get-Date) -lt $deadline -and $quiet -lt 20) {
+    if (Get-Process -Name TiWorker -ErrorAction SilentlyContinue) { $quiet = 0 } else { $quiet++ }
+    Start-Sleep -Seconds 1
+}
+if ($quiet -lt 20) { exit 1 }
+exit 0
+'@ | Set-Content -LiteralPath $file -Encoding ASCII
+    [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $file, "$guestDir\wait-servicing.ps1") -Guest)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $r = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\wait-servicing.ps1") -Guest -AllowFail
+    $waited = [int]$clock.Elapsed.TotalSeconds
+    if ($r.Code -eq 0) { if ($waited -gt 25) { Write-Step "Waited $waited s for Windows servicing (TiWorker) to finish" } }
+    else { Write-Step 'Windows servicing (TiWorker) was still busy after 30 minutes; running the stage anyway. Retake the snapshot once Windows Update is done.' }
+}
+
 $nics = @(Select-String -LiteralPath $Vmx -Pattern '^\s*(ethernet\d+)\.present\s*=\s*"TRUE"' | ForEach-Object { $_.Matches[0].Groups[1].Value })
 
 function Set-GuestNetwork {
@@ -485,7 +507,7 @@ foreach ($stage in $Stages) {
     $index++
     $label = '{0:00}-{1}' -f $index, $stage
     switch ($stage) {
-        'Dry' { Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
+        'Dry' { Wait-GuestServicing; Invoke-GuestStage -Name $label -Arguments "-DryRun -Force $common" }
         'Benchmark' {
             # Both benchmarks must start from the same kind of boot: the one after Apply follows a restart, so the
             # first one gets a restart too instead of running in the restored snapshot.
@@ -499,10 +521,11 @@ foreach ($stage in $Stages) {
             finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
         }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
-        'Apply' { Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest; $restartedSinceRevert = $true }
+        'Apply' { Wait-GuestServicing; Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest; $restartedSinceRevert = $true }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
         # After the restart Windows has had a chance to set things back; -Reapply lists and fixes only that.
-        'Reapply' { Invoke-GuestStage -Name $label -Arguments '-Reapply -Force' }
+        # The restart after Apply finishes turning features off, which keeps servicing busy for a while.
+        'Reapply' { Wait-GuestServicing; Invoke-GuestStage -Name $label -Arguments '-Reapply -Force' }
         'Revert' { Invoke-GuestStage -Name $label -Arguments '-Revert'; Restart-Guest; $restartedSinceRevert = $true }
     }
 }
