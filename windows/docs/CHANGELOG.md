@@ -5,6 +5,8 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- Smoke step times also show, per stage, the time before the first log line (PowerShell starting, the script loading),
+  after the last one, and inside the log outside any timed step, with the line the longest such gap followed.
 - Journal: only lines that announce a change are forced to disk before it (they hold the value before). Result lines
   (OK, MISMATCH, FAILED) are written normally: a crash that loses one leaves the change counted as interrupted with its
   original still recorded. Half the forced writes for registry values and tasks.

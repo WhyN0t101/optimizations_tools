@@ -94,7 +94,8 @@ foreach ($stage in $stages) {
     Get-ChildItem -LiteralPath $StateDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -ge $start -and $_.Extension -in '.log', '.json' } |
         Copy-Item -Destination $dest
-    $results.Add([pscustomobject]@{ Name = $label; Dir = $dest; Code = $code; Seconds = [int]((Get-Date) - $start).TotalSeconds })
+    $end = Get-Date
+    $results.Add([pscustomobject]@{ Name = $label; Dir = $dest; Code = $code; Seconds = [int]($end - $start).TotalSeconds; Start = $start; End = $end })
 }
 
 function Get-StepTimes {
@@ -124,13 +125,49 @@ function Get-StepTimes {
     return $out
 }
 
+function Get-LogEdges {
+    # Seconds from the stage's launch to its first log line, and from its last log line to the end of the process:
+    # PowerShell starting and loading the script, the set up before logging begins, and whatever runs after the last
+    # line. $null when the stage wrote no run log (the Explain tool).
+    param([string]$Dir, [datetime]$Start, [datetime]$End)
+    $log = Get-ChildItem -Path (Join-Path $Dir 'run-*.log') -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+    if (-not $log) { return $null }
+    $times = @(Select-String -LiteralPath $log.FullName -Pattern '^(\d\d):(\d\d):(\d\d) ' | ForEach-Object { ([int]$_.Matches[0].Groups[1].Value * 3600) + ([int]$_.Matches[0].Groups[2].Value * 60) + [int]$_.Matches[0].Groups[3].Value })
+    if ($times.Count -eq 0) { return $null }
+    # Log lines have whole seconds, so a gap can come out as -1; the day wrap covers a stage across midnight.
+    $gap = { param($from, $to) $d = (($to - $from) % 86400 + 86400) % 86400; if ($d -gt 43200) { $d -= 86400 }; [Math]::Max(0, $d) }
+    # Time inside the log while no step or timed part is open, and the line the longest such gap followed.
+    $depth = 0; $untimed = 0; $prev = $null; $prevLine = ''; $worst = 0; $worstAfter = ''
+    foreach ($line in [IO.File]::ReadLines($log.FullName)) {
+        if ($line -notmatch '^(\d\d):(\d\d):(\d\d) ') { continue }
+        $t = ([int]$Matches[1] * 3600) + ([int]$Matches[2] * 60) + [int]$Matches[3]
+        if ($null -ne $prev -and $depth -eq 0) {
+            $d = & $gap $prev $t
+            $untimed += $d
+            if ($d -gt $worst) { $worst = $d; $worstAfter = $prevLine }
+        }
+        if ($line -match '\]\s+Starting: ') { $depth++ } elseif ($line -match '\]\s+(Completed|Failed): ' -and $depth -gt 0) { $depth-- }
+        $prev = $t; $prevLine = $line
+    }
+    return [pscustomobject]@{
+        BeforeLog    = & $gap ([int]$Start.TimeOfDay.TotalSeconds) $times[0]
+        AfterLog     = & $gap $times[-1] ([int]$End.TimeOfDay.TotalSeconds)
+        Untimed      = $untimed
+        UntimedAfter = $(if ($worst -ge 5) { "$worst s after: $($worstAfter.Substring(0, [Math]::Min(100, $worstAfter.Length)))" } else { '' })
+    }
+}
+
 function Get-TimeFindings {
     # The step time lines for the summary, and the steps that got much slower than in the previous run: at least 50 %
     # and 30 seconds more, so normal noise on a shared runner does not count.
     param([object[]]$Stages, [object[]]$Steps, $Previous)
     $before = @{}
     if ($Previous) {
-        foreach ($p in @($Previous.Stages)) { $before["stage|$($p.Stage)"] = [int]$p.Seconds }
+        foreach ($p in @($Previous.Stages)) {
+            $before["stage|$($p.Stage)"] = [int]$p.Seconds
+            if ($p.PSObject.Properties['BeforeLog'] -and $null -ne $p.BeforeLog) { $before["before|$($p.Stage)"] = [int]$p.BeforeLog; $before["after|$($p.Stage)"] = [int]$p.AfterLog }
+            if ($p.PSObject.Properties['Untimed'] -and $null -ne $p.Untimed) { $before["untimed|$($p.Stage)"] = [int]$p.Untimed }
+        }
         foreach ($p in @($Previous.Steps)) { $before["$($p.Stage)|$($p.Step)"] = [int]$p.Seconds }
     }
     $show = { param($key, $now) if ($before.ContainsKey($key)) { "$now s (was $($before[$key]) s)" } else { "$now s" } }
@@ -140,6 +177,10 @@ function Get-TimeFindings {
     $lines.Add('Time per stage, with its slowest steps' + $(if ($Previous) { ' (previous run in brackets):' } else { ' (no previous run to compare with):' }))
     foreach ($s in $Stages) {
         $lines.Add("  $($s.Stage): $(& $show "stage|$($s.Stage)" $s.Seconds)")
+        if ($s.PSObject.Properties['BeforeLog'] -and $null -ne $s.BeforeLog) {
+            $lines.Add("      before the first log line: $(& $show "before|$($s.Stage)" $s.BeforeLog), after the last: $(& $show "after|$($s.Stage)" $s.AfterLog), in the log outside any step: $(& $show "untimed|$($s.Stage)" $s.Untimed)")
+            if ($s.UntimedAfter) { $lines.Add("      longest of those: $($s.UntimedAfter)") }
+        }
         if (& $slower "stage|$($s.Stage)" $s.Seconds) { $flags.Add("$($s.Stage) took $($s.Seconds) s, was $($before["stage|$($s.Stage)"]) s") }
         foreach ($st in @($Steps | Where-Object { $_.Stage -eq $s.Stage -and $_.Seconds -ge 5 } | Sort-Object Seconds -Descending | Select-Object -First 5)) {
             $key = "$($st.Stage)|$($st.Step)"
@@ -207,7 +248,11 @@ foreach ($r in $results) {
 }
 # Step times: kept as steps.json for the next run to compare with, and shown in the summary. A much slower step is a
 # warning, not a failure: shared runners vary, but a step that doubles is worth a look on the push that caused it.
-$stageTimes = @($results | ForEach-Object { [pscustomobject]@{ Stage = $_.Name; Seconds = $_.Seconds } })
+$stageTimes = @($results | ForEach-Object {
+        $edges = Get-LogEdges -Dir $_.Dir -Start $_.Start -End $_.End
+        [pscustomobject]@{ Stage = $_.Name; Seconds = $_.Seconds; BeforeLog = $(if ($edges) { $edges.BeforeLog }); AfterLog = $(if ($edges) { $edges.AfterLog })
+            Untimed = $(if ($edges) { $edges.Untimed }); UntimedAfter = $(if ($edges) { $edges.UntimedAfter }) }
+    })
 $stepTimes = @(foreach ($r in $results) { Get-StepTimes -Dir $r.Dir -Stage $r.Name })
 [pscustomobject]@{ Stages = $stageTimes; Steps = $stepTimes } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'steps.json') -Encoding UTF8
 $previous = $null
