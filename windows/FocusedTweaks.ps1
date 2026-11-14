@@ -2448,6 +2448,9 @@ $WindowsRewrittenValues = @(
     # The policy store cache: Windows recomputes it from the policies in force. On the Windows 11 ARM runner (13 Nov
     # 2026) -Revert wrote the original 1 back and Windows had set it to 0 again from that image's own policy.
     'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry|Value'
+    # Spotlight keeps its own on/off state: on the Windows 11 ARM runner about half the runs found 0 again right after
+    # -Revert wrote the original 1 back, with the same code (CI, 13 and 14 Nov 2026).
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings|EnabledState'
 )
 
 function Test-WindowsRewritten {
@@ -4141,7 +4144,16 @@ function Restore-Tasks {
                     $problems++
                     continue
                 }
-                Register-TaskXmlDirect -Path $t.Path -Name $t.Name -Xml ([IO.File]::ReadAllText($t.XmlFile))
+                $xmlText = [IO.File]::ReadAllText($t.XmlFile)
+                try { Register-TaskXmlDirect -Path $t.Path -Name $t.Name -Xml $xmlText }
+                catch {
+                    # Task Scheduler's own interface refuses a few exports that the cmdlet still registers, such as
+                    # \Microsoft\Windows\Server Manager\CleanupOldPerfLogs on Windows Server ("invalid owner",
+                    # 0xD000005A, CI from 13 Nov 2026). Those take the slower cmdlet; access denied goes on to
+                    # TrustedInstaller below.
+                    if (Test-AccessDenied $_) { throw }
+                    Register-ScheduledTask -Xml $xmlText -TaskName $t.Name -TaskPath $t.Path -Force -ErrorAction Stop | Out-Null
+                }
             }
             # The export may hold a disabled copy (a task disabled by one run, deleted by a later one).
             Set-TaskEnabledState -Path $t.Path -Name $t.Name -Enabled ([bool]$t.WasEnabled)

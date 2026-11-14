@@ -74,7 +74,8 @@
     "VGAuthService": "VMware guest only",
     "VM3DService": "VMware guest only",
     "lmhosts": "network: NetBIOS name resolution; disabling can break finding PCs and shares at home, for no real gain",
-    "MSDTC": "on demand: database transactions, starts only when a program asks for it"
+    "MSDTC": "on demand: database transactions, starts only when a program asks for it",
+    "PushToInstall": "Store: on demand, installs apps sent from the Store website; the Store is kept"
   },
   "apps": {
     "Microsoft.ApplicationCompatibilityEnhancements": "system: app compatibility fixes delivered through the Store",

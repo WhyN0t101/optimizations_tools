@@ -162,13 +162,17 @@ function Get-TimeFindings {
     # and 30 seconds more, so normal noise on a shared runner does not count.
     param([object[]]$Stages, [object[]]$Steps, $Previous)
     $before = @{}
+    # Only numbers count: an earlier steps.json may hold an empty object where a stage had no log (the Explain tool),
+    # and a bad value must never stop the summary.
+    $keep = { param($key, $obj, $prop) if ($obj.PSObject.Properties[$prop] -and ($obj.$prop -is [int] -or $obj.$prop -is [long] -or $obj.$prop -is [double])) { $before[$key] = [int]$obj.$prop } }
     if ($Previous) {
         foreach ($p in @($Previous.Stages)) {
-            $before["stage|$($p.Stage)"] = [int]$p.Seconds
-            if ($p.PSObject.Properties['BeforeLog'] -and $null -ne $p.BeforeLog) { $before["before|$($p.Stage)"] = [int]$p.BeforeLog; $before["after|$($p.Stage)"] = [int]$p.AfterLog }
-            if ($p.PSObject.Properties['Untimed'] -and $null -ne $p.Untimed) { $before["untimed|$($p.Stage)"] = [int]$p.Untimed }
+            & $keep "stage|$($p.Stage)" $p 'Seconds'
+            & $keep "before|$($p.Stage)" $p 'BeforeLog'
+            & $keep "after|$($p.Stage)" $p 'AfterLog'
+            & $keep "untimed|$($p.Stage)" $p 'Untimed'
         }
-        foreach ($p in @($Previous.Steps)) { $before["$($p.Stage)|$($p.Step)"] = [int]$p.Seconds }
+        foreach ($p in @($Previous.Steps)) { & $keep "$($p.Stage)|$($p.Step)" $p 'Seconds' }
     }
     $show = { param($key, $now) if ($before.ContainsKey($key)) { "$now s (was $($before[$key]) s)" } else { "$now s" } }
     $slower = { param($key, $now) $before.ContainsKey($key) -and $now -ge $before[$key] * 1.5 -and $now - $before[$key] -ge 30 }
@@ -240,6 +244,9 @@ foreach ($r in $results) {
     if ($revert) {
         $stageLines.Add("    revert check: $($revert.Counts.Checked) value(s) checked, $($revert.Counts.Differ) item(s) differ")
         foreach ($i in @($revert.Items | Select-Object -First 25)) { $stageLines.Add("    [$($i.Area)] $($i.Message)") }
+        # Something -Revert did not bring back fails the run: a task restore regression went unnoticed for a day when it
+        # was only a line here (13 Nov 2026). Values Windows rewrites itself are notes, not counted.
+        if ([int]$revert.Counts.Differ -gt 0) { $stageBad = $true }
     }
     $level = 'notice'
     if ($stageBad) { $level = 'error'; $bad = $true }
@@ -250,8 +257,10 @@ foreach ($r in $results) {
 # warning, not a failure: shared runners vary, but a step that doubles is worth a look on the push that caused it.
 $stageTimes = @($results | ForEach-Object {
         $edges = Get-LogEdges -Dir $_.Dir -Start $_.Start -End $_.End
-        [pscustomobject]@{ Stage = $_.Name; Seconds = $_.Seconds; BeforeLog = $(if ($edges) { $edges.BeforeLog }); AfterLog = $(if ($edges) { $edges.AfterLog })
-            Untimed = $(if ($edges) { $edges.Untimed }); UntimedAfter = $(if ($edges) { $edges.UntimedAfter }) }
+        # Explicit $null when the stage wrote no log: an empty $(if ...) becomes an empty object in the JSON.
+        $b = $null; $a = $null; $u = $null; $ua = ''
+        if ($edges) { $b = $edges.BeforeLog; $a = $edges.AfterLog; $u = $edges.Untimed; $ua = $edges.UntimedAfter }
+        [pscustomobject]@{ Stage = $_.Name; Seconds = $_.Seconds; BeforeLog = $b; AfterLog = $a; Untimed = $u; UntimedAfter = $ua }
     })
 $stepTimes = @(foreach ($r in $results) { Get-StepTimes -Dir $r.Dir -Stage $r.Name })
 [pscustomobject]@{ Stages = $stageTimes; Steps = $stepTimes } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutDir 'steps.json') -Encoding UTF8

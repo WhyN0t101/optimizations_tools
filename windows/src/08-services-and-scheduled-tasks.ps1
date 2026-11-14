@@ -303,7 +303,16 @@ function Restore-Tasks {
                     $problems++
                     continue
                 }
-                Register-TaskXmlDirect -Path $t.Path -Name $t.Name -Xml ([IO.File]::ReadAllText($t.XmlFile))
+                $xmlText = [IO.File]::ReadAllText($t.XmlFile)
+                try { Register-TaskXmlDirect -Path $t.Path -Name $t.Name -Xml $xmlText }
+                catch {
+                    # Task Scheduler's own interface refuses a few exports that the cmdlet still registers, such as
+                    # \Microsoft\Windows\Server Manager\CleanupOldPerfLogs on Windows Server ("invalid owner",
+                    # 0xD000005A, CI from 13 Nov 2026). Those take the slower cmdlet; access denied goes on to
+                    # TrustedInstaller below.
+                    if (Test-AccessDenied $_) { throw }
+                    Register-ScheduledTask -Xml $xmlText -TaskName $t.Name -TaskPath $t.Path -Force -ErrorAction Stop | Out-Null
+                }
             }
             # The export may hold a disabled copy (a task disabled by one run, deleted by a later one).
             Set-TaskEnabledState -Path $t.Path -Name $t.Name -Enabled ([bool]$t.WasEnabled)

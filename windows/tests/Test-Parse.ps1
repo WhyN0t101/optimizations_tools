@@ -743,6 +743,14 @@ Check 'Every mode asks Windows to stay awake before it starts working (an idle P
     Remove-Item -LiteralPath $dir -Recurse -Force
     $got = ($steps | ForEach-Object { "$($_.Step)=$($_.Seconds)" }) -join ';'
     Check 'Behaviour, smoke step times: failed steps, repeated steps and midnight are timed right' ($got -eq 'Packages=30;Tasks=10;Tasks (2)=2') $got
+    # An earlier steps.json with an empty object where a number belongs (a stage with no log) must not stop the summary.
+    $fn = $smokeAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-TimeFindings' }, $true) | Select-Object -First 1
+    Invoke-Expression $fn.Extent.Text
+    $prev = '{"Stages":[{"Stage":"06-Explain","Seconds":70,"BeforeLog":{},"AfterLog":{},"Untimed":{}}],"Steps":[]}' | ConvertFrom-Json
+    $ok = $true
+    try { $f = Get-TimeFindings -Stages @([pscustomobject]@{ Stage = '06-Explain'; Seconds = 60; BeforeLog = $null; AfterLog = $null; Untimed = $null; UntimedAfter = '' }) -Steps @() -Previous $prev }
+    catch { $ok = $false }
+    Check 'Behaviour, smoke step times: a bad value in the previous run is skipped, not fatal' ($ok -and ($f.Lines -join ' ') -match '60 s \(was 70 s\)')
 }
 & {
     # The revert check and the protected task restore look tasks up in one index, not one query per task.

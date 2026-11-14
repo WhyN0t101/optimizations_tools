@@ -1579,7 +1579,7 @@ Option: `Registry`
 
 | Key | Value | Type | Data | Note |
 |---|---|---|---|---|
-| `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings` | EnabledState | DWord | 0 (0x00000000) |  |
+| `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings` | EnabledState | DWord | 0 (0x00000000) | Windows sets it itself |
 
 <a id="g129"></a>
 ### 129. Disable last access time

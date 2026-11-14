@@ -5,6 +5,13 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- VM run of 14 Nov 2026 (Windows 11 x64, every stage exit code 0, health 0 failed, revert 1416 values, 0 differ, inventory
+  0 unknown after review): Apply 17.1 to 9.6 min, Reapply 2.0 to 0.7 min, Revert 17.0 to 1.6 min, the whole test 47 to 25
+  min against the run of 13 Nov before the speed work.
+- Fixes from the CI history: restoring a task falls back to Register-ScheduledTask when Task Scheduler's own interface
+  refuses it (`CleanupOldPerfLogs` on Windows Server was not restored since the direct route in v8.0); Spotlight's
+  `EnabledState` joins the values Windows rewrites after a revert; a revert difference now fails the smoke run; a bad
+  value in the previous step times no longer stops the summary.
 - From the first VM inventory (14 Nov 2026): `SvcSysMain` (on) disables SysMain (Superfetch); Edge's in-game overlay
   `Microsoft.Edge.GameAssist` joins the app list. The other 89 unknown items were core Windows or kept on purpose and are
   now in `tools\inventory-known.json` with their reasons; the inventory also sees services and apps handled by steps of

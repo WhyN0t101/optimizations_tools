@@ -567,6 +567,9 @@ $WindowsRewrittenValues = @(
     # The policy store cache: Windows recomputes it from the policies in force. On the Windows 11 ARM runner (13 Nov
     # 2026) -Revert wrote the original 1 back and Windows had set it to 0 again from that image's own policy.
     'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\CPSS\Store\AllowTelemetry|Value'
+    # Spotlight keeps its own on/off state: on the Windows 11 ARM runner about half the runs found 0 again right after
+    # -Revert wrote the original 1 back, with the same code (CI, 13 and 14 Nov 2026).
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings|EnabledState'
 )
 
 function Test-WindowsRewritten {
