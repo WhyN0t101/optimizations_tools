@@ -400,7 +400,16 @@ function Test-HealthDefender {
     else { Write-Health 'WARN' 'Defender' 'Real time protection is off. If you did not choose that, run with -Defender Enable.' }
 
     if ($Opt['DefenderQuiet']) {
-        $pref = Get-MpPreference -ErrorAction Stop
+        # Defender's live settings cannot be read while it is off (0x800106ba with -Defender Disable, VM run of 14 Nov
+        # 2026); the quiet policy values themselves are checked in the Registry area either way.
+        $pref = $null
+        try { $pref = Get-MpPreference -ErrorAction Stop }
+        catch {
+            if (-not $rt) { Write-Health 'INFO' 'Defender' "Defender's live settings cannot be read while it is off; the quiet policy values are checked under Registry."; $pref = $null }
+            else { throw }
+        }
+    }
+    if ($Opt['DefenderQuiet'] -and $pref) {
         if ([int]$pref.MAPSReporting -eq 0 -and [int]$pref.SubmitSamplesConsent -eq 2) { Write-Health 'PASS' 'Defender' 'Cloud reporting is off and sample submission is set to never send.' }
         else { Write-Health 'WARN' 'Defender' "Defender still reports to the cloud (MAPSReporting $($pref.MAPSReporting), SubmitSamplesConsent $($pref.SubmitSamplesConsent)). Tamper Protection can block the policy; turn it off and run again." }
     }

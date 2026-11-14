@@ -4654,6 +4654,23 @@ function Reset-ConsentDatabase {
     Write-Log 'Capability consent database reset (backup kept).' 'OK'
 }
 
+function Restore-ExplorerValues {
+    # For -Revert: Explorer saves its own copy of its settings when it exits, so it is stopped first (forced, so it
+    # saves nothing), the values are written again, and Explorer is started if Windows did not start it by itself.
+    param([object[]]$Entries)
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    $entries = @($Entries)
+    [array]::Reverse($entries)   # oldest record last, as in the main restore
+    foreach ($e in $entries) {
+        try { Restore-RegValue -Entry $e }
+        catch { Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name) again. $($_.Exception.Message)" 'WARN' }
+    }
+    Start-Sleep -Seconds 3
+    if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process -FilePath (Join-Path $env:windir 'explorer.exe') }
+    Write-Log "Explorer restarted with $($entries.Count) restored setting(s)." 'OK'
+}
+
 function Update-UserVisuals {
     if ($Ctx.DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
     1..5 | ForEach-Object { & rundll32.exe user32.dll, UpdatePerUserSystemParameters, 1, True; Start-Sleep -Milliseconds 5 }
@@ -5901,7 +5918,16 @@ function Test-HealthDefender {
     else { Write-Health 'WARN' 'Defender' 'Real time protection is off. If you did not choose that, run with -Defender Enable.' }
 
     if ($Opt['DefenderQuiet']) {
-        $pref = Get-MpPreference -ErrorAction Stop
+        # Defender's live settings cannot be read while it is off (0x800106ba with -Defender Disable, VM run of 14 Nov
+        # 2026); the quiet policy values themselves are checked in the Registry area either way.
+        $pref = $null
+        try { $pref = Get-MpPreference -ErrorAction Stop }
+        catch {
+            if (-not $rt) { Write-Health 'INFO' 'Defender' "Defender's live settings cannot be read while it is off; the quiet policy values are checked under Registry."; $pref = $null }
+            else { throw }
+        }
+    }
+    if ($Opt['DefenderQuiet'] -and $pref) {
         if ([int]$pref.MAPSReporting -eq 0 -and [int]$pref.SubmitSamplesConsent -eq 2) { Write-Health 'PASS' 'Defender' 'Cloud reporting is off and sample submission is set to never send.' }
         else { Write-Health 'WARN' 'Defender' "Defender still reports to the cloud (MAPSReporting $($pref.MAPSReporting), SubmitSamplesConsent $($pref.SubmitSamplesConsent)). Tamper Protection can block the policy; turn it off and run again." }
     }
@@ -6847,6 +6873,10 @@ function Invoke-Revert {
         }
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
+    # A running Explorer keeps its own copy of these settings and saves it over the restored values (HideIcons came back
+    # as 1 a minute after the restore, VM run of 14 Nov 2026). Stop it, write them again, and Windows starts it fresh.
+    $explorerValues = @($script:State.Registry | Where-Object { $_.Path -like 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer*' })
+    if ($explorerValues.Count -gt 0) { Invoke-Step 'Restart Explorer with the restored settings' { Restore-ExplorerValues -Entries $explorerValues } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
     Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {

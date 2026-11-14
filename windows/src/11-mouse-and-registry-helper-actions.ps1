@@ -152,6 +152,23 @@ function Reset-ConsentDatabase {
     Write-Log 'Capability consent database reset (backup kept).' 'OK'
 }
 
+function Restore-ExplorerValues {
+    # For -Revert: Explorer saves its own copy of its settings when it exits, so it is stopped first (forced, so it
+    # saves nothing), the values are written again, and Explorer is started if Windows did not start it by itself.
+    param([object[]]$Entries)
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    $entries = @($Entries)
+    [array]::Reverse($entries)   # oldest record last, as in the main restore
+    foreach ($e in $entries) {
+        try { Restore-RegValue -Entry $e }
+        catch { Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name) again. $($_.Exception.Message)" 'WARN' }
+    }
+    Start-Sleep -Seconds 3
+    if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process -FilePath (Join-Path $env:windir 'explorer.exe') }
+    Write-Log "Explorer restarted with $($entries.Count) restored setting(s)." 'OK'
+}
+
 function Update-UserVisuals {
     if ($Ctx.DryRun) { Write-Log 'DRY RUN, would: refresh user settings and restart Explorer.'; return }
     1..5 | ForEach-Object { & rundll32.exe user32.dll, UpdatePerUserSystemParameters, 1, True; Start-Sleep -Milliseconds 5 }

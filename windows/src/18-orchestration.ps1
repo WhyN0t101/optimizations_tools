@@ -610,6 +610,10 @@ function Invoke-Revert {
         }
     }
     if ($script:State.CreatedKeys.Count -gt 0) { Invoke-Step 'Remove registry keys created by the run' { Remove-CreatedKeys } }
+    # A running Explorer keeps its own copy of these settings and saves it over the restored values (HideIcons came back
+    # as 1 a minute after the restore, VM run of 14 Nov 2026). Stop it, write them again, and Windows starts it fresh.
+    $explorerValues = @($script:State.Registry | Where-Object { $_.Path -like 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer*' })
+    if ($explorerValues.Count -gt 0) { Invoke-Step 'Restart Explorer with the restored settings' { Restore-ExplorerValues -Entries $explorerValues } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
     Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {
