@@ -5,6 +5,10 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+Nothing yet.
+
+## v8.1 (14 Nov 2026)
+
 - Max VM run of 14 Nov 2026 (defaults plus every option that is off by default except NvmeNativeDriver, -Defender Disable,
   -PowerMode Best; Windows 11 x64): every stage exit code 0, health 0 failed. Footprint after the restart: processes 122
   to 86, running services 84 to 56, committed memory 1752 to 1103 MB, timer 15.6 to 0.5 ms, Sleep(1) 15.8 to 1.6 ms (a
