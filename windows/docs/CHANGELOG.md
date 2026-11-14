@@ -5,6 +5,9 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- From the CI inventory of the Windows 11 ARM runner: `Microsoft.WidgetsPlatformRuntime` (the Widgets engine, idle once
+  the board and feed are gone) joins the app list; the runner's own Azure, Hyper-V, Remote Desktop and SQL components are
+  in the reviewed list as runner image. The inventory annotation now carries the full list (annotations are public).
 - VM run of 14 Nov 2026 (Windows 11 x64, every stage exit code 0, health 0 failed, revert 1416 values, 0 differ, inventory
   0 unknown after review): Apply 17.1 to 9.6 min, Reapply 2.0 to 0.7 min, Revert 17.0 to 1.6 min, the whole test 47 to 25
   min against the run of 13 Nov before the speed work.

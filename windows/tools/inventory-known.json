@@ -1,5 +1,5 @@
 {
-  "_comment": "Items tools/Get-Inventory.ps1 found that FocusedTweaks leaves alone on purpose, with the reason. Names may hold wildcards. Anything here stops being reported as unknown. First filled from the Windows 11 x64 VM inventory of 14 Nov 2026.",
+  "_comment": "Items tools/Get-Inventory.ps1 found that FocusedTweaks leaves alone on purpose, with the reason. Names may hold wildcards. Anything here stops being reported as unknown. First filled from the Windows 11 x64 VM inventory of 14 Nov 2026. Extended from the CI inventory of the Windows 11 ARM runner (Enterprise build server image) the same day.",
   "services": {
     "RpcSs": "core: Remote Procedure Call, everything depends on it",
     "RpcEptMapper": "core: RPC endpoint mapper",
@@ -75,7 +75,26 @@
     "VM3DService": "VMware guest only",
     "lmhosts": "network: NetBIOS name resolution; disabling can break finding PCs and shares at home, for no real gain",
     "MSDTC": "on demand: database transactions, starts only when a program asks for it",
-    "PushToInstall": "Store: on demand, installs apps sent from the Store website; the Store is kept"
+    "PushToInstall": "Store: on demand, installs apps sent from the Store website; the Store is kept",
+    "AppReadiness": "core: prepares apps at a new sign in",
+    "SensorService": "devices: sensors (screen rotation, light); laptops and tablets need it",
+    "W32Time": "core: Windows Time; TimeServerPool sets its server, the time sync task is kept",
+    "XtaCache": "ARM only: cache of x64 code translated for ARM, x64 apps run faster with it",
+    "SharedAccess": "network: Internet Connection Sharing, only runs when something shares a connection",
+    "CertPropSvc": "runner image: smart card certificate propagation, on demand on a home PC",
+    "pla": "runner image: performance logs, on demand on a home PC",
+    "WinRM": "runner image: remote management, off on a home PC by default",
+    "TermService": "runner image: Remote Desktop host, off on a home PC by default",
+    "SessionEnv": "runner image: Remote Desktop configuration",
+    "UmRdpService": "runner image: Remote Desktop port redirector",
+    "hns": "runner image: Hyper-V and containers network (HypervisorFeatures decides Hyper-V)",
+    "nvagent": "runner image: Hyper-V network virtualisation",
+    "vmcompute": "runner image: Hyper-V host compute (HypervisorFeatures decides Hyper-V)",
+    "vmms": "runner image: Hyper-V management (HypervisorFeatures decides Hyper-V)",
+    "vmic*": "runner image: Hyper-V guest integration services, the runner itself is a VM",
+    "RdAgent": "runner image: Azure agent",
+    "WindowsAzureGuestAgent": "runner image: Azure agent",
+    "SQLWriter": "runner image: SQL Server backup writer, comes with SQL Server"
   },
   "apps": {
     "Microsoft.ApplicationCompatibilityEnhancements": "system: app compatibility fixes delivered through the Store",
@@ -93,6 +112,11 @@
     "WCF-TCP-PortSharing45": ".NET Framework 4 component",
     "MSRDC-Infrastructure": "Remote Desktop client infrastructure",
     "Windows-Defender-Default-Definitions": "security: Defender's built in signatures",
-    "SmbDirect": "network: file sharing over RDMA network cards, costs nothing without that hardware"
+    "SmbDirect": "network: file sharing over RDMA network cards, costs nothing without that hardware",
+    "Microsoft-Hyper-V*": "Hyper-V parts; HypervisorFeatures (off by default) turns Hyper-V off with all its parts",
+    "Containers*": "runner image: Windows containers, developer feature",
+    "Client-ProjFS": "developer feature: Projected File System (used by some source control tools)",
+    "NetFx4Extended-ASPNET45": ".NET Framework 4 component",
+    "Microsoft-Windows-Camera-CCX-Deployment": "camera support components"
   }
 }

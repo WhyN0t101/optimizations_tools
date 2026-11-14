@@ -1960,7 +1960,10 @@ $AppsToRemove = @(
     'Microsoft.NetworkSpeedTest', 'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.RemoteDesktop',
     'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*',
     # From the VM inventory of 14 Nov 2026: Edge's in-game browser overlay, installed for new users too.
-    'Microsoft.Edge.GameAssist'
+    'Microsoft.Edge.GameAssist',
+    # From the CI inventory of the Windows 11 runner (14 Nov 2026): the engine behind Widgets, idle once the Widgets board
+    # and its feed above are gone.
+    'Microsoft.WidgetsPlatformRuntime'
 )
 
 # Never removed, whatever else is listed. Photos needs the image codec extensions kept below.

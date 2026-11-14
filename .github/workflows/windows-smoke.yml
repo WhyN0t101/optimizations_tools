@@ -63,8 +63,9 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Get-Inventory.ps1 -Script dist\FocusedTweaks.ps1 -Known windows\tools\inventory-known.json -Previous inventory-prev\inventory.json -OutDir inventory
           if (Test-Path inventory\summary.txt) {
             @('### Inventory of the fresh image', '```') + @(Get-Content inventory\summary.txt) + @('```') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
-            $head = @(Get-Content inventory\summary.txt | Where-Object { $_ -notmatch '^\s+\?' }) -join '%0A'
-            Write-Host "::notice title=Inventory::$head"
+            # The whole list, not just the counts: annotations are public, the job summary needs a signed in reader.
+            $all = (@(Get-Content inventory\summary.txt) -join "`n") -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Host "::notice title=Inventory::$all"
           }
 
       # The step times of the last run on this runner, so the summary shows each step against it and flags one that
