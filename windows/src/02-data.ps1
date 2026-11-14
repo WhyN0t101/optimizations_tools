@@ -193,6 +193,16 @@ $DefenderQuietRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Reporting' 'DisableEnhancedNotifications' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableNotifications' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableEnhancedNotifications' 1 'DWord'
+    # Defender's own usage telemetry and Microsoft's remote experiments and configuration for it; protection is unchanged
+    # (privacy.sexy cross-check, 14 Nov 2026).
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Features' 'DisableCoreService1DSTelemetry' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Features' 'DisableCoreServiceECSIntegration' 1 'DWord'
+)
+
+# Debloat, beside the app removal: Windows Update's set up stage installs the new Outlook again after it was removed;
+# this blocks that one updater (privacy.sexy cross-check, 14 Nov 2026).
+$DebloatRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'BlockedOobeUpdaters' '["MS_Outlook"]' 'String'
 )
 
 # Network adapter driver keywords (from Ultimate, 6 Windows\26). Only keywords a driver already exposes are changed.
@@ -338,6 +348,8 @@ $WindowsAIRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeErase' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableRemoveBackground' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCopilotPinScreen' 1 'DWord'
+    # Copilot opening by itself at sign in on large screens (privacy.sexy cross-check, 14 Nov 2026).
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'AutoOpenCopilotLargeScreens' 0 'DWord'
 )
 
 # More telemetry off, from the coverage comparison (docs/COVERAGE.md, Nov 2026): values two or more of winutil,
@@ -380,6 +392,16 @@ $TelemetryExtraRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWebOverMeteredConnections' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'EnableDynamicContentInWSB' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1 'DWord'
+    # From the single-project review of docs/COVERAGE.md (14 Nov 2026): no cloud configuration downloads (OneSettings),
+    # no Spotlight (wallpapers, tips and ads downloaded in the background), no automatic offline map downloads, no Find My
+    # Device (it sends the location), no cross-device experiences (its app is removed).
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DisableOneSettingsDownloads' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightFeatures' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\CloudContent' 'DisableSpotlightCollectionOnDesktop' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps' 'AutoDownloadAndUpdateMapData' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps' 'AllowUntriggeredNetworkTrafficOnSettingsPage' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\FindMyDevice' 'AllowFindMyDevice' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility' 'CrossDeviceEnabled' 0 'DWord'
     # NVIDIA driver and control panel telemetry opt-out (next to NvidiaTelemetryStrip, which removes the files).
     New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'OptInOrOutPreference' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID44231' 0 'DWord'
@@ -478,6 +500,8 @@ $MouseFullRateRegs = @(
 $StartupDelayRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState' 0 'DWord'
+    # New accounts go straight to the desktop instead of the "Hi, we're getting things ready" animation (Sophia Script).
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'EnableFirstLogonAnimation' 0 'DWord'
 )
 
 # Windows 11 turns on BitLocker device encryption by itself at setup or sign in on many PCs. This stops it doing
@@ -573,6 +597,9 @@ $WindowsRewrittenValues = @(
     # Spotlight keeps its own on/off state: on the Windows 11 ARM runner about half the runs found 0 again right after
     # -Revert wrote the original 1 back, with the same code (CI, 13 and 14 Nov 2026).
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings|EnabledState'
+    # Cross device resume keeps its own list of apps it supports: upstream sets IsSupported to 0, and in three VM runs
+    # (13 and 14 Nov 2026) Windows had it at 1 again by the health check. Wildcard: the list holds one key per app.
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration\DynamicAppListing\*|IsSupported'
 )
 
 function Test-WindowsRewritten {

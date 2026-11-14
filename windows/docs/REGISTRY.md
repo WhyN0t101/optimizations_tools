@@ -468,7 +468,7 @@ Option: `Registry`
 | `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration` | IsResumeAllowed | DWord | 0 (0x00000000) |  |
 | `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration` | IsOneDriveResumeAllowed | DWord | 0 (0x00000000) |  |
 | `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration\DynamicAppListing\onedrive` | IsEnabled | DWord | 0 (0x00000000) |  |
-| `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration\DynamicAppListing\onedrive` | IsSupported | DWord | 0 (0x00000000) |  |
+| `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration\DynamicAppListing\onedrive` | IsSupported | DWord | 0 (0x00000000) | Windows sets it itself |
 | `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\PolicyManager\default\Connectivity\DisableCrossDeviceResume` | value | DWord | 1 (0x00000001) |  |
 | `HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\1387020943` | EnabledState | DWord | 1 (0x00000001) |  |
 | `HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\FeatureManagement\Overrides\8\3974600846` | EnabledState | DWord | 1 (0x00000001) |  |

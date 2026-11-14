@@ -332,6 +332,7 @@ function Invoke-ApplySteps {
     if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
     if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' -Option 'Debloat' { Remove-BloatApps } }
+    if ($Opt['Debloat']) { Invoke-Step 'Block removed apps coming back' -Option 'Debloat' { Set-TweakList $DebloatRegs } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
     if ($Opt['RemoveOneDrive']) { Invoke-Step 'Remove OneDrive' -Option 'RemoveOneDrive' { Remove-OneDrive } }

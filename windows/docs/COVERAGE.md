@@ -19,11 +19,11 @@ How many of each project's items FocusedTweaks also changes (kept: left alone on
 | Project | Registry values | Services | Store apps |
 |---|---|---|---|
 | winutil | 88 of 118 | 5 of 8 | 24 of 34 (10 kept) |
-| win11debloat | 143 of 215 | 0 of 0 | 61 of 164 (14 kept) |
-| sophia | 49 of 156 | 2 of 4 | 0 of 0 |
-| privacysexy | 142 of 516 | 21 of 56 | 43 of 111 (23 kept) |
+| win11debloat | 145 of 215 | 0 of 0 | 62 of 164 (14 kept) |
+| sophia | 50 of 156 | 2 of 4 | 0 of 0 |
+| privacysexy | 150 of 516 | 21 of 56 | 43 of 111 (23 kept) |
 
-## Registry values the others change and FocusedTweaks does not (565)
+## Registry values the others change and FocusedTweaks does not (554)
 
 Changed by two or more projects (15):
 
@@ -45,7 +45,7 @@ Changed by two or more projects (15):
 | sophia, privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer ! SmartScreenEnabled` | Off, Warn | sophia: AppsSmartScreen; privacysexy: Disable SmartScreen checks for apps and files (no... |
 | winutil, sophia | `HKU\.Default\Control Panel\Keyboard ! InitialKeyboardIndicators` | 2, 2147483648, 2147483650 | winutil: Num Lock on Startup; sophia: NumLock |
 
-<details><summary>Changed by one project (550)</summary>
+<details><summary>Changed by one project (539)</summary>
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
@@ -160,8 +160,6 @@ Changed by two or more projects (15):
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\NamingTemplates ! ShortcutNameTemplate` | %s.lnk | sophia: ShortcutsSuffix |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\OperationStatusManager ! EnthusiastMode` | 0, 1 | sophia: FileTransferDialog |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders ! {B7BEDE81-DF94-4682-A7D8-57A52620B86F}` | $DesktopFolder | sophia: WinPrtScrFolder |
-| privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility ! CrossDeviceEnabled` | 0 | privacysexy: Remove "Cross Device Experience Host" app (strict) |
-| privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings ! AutoOpenCopilotLargeScreens` | 0 | privacysexy: Disable Copilot auto-launch on start (strict) |
 | sophia | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments ! SaveZoneInformation` | 1 | sophia: SaveZoneInformation |
 | privacysexy | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer ! ClearRecentDocsOnExit` | 1 | privacysexy: Clear recently opened document history upon exit (strict) |
 | win11debloat | `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer ! NoStartMenuMorePrograms` | delete, dword:00000001 | win11debloat: DisableStartAllApps, StartAllAppsCategory |
@@ -200,7 +198,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKCU\Software\Policies\Microsoft\Office\16.0\Outlook\Options ! HideNewOutlookToggle` | 1 | privacysexy: Remove "Try the new Outlook" toggle (strict) |
 | winutil | `HKCU\Software\Policies\Microsoft\Office\16.0\Outlook\Options\General ! DoNewOutlookAutoMigration` | 0 | winutil: Microsoft Outlook New Version |
 | winutil | `HKCU\SOFTWARE\Policies\Microsoft\Power\PowerSettings\f15576e8-98b7-4186-b944-eafa664402d9 ! ACSettingIndex` | 1 | winutil: S0 Sleep Network Connectivity |
-| win11debloat | `HKCU\Software\Policies\Microsoft\Windows\CloudContent ! DisableSpotlightCollectionOnDesktop` | delete, dword:00000001 | win11debloat: EnableDesktopSpotlight, DisableDesktopSpotlight |
 | privacysexy | `HKCU\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications ! NoTileApplicationNotification` | 1 | privacysexy: Disable Live Tiles push notifications (standard) |
 | privacysexy | `HKCU\Software\Policies\Microsoft\Windows\EdgeUI ! DisableRecentApps` | 1 | privacysexy: Disable recent apps (standard) |
 | privacysexy | `HKCU\Software\Policies\Microsoft\Windows\EdgeUI ! TurnOffBackstack` | 1 | privacysexy: Disable backtracking (standard) |
@@ -253,7 +250,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\Overrides\{BFA794E4-F964-4FDB-90F6-51056BFE4B44} ! Value` | Deny | privacysexy: Disable location (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization ! MinVmVersionForCpuBasedMitigations` | 1.0 | privacysexy: Mitigate Spectre Variant 2 and Meltdown in Hyper-V (not recommended by def... |
 | sophia | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon ! AutoRestartShell` | 0, 1 | sophia: OneDrive |
-| sophia | `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon ! EnableFirstLogonAnimation` | 0, 1 | sophia: FirstLogonAnimation |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppHost ! Enabled` | 0 | privacysexy: Disable SmartScreen web content checking for Store apps (not recommended b... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppHost ! PreventOverride` | 0 | privacysexy: Enable SmartScreen warning dismissal for Store apps (not recommended by de... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config ! DODownloadMode` | 0 | privacysexy: Disable update and app peer downloads (standard) |
@@ -337,7 +333,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKLM\Software\Microsoft\Windows\Windows Error Reporting\Consent ! DefaultOverrideBehavior` | 1 | privacysexy: Disable error reporting (standard) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\Windows\WindowsUpdate ! ExcludeWUDriversInQualityUpdate` | 1 | privacysexy: Disable Windows Update driver downloads (strict) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsSelfHost\UI\Visibility ! HideInsiderPage` | 1 | privacysexy: Remove "Windows Insider Program" from Settings (not recommended by default) |
-| privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate ! BlockedOobeUpdaters` | ["MS_Outlook"] | privacysexy: Disable Outlook automatic installation (strict) |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\PolicyState ! DeferFeatureUpdates` | 1 | privacysexy: Maximize feature update duration (disables resuming updates from settings)... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\PolicyState ! DeferQualityUpdates` | 1 | privacysexy: Maximize quality update duration (disables resuming updates from settings)... |
 | privacysexy | `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\PolicyState ! FeatureUpdatesPaused` | 1 | privacysexy: Maximize feature update duration (disables resuming updates from settings)... |
@@ -365,7 +360,6 @@ Changed by two or more projects (15):
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}` | 0 | sophia: PreventEdgeShortcutCreation |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}` | 0 | sophia: PreventEdgeShortcutCreation |
 | sophia | `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate ! CreateDesktopShortcut{65C35B14-6C1D-4122-AC46-7148CC9D6497}` | 0 | sophia: PreventEdgeShortcutCreation |
-| win11debloat | `HKLM\SOFTWARE\Policies\Microsoft\FindMyDevice ! AllowFindMyDevice` | dword:00000000 | win11debloat: DisableFindMyDevice |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Internet Explorer\Safety\PrivacIE ! DisableLogging` | 1 | privacysexy: Disable Internet Explorer InPrivate logging (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Internet Explorer\SQM ! DisableCustomerImprovementProgram` | 0 | privacysexy: Disable Internet Explorer Customer Experience Improvement Program (CEIP) p... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Microsoft Antimalware ! AllowFastServiceStartup` | 0 | privacysexy: Disable Defender Antivirus service high-priority startup (strict) |
@@ -393,8 +387,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Virus and threat protection ! HideRansomwareRecovery` | 1 | privacysexy: Disable "Ransomware data recovery" section in "Windows Security (not recom... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Virus and threat protection ! UILockdown` | 1 | privacysexy: Disable "Virus and threat protection" section in "Windows Security (not re... |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions ! DisableAutoExclusions` | 1 | privacysexy: Disable Defender auto-exclusions (not recommended by default) |
-| privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\Features ! DisableCoreService1DSTelemetry` | 1 | privacysexy: Disable Defender Antivirus telemetry (strict) |
-| privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\Features ! DisableCoreServiceECSIntegration` | 1 | privacysexy: Disable Defender Antivirus remote experimentation and configurations (strict) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\MpEngine ! EnableFileHashComputation` | 0 | privacysexy: Disable file hash computation feature (not recommended by default) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\MpEngine ! MpBafsExtendedTimeout` | 50 | privacysexy: Disable Defender Antivirus "Extended Cloud Check" feature (strict) |
 | privacysexy | `HKLM\Software\Policies\Microsoft\Windows Defender\MpEngine ! MpCloudBlockLevel` | 0 | privacysexy: Disable Defender Antivirus aggressive cloud protection (strict) |
@@ -484,7 +476,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! AllowDesktopAnalyticsProcessing` | 0 | privacysexy: Disable processing of Desktop Analytics (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! AllowUpdateComplianceProcessing` | 0 | privacysexy: Disable Update Compliance processing of diagnostics data (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! AllowWUfBCloudProcessing` | 0 | privacysexy: Disable diagnostics data processing for Business cloud (strict) |
-| privacysexy | `HKLM\Software\Policies\Microsoft\Windows\DataCollection ! DisableOneSettingsDownloads` | 1 | privacysexy: Disable automatic cloud configuration downloads (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection ! MicrosoftEdgeDataOptIn` | 0 | privacysexy: Disable collection of Edge browsing data for Desktop Analytics (strict) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard ! ConfigureSystemGuardLaunch` | 2 | privacysexy: Disable System Guard startup verification (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard ! HVCIMATRequired` | 0 | privacysexy: Disable virtualization-based security (VBS) (not recommended by default) |
@@ -500,8 +491,6 @@ Changed by two or more projects (15):
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableLocationScripting` | 1 | privacysexy: Disable location scripting (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableSensors` | 1 | privacysexy: Disable device sensors (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors ! DisableWindowsLocationProvider` | 1 | privacysexy: Disable Windows Location Provider (not recommended by default) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps ! AllowUntriggeredNetworkTrafficOnSettingsPage` | 0 | privacysexy: Disable automatic map downloads (standard) |
-| privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps ! AutoDownloadAndUpdateMapData` | 0 | privacysexy: Disable automatic map downloads (standard) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\NetworkConnectivityStatusIndicator ! DisablePassivePolling` | 1 | privacysexy: >- (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\NetworkConnectivityStatusIndicator ! NoActiveProbe` | 1 | privacysexy: >- (not recommended by default) |
 | privacysexy | `HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive ! DisableFileSync` | 1 | privacysexy: Disable OneDrive usage (strict) |
@@ -655,14 +644,14 @@ Changed by two or more projects (1):
 
 </details>
 
-## Store apps the others change and FocusedTweaks does not (134)
+## Store apps the others change and FocusedTweaks does not (133)
 
 Changed by two or more projects (0):
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
 
-<details><summary>Changed by one project (134)</summary>
+<details><summary>Changed by one project (133)</summary>
 
 | Projects | Item | Their value | What for |
 |---|---|---|---|
@@ -748,7 +737,6 @@ Changed by two or more projects (0):
 | privacysexy | `Microsoft.PPIProjection` | remove | privacysexy: Remove "Microsoft PPI Projection" app (strict) |
 | win11debloat | `Microsoft.SurfaceHub` | remove | win11debloat: optional |
 | win11debloat | `Microsoft.Whiteboard` | remove | win11debloat: optional |
-| win11debloat | `Microsoft.WidgetsPlatformRuntime` | remove | win11debloat: optional |
 | privacysexy | `Microsoft.Win32WebViewHost` | remove | privacysexy: Remove "Win32 Web View Host" / "Desktop App Web Viewer" app (strict) |
 | win11debloat | `Microsoft.Windows.AIHub` | remove | win11debloat: selected by default |
 | privacysexy | `Microsoft.Windows.Apprep.ChxApp` | remove | privacysexy: Remove "ChxApp" app (not recommended by default) |

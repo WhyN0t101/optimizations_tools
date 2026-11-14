@@ -5,6 +5,14 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- VM run of 14 Nov 2026 with the nine new values (Windows 11 x64): every stage exit code 0, health 0 failed, revert 1428
+  values, 0 differ, inventory 0 unknown. Cross device resume's per app `IsSupported`, which Windows sets back to 1 by
+  itself (three VM runs), is now a note instead of a health warning.
+- From the review of the single-project items in docs/COVERAGE.md (9 picked of 345 after filtering): Debloat also stops
+  Windows Update installing the new Outlook again; WindowsAIOff stops Copilot opening itself at sign in; TelemetryExtra
+  adds no cloud configuration downloads (OneSettings), Spotlight, automatic map downloads, Find My Device and cross-device
+  experiences; DefenderQuiet adds Defender's own telemetry and remote experiments (protection unchanged); StartupDelayOff
+  adds no first sign in animation for new accounts.
 - From the CI inventory of the Windows 11 ARM runner: `Microsoft.WidgetsPlatformRuntime` (the Widgets engine, idle once
   the board and feed are gone) joins the app list; the runner's own Azure, Hyper-V, Remote Desktop and SQL components are
   in the reviewed list as runner image. The inventory annotation now carries the full list (annotations are public).

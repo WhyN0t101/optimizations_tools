@@ -299,6 +299,7 @@ function Test-HealthRegistry {
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
     if ($Opt['BrowserPolicies']) { Test-HealthTweakTable -Label 'Browser ads, telemetry and AI off' -Tweaks $BrowserPolicyRegs }
     if ($Opt['StartupDelayOff']) { Test-HealthTweakTable -Label 'Startup delay off' -Tweaks $StartupDelayRegs }
+    if ($Opt['Debloat']) { Test-HealthTweakTable -Label 'Removed apps blocked from coming back' -Tweaks $DebloatRegs }
     if ($Opt['MouseFullRateBackground']) { Test-HealthTweakTable -Label 'Mouse full rate in the background' -Tweaks $MouseFullRateRegs }
     if ($Opt['NoDeviceEncryption']) { Test-HealthTweakTable -Label 'Automatic device encryption off' -Tweaks $NoDeviceEncryptionRegs }
     if ($Opt['UpdateNoReboot']) { Test-HealthTweakTable -Label 'No update restarts or early features' -Tweaks $UpdateNoRebootRegs }

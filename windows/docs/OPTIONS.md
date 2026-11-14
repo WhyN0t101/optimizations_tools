@@ -15,7 +15,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | Option | Default | Undone by -Revert | Evidence | What it does |
 |---|---|---|---|---|
 | `Packages` | on | no, installed software stays | n/a | winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present |
-| `Debloat` | on | no, reinstall apps from the Store or winget | Folklore | Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more) |
+| `Debloat` | on | no, reinstall apps from the Store or winget | Folklore | Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again |
 | `RemoveQuickAssist` | on | no, add it back with Add-WindowsCapability | n/a | Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert |
 | `RemoveOneDrive` | on | the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive | n/a | Uninstall OneDrive and block it by policy. Skipped while an account is signed in; files in the OneDrive folder stay on disk. Not reversible by -Revert |
 | `RemoveEdge` | off | no, reinstall with winget install Microsoft.Edge | n/a | Uninstall the Edge browser, keeping WebView2 and its updater (apps need them). Only where Windows allows it (device region in the EEA); refused while Edge is the default browser. Not reversible by -Revert |
@@ -53,7 +53,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | `ForceDpi100` | off | yes | Folklore | Force 100% display scaling and drop per-monitor scaling (upstream groups). Off: no speed gain, and it skews the mouse profile |
 | `MouseAccel` | on | yes | n/a | Turn off mouse acceleration using the profile for your display scaling |
 | `LockScreenOff` | off | yes | n/a | Skip the lock screen picture and go straight to sign in (policy) |
-| `StartupDelayOff` | on | yes | Folklore | Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds) |
+| `StartupDelayOff` | on | yes | Folklore | Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds), and no first sign in animation for new accounts |
 | `MouseFullRateBackground` | on | yes | Folklore | Windows 11: give windows in the background the mouse at its full polling rate instead of about 125 Hz (a game on a second screen, overlays). Check with tools\Test-Mouse.ps1 |
 
 ## Right click menu
@@ -81,14 +81,14 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | Option | Default | Undone by -Revert | Evidence | What it does |
 |---|---|---|---|---|
 | `TelemetryPolicy` | on | yes | Folklore | Telemetry, CEIP, app compatibility and advertising policy plus DiagTrack services |
-| `TelemetryExtra` | on | yes | n/a | More telemetry off by policy: error reporting, typing, inking and speech data, the advertising ID for your account, feedback prompts, feature trials, tips, Cortana and cloud results in search, location, NVIDIA, Office and Visual Studio telemetry (values for software that is not installed do nothing) |
+| `TelemetryExtra` | on | yes | n/a | More telemetry off by policy: error reporting, typing, inking and speech data, the advertising ID for your account, feedback prompts, feature trials, tips, Cortana and cloud results in search, location, NVIDIA, Office and Visual Studio telemetry, cloud configuration downloads, Spotlight, automatic map downloads, Find My Device and cross-device experiences (values for software that is not installed do nothing) |
 | `TelemetryHosts` | on | yes | Folklore | Block 30 Microsoft telemetry domains in the hosts file |
-| `WindowsAIOff` | on | yes | [n/a](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai) | Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), and the Edge sidebar with Copilot hidden (policy) |
+| `WindowsAIOff` | on | yes | [n/a](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai) | Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), the Edge sidebar with Copilot hidden, and no Copilot window opening by itself at sign in (policy) |
 | `BrowserPolicies` | on | yes | n/a | Edge, Chrome, Brave and Firefox: ads, recommendations, telemetry and AI features (Copilot, Gemini) off by policy. A browser with policies says it is managed by your organisation |
 | `BiometricsPolicy` | on | yes | n/a | Policy that disables biometrics (Windows Hello fingerprint and face) |
 | `Cdp` | on | services yes; the cache folder is deleted (Windows rebuilds it) | Folklore | Disable the Connected Devices Platform services and clear its cache |
 | `RazerAsusHosts` | on | yes | n/a | Block Razer and ASUS software download servers in the hosts file |
-| `DefenderQuiet` | on | yes | n/a | Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy) |
+| `DefenderQuiet` | on | yes | n/a | Keep Defender on but turn off cloud reporting, sample submission, infection reports, notifications, and its own telemetry and remote experiments (policy) |
 
 ## Services
 

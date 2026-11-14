@@ -173,7 +173,7 @@ $Ctx = [pscustomobject]@{
 # effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
     Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
-    Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more)', 'Folklore', '')
+    Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
     RunKeys               = @($true, 'Delete the startup entries in the HKCU and HKLM Run keys, except those named with -StartupKeep and Windows Security (-StartupReview lists the names)', 'Documented', 'https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys')
@@ -228,10 +228,10 @@ $OptionInfo = [ordered]@{
     EdgeBackground        = @($true, 'Stop Edge running in the background: no startup boost, no background apps once it is closed (policy; Edge then says it is managed)', 'Documented', 'https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies#startupboostenabled')
     LegacyFeatures        = @($true, 'Turn off the optional features SMB 1.0, PowerShell 2.0, Recall, Work Folders and Windows Media Player Legacy. Needs a restart', 'n/a', '')
     HypervisorFeatures    = @($false, 'Turn off Hyper-V, Virtual Machine Platform, Windows Hypervisor Platform, WSL and Windows Sandbox. Off: VMs and WSL need them. Needs a restart', 'Folklore', '')
-    WindowsAIOff          = @($true, 'Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), and the Edge sidebar with Copilot hidden (policy)', 'n/a', 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai')
-    TelemetryExtra        = @($true, 'More telemetry off by policy: error reporting, typing, inking and speech data, the advertising ID for your account, feedback prompts, feature trials, tips, Cortana and cloud results in search, location, NVIDIA, Office and Visual Studio telemetry (values for software that is not installed do nothing)', 'n/a', '')
+    WindowsAIOff          = @($true, 'Copilot and Windows AI off for your account too (the upstream group sets machine values; Microsoft documents some as per user), the Edge sidebar with Copilot hidden, and no Copilot window opening by itself at sign in (policy)', 'n/a', 'https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai')
+    TelemetryExtra        = @($true, 'More telemetry off by policy: error reporting, typing, inking and speech data, the advertising ID for your account, feedback prompts, feature trials, tips, Cortana and cloud results in search, location, NVIDIA, Office and Visual Studio telemetry, cloud configuration downloads, Spotlight, automatic map downloads, Find My Device and cross-device experiences (values for software that is not installed do nothing)', 'n/a', '')
     BrowserPolicies       = @($true, 'Edge, Chrome, Brave and Firefox: ads, recommendations, telemetry and AI features (Copilot, Gemini) off by policy. A browser with policies says it is managed by your organisation', 'n/a', '')
-    DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports and notifications (policy)', 'n/a', '')
+    DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports, notifications, and its own telemetry and remote experiments (policy)', 'n/a', '')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible', 'Folklore', '')
@@ -262,7 +262,7 @@ $OptionInfo = [ordered]@{
     MenuNoOneDrive        = @($false, 'Remove "Move to OneDrive" from the right click menu', 'n/a', '')
     MenuNoTerminal        = @($false, 'Remove "Open in Terminal" from the right click menu', 'n/a', '')
     MouseFullRateBackground = @($true, 'Windows 11: give windows in the background the mouse at its full polling rate instead of about 125 Hz (a game on a second screen, overlays). Check with tools\Test-Mouse.ps1', 'Folklore', '')
-    StartupDelayOff       = @($true, 'Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds)', 'Folklore', '')
+    StartupDelayOff       = @($true, 'Start startup apps at once instead of after the delay Explorer adds at sign in (about ten seconds), and no first sign in animation for new accounts', 'Folklore', '')
     NoDeviceEncryption    = @($true, 'Stop Windows turning on BitLocker device encryption by itself. A drive already encrypted stays encrypted; turn that off in Settings if wanted', 'n/a', '')
     UpdateNoReboot        = @($true, 'No automatic restart for updates while you are signed in, and no early feature rollouts ("Get the latest updates as soon as they are available" off)', 'n/a', '')
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
@@ -2074,6 +2074,16 @@ $DefenderQuietRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Reporting' 'DisableEnhancedNotifications' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableNotifications' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender Security Center\Notifications' 'DisableEnhancedNotifications' 1 'DWord'
+    # Defender's own usage telemetry and Microsoft's remote experiments and configuration for it; protection is unchanged
+    # (privacy.sexy cross-check, 14 Nov 2026).
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Features' 'DisableCoreService1DSTelemetry' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Features' 'DisableCoreServiceECSIntegration' 1 'DWord'
+)
+
+# Debloat, beside the app removal: Windows Update's set up stage installs the new Outlook again after it was removed;
+# this blocks that one updater (privacy.sexy cross-check, 14 Nov 2026).
+$DebloatRegs = @(
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'BlockedOobeUpdaters' '["MS_Outlook"]' 'String'
 )
 
 # Network adapter driver keywords (from Ultimate, 6 Windows\26). Only keywords a driver already exposes are changed.
@@ -2219,6 +2229,8 @@ $WindowsAIRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableGenerativeErase' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Paint' 'DisableRemoveBackground' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCopilotPinScreen' 1 'DWord'
+    # Copilot opening by itself at sign in on large screens (privacy.sexy cross-check, 14 Nov 2026).
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'AutoOpenCopilotLargeScreens' 0 'DWord'
 )
 
 # More telemetry off, from the coverage comparison (docs/COVERAGE.md, Nov 2026): values two or more of winutil,
@@ -2261,6 +2273,16 @@ $TelemetryExtraRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'ConnectedSearchUseWebOverMeteredConnections' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search' 'EnableDynamicContentInWSB' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors' 'DisableLocation' 1 'DWord'
+    # From the single-project review of docs/COVERAGE.md (14 Nov 2026): no cloud configuration downloads (OneSettings),
+    # no Spotlight (wallpapers, tips and ads downloaded in the background), no automatic offline map downloads, no Find My
+    # Device (it sends the location), no cross-device experiences (its app is removed).
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection' 'DisableOneSettingsDownloads' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightFeatures' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\CloudContent' 'DisableSpotlightCollectionOnDesktop' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps' 'AutoDownloadAndUpdateMapData' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Maps' 'AllowUntriggeredNetworkTrafficOnSettingsPage' 0 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\FindMyDevice' 'AllowFindMyDevice' 0 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Mobility' 'CrossDeviceEnabled' 0 'DWord'
     # NVIDIA driver and control panel telemetry opt-out (next to NvidiaTelemetryStrip, which removes the files).
     New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\NvControlPanel2\Client' 'OptInOrOutPreference' 0 'DWord'
     New-Tweak 'HKLM\SOFTWARE\NVIDIA Corporation\Global\FTS' 'EnableRID44231' 0 'DWord'
@@ -2359,6 +2381,8 @@ $MouseFullRateRegs = @(
 $StartupDelayRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'StartupDelayInMSec' 0 'DWord'
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize' 'WaitForIdleState' 0 'DWord'
+    # New accounts go straight to the desktop instead of the "Hi, we're getting things ready" animation (Sophia Script).
+    New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' 'EnableFirstLogonAnimation' 0 'DWord'
 )
 
 # Windows 11 turns on BitLocker device encryption by itself at setup or sign in on many PCs. This stops it doing
@@ -2454,6 +2478,9 @@ $WindowsRewrittenValues = @(
     # Spotlight keeps its own on/off state: on the Windows 11 ARM runner about half the runs found 0 again right after
     # -Revert wrote the original 1 back, with the same code (CI, 13 and 14 Nov 2026).
     'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings|EnabledState'
+    # Cross device resume keeps its own list of apps it supports: upstream sets IsSupported to 0, and in three VM runs
+    # (13 and 14 Nov 2026) Windows had it at 1 again by the health check. Wildcard: the list holds one key per app.
+    'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration\DynamicAppListing\*|IsSupported'
 )
 
 function Test-WindowsRewritten {
@@ -5773,6 +5800,7 @@ function Test-HealthRegistry {
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
     if ($Opt['BrowserPolicies']) { Test-HealthTweakTable -Label 'Browser ads, telemetry and AI off' -Tweaks $BrowserPolicyRegs }
     if ($Opt['StartupDelayOff']) { Test-HealthTweakTable -Label 'Startup delay off' -Tweaks $StartupDelayRegs }
+    if ($Opt['Debloat']) { Test-HealthTweakTable -Label 'Removed apps blocked from coming back' -Tweaks $DebloatRegs }
     if ($Opt['MouseFullRateBackground']) { Test-HealthTweakTable -Label 'Mouse full rate in the background' -Tweaks $MouseFullRateRegs }
     if ($Opt['NoDeviceEncryption']) { Test-HealthTweakTable -Label 'Automatic device encryption off' -Tweaks $NoDeviceEncryptionRegs }
     if ($Opt['UpdateNoReboot']) { Test-HealthTweakTable -Label 'No update restarts or early features' -Tweaks $UpdateNoRebootRegs }
@@ -6541,6 +6569,7 @@ function Invoke-ApplySteps {
     if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
     if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
     if ($Opt['Debloat']) { Invoke-Step 'App debloat' -Option 'Debloat' { Remove-BloatApps } }
+    if ($Opt['Debloat']) { Invoke-Step 'Block removed apps coming back' -Option 'Debloat' { Set-TweakList $DebloatRegs } }
     if ($Opt['PrivacyDenials']) { Invoke-Step 'Consent database reset' -Option 'PrivacyDenials' { Reset-ConsentDatabase } }
     if ($Opt['RemoveQuickAssist']) { Invoke-Step 'Remove Quick Assist' -Option 'RemoveQuickAssist' { Remove-QuickAssist } }
     if ($Opt['RemoveOneDrive']) { Invoke-Step 'Remove OneDrive' -Option 'RemoveOneDrive' { Remove-OneDrive } }
