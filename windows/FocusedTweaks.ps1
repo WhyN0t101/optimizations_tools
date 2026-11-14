@@ -266,6 +266,7 @@ $OptionInfo = [ordered]@{
     NoDeviceEncryption    = @($true, 'Stop Windows turning on BitLocker device encryption by itself. A drive already encrypted stays encrypted; turn that off in Settings if wanted', 'n/a', '')
     UpdateNoReboot        = @($true, 'No automatic restart for updates while you are signed in, and no early feature rollouts ("Get the latest updates as soon as they are available" off)', 'n/a', '')
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
+    SvcSysMain            = @($true, 'Disable SysMain (Superfetch): it preloads apps into memory and runs all the time; on an SSD that gains little and costs background disk and CPU work', 'Folklore', '')
     SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
@@ -1676,6 +1677,7 @@ $ServiceGroups = [ordered]@{
     SvcBackground = @('OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc')
     SvcAggressive = @('WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection')
     SvcUpdaters = @('AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service')
+    SvcSysMain = @('SysMain')
     SvcDefrag = @('defragsvc')
     SvcBiometrics = @('WbioSrvc')
     SvcSmartCard = @('SCardSvr', 'ScDeviceEnum', 'SCPolicySvc')
@@ -1956,7 +1958,9 @@ $AppsToRemove = @(
     # StartExperiencesApp is the Widgets board feed and Client.WebExperience the Widgets board itself.
     'Microsoft.WindowsCamera', 'Microsoft.windowscommunicationsapps', 'Microsoft.Messaging', 'Microsoft.MSPaint',
     'Microsoft.NetworkSpeedTest', 'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.RemoteDesktop',
-    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*'
+    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*',
+    # From the VM inventory of 14 Nov 2026: Edge's in-game browser overlay, installed for new users too.
+    'Microsoft.Edge.GameAssist'
 )
 
 # Never removed, whatever else is listed. Photos needs the image codec extensions kept below.

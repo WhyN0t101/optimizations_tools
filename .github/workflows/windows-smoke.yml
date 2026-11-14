@@ -45,6 +45,28 @@ jobs:
           name: FocusedTweaks
           path: dist
 
+      # What a fresh Windows 11 ships, before anything is changed: what FocusedTweaks does not know yet, and what is new
+      # since the last run on main (what a Windows update added). Reads only and never fails the run.
+      - name: Previous inventory
+        if: matrix.runner == 'windows-11-arm'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: inventory-prev
+          key: inventory-${{ matrix.runner }}-${{ github.run_id }}
+          restore-keys: inventory-${{ matrix.runner }}-
+
+      - name: Inventory of the fresh image
+        if: matrix.runner == 'windows-11-arm'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\Get-Inventory.ps1 -Script dist\FocusedTweaks.ps1 -Known windows\tools\inventory-known.json -Previous inventory-prev\inventory.json -OutDir inventory
+          if (Test-Path inventory\summary.txt) {
+            @('### Inventory of the fresh image', '```') + @(Get-Content inventory\summary.txt) + @('```') | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+            $head = @(Get-Content inventory\summary.txt | Where-Object { $_ -notmatch '^\s+\?' }) -join '%0A'
+            Write-Host "::notice title=Inventory::$head"
+          }
+
       # The step times of the last run on this runner, so the summary shows each step against it and flags one that
       # got much slower. Restoring by prefix picks the newest saved copy.
       - name: Previous step times
@@ -73,9 +95,23 @@ jobs:
           path: step-times
           key: step-times-${{ matrix.runner }}-${{ github.run_id }}
 
+      - name: Keep this inventory for the next run
+        if: success() && github.ref == 'refs/heads/main' && matrix.runner == 'windows-11-arm' && hashFiles('inventory/inventory.json') != ''
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path inventory-prev -Force | Out-Null
+          Copy-Item -LiteralPath inventory\inventory.json -Destination inventory-prev\inventory.json -Force
+      - if: success() && github.ref == 'refs/heads/main' && matrix.runner == 'windows-11-arm' && hashFiles('inventory/inventory.json') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: inventory-prev
+          key: inventory-${{ matrix.runner }}-${{ github.run_id }}
+
       - name: Keep the results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: smoke-results-${{ matrix.runner }}
-          path: smoke
+          path: |
+            smoke
+            inventory

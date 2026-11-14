@@ -62,6 +62,13 @@ into `.cache/` (ignored) and needs the network, so CI does not run it. Its rows 
 add it the usual way (option, journal, health check). Never copy from privacy.sexy (AGPL-3.0); credit an MIT project
 in NOTICE.md if its data is taken over, as with ZOICWARE.
 
+## What Windows ships (inventory)
+`tools\Get-Inventory.ps1` lists a Windows' services, tasks, Store apps, startup entries and optional features and marks
+each handled (read from the built script's lists), kept, reviewed (`tools\inventory-known.json`, with a reason) or
+unknown; with `-Previous` it also lists what is new since. The smoke run does it on the fresh Windows 11 runner before
+any stage (summary section "Inventory of the fresh image"; the last main run is kept in the Actions cache), and
+`Test-InVm.ps1 -Stages Inventory` in the VM. An unknown item ends up in an option or in inventory-known.json.
+
 ## When upstream changes
 Only if ZOICWARE becomes available again (or a fork is chosen): build once with `--zoicware <new checkout>
 --allow-other-commit` (the build asserts the expected list sizes and fails loudly), copy its three files into

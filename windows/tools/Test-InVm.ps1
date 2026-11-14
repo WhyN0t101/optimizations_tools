@@ -30,7 +30,7 @@ param(
     [string]$GuestUser = 'Administrator',
     [string]$ProfilePath,
     [string]$ScriptArgs = '',
-    [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Revert', 'StartupReview')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Benchmark', 'Revert'),
+    [ValidateSet('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Revert', 'StartupReview', 'Inventory')][string[]]$Stages = @('Dry', 'Benchmark', 'Apply', 'Health', 'Reapply', 'Benchmark', 'Revert'),
     [string]$OutDir,
     [int]$BootTimeoutSeconds = 600,
     [int]$StageTimeoutMinutes = 120
@@ -43,6 +43,8 @@ $repo = Split-Path $PSScriptRoot -Parent
 $scriptFile = Join-Path $repo 'FocusedTweaks.ps1'
 $explainFile = Join-Path $PSScriptRoot 'Explain-Processes.ps1'
 $measureFile = Join-Path $PSScriptRoot 'Measure-Performance.ps1'
+$inventoryFile = Join-Path $PSScriptRoot 'Get-Inventory.ps1'
+$knownFile = Join-Path $PSScriptRoot 'inventory-known.json'
 $guestDir = 'C:\FT'
 $guestPs = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not $OutDir) { $OutDir = Join-Path $repo ('test-results\{0:yyyyMMdd-HHmmss}' -f (Get-Date)) }
@@ -318,7 +320,7 @@ exit `$code
     # A done marker or zip left from an earlier test would end this stage at once with old results.
     foreach ($stale in $done, "$guestDir\out-$Name.zip") { [void](Invoke-Vmrun -Arguments @('deleteFileInGuest', $Vmx, $stale) -Guest -AllowFail) }
     if (Test-GuestFile -Path $done) { throw "Could not delete the old $done in the VM, so this stage would report old results." }
-    Write-Step "Stage $Name in the VM: FocusedTweaks.ps1 $Arguments"
+    Write-Step "Stage $Name in the VM: $Script $Arguments"
     $launch = Invoke-Vmrun -Arguments @('runProgramInGuest', $Vmx, '-noWait', '-activeWindow', '-interactive', $guestPs, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$guestDir\run-$Name.ps1") -Guest -AllowFail
     $problem = $null
     if ($launch.Code -ne 0) { $problem = "it did not start ($($launch.Output))" }
@@ -445,6 +447,10 @@ function Write-Summary {
             $diag = (Get-Content -LiteralPath $diagFile -TotalCount 1) -replace '^SUMMARY: ', ''
             if ($diag -notmatch 'update events=0; restart pending=no; restarted during stage=False; service crashes=0') { $lines.Add("    guest: $diag (see guest-diag.txt)") }
         }
+        if ($name -like '*-Inventory') {
+            # The counts and the unknown items; the full list is in that folder's inventory.json.
+            foreach ($l in @(Get-Content -LiteralPath (Join-Path $dir 'summary.txt') -ErrorAction SilentlyContinue)) { $lines.Add("    $l") }
+        }
         if ($name -like '*-Benchmark') {
             foreach ($l in @(Get-Content -LiteralPath (Join-Path $dir 'console.txt') -ErrorAction SilentlyContinue | Where-Object { $_ -match '\S' -and $_ -notmatch '^\d\d:\d\d:\d\d ' })) { $lines.Add("    $l") }
         }
@@ -504,6 +510,8 @@ Write-Step "Copying the script into $guestDir"
 if ($ProfilePath) { [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, (Resolve-Path -LiteralPath $ProfilePath).Path, "$guestDir\profile.json") -Guest) }
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $explainFile, "$guestDir\Explain-Processes.ps1") -Guest)
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $measureFile, "$guestDir\Measure-Performance.ps1") -Guest)
+[void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $inventoryFile, "$guestDir\Get-Inventory.ps1") -Guest)
+[void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $knownFile, "$guestDir\inventory-known.json") -Guest)
 $diagFile = Join-Path $OutDir 'collect-diag.ps1'
 $guestDiagScript | Set-Content -LiteralPath $diagFile -Encoding ASCII
 [void](Invoke-Vmrun -Arguments @('CopyFileFromHostToGuest', $Vmx, $diagFile, "$guestDir\collect-diag.ps1") -Guest)
@@ -529,6 +537,9 @@ foreach ($stage in $Stages) {
             finally { Set-GuestNetwork -Connected $true; Start-Sleep -Seconds 10 }   # time for DHCP before the next stage
         }
         'StartupReview' { Invoke-GuestStage -Name $label -Arguments '-StartupReview' }
+        # What the image ships, before or after a run (reads only): run it first on the fresh snapshot to see what
+        # FocusedTweaks does not know yet. Its inventory.json and summary.txt come back with the stage's results.
+        'Inventory' { Invoke-GuestStage -Name $label -Script 'Get-Inventory.ps1' -Arguments "-Script '$guestDir\FocusedTweaks.ps1' -Known '$guestDir\inventory-known.json' -OutDir `$out" }
         'Apply' { Wait-GuestServicing; Invoke-GuestStage -Name $label -Arguments "-Force $common"; Restore-ToolsAutostart; Restart-Guest; $restartedSinceRevert = $true }
         'Health' { Invoke-GuestStage -Name $label -Arguments '-HealthCheck' }
         # After the restart Windows has had a chance to set things back; -Reapply lists and fixes only that.

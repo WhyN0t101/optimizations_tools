@@ -131,7 +131,10 @@ groups['SvcAggressive'] = ['WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDe
 groups['SvcDiagnostics'] += ['WerSvc', 'wercplsupport', 'diagnosticshub.standardcollector.service', 'VSStandardCollectorService150']
 groups['SvcExtra'] += ['RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer']
 groups['SvcUpdaters'] = ['AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service']
-order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
+# From the VM inventory of 14 Nov 2026 (tools/Get-Inventory.ps1): SysMain (Superfetch) starts by itself and runs all the
+# time, preloading apps into memory; on an SSD that gains little and costs background disk and CPU work.
+groups['SvcSysMain'] = ['SysMain']
+order = ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'SvcSysMain', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting', 'SvcDeliveryOpt', 'SvcRadio']
 
 lines = ["# Telemetry policy rows from upstream gpTweaks (gpTel). Service starts are handled separately below."]
 lines.append("$TelemetryRegs = @(")
@@ -269,7 +272,7 @@ OPTION_GROUPS = [
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryExtra', 'TelemetryHosts', 'WindowsAIOff', 'BrowserPolicies',
                                          'BiometricsPolicy', 'Cdp', 'RazerAsusHosts', 'DefenderQuiet']),
-    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'VendorServices', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
+    ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'SvcSysMain', 'VendorServices', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades', 'UpdateNoReboot']),

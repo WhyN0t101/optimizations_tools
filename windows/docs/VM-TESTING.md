@@ -40,7 +40,12 @@ It asks for the guest password (or reads `FT_VM_PASSWORD`), then:
 | Reapply | `-Reapply -Force` (puts back what Windows changed after the restart) |
 | Revert | `-Revert` with its revert check, then a restart |
 
-The default order is Dry, Benchmark, Apply, Health, Reapply, Benchmark, Revert; `StartupReview` is also available. Pick stages
+To see what a fresh Windows ships that FocusedTweaks does not know yet, run `-Stages Inventory` on the fresh snapshot
+(it reads only, through `tools\Get-Inventory.ps1`); the summary lists the unknown services, apps, startup entries and
+features, and the stage folder holds the full `inventory.json`. Items reviewed and left alone go into
+`tools\inventory-known.json` with their reason.
+
+The default order is Dry, Benchmark, Apply, Health, Reapply, Benchmark, Revert; `StartupReview` and `Inventory` are also available. Pick stages
 with `-Stages Dry,Apply`, add script parameters with `-ScriptArgs '-Only MpoOff'`, and point at another VM
 with `-Vmx` and `-Snapshot`. Results land in `test-results\<time>\<number>-<stage>` (ignored by git): `console.txt`, the
 `run-*.log`, `health-*.json`, `revert-check-*.json` and `state.json`. `summary.txt` lists errors, health warnings and

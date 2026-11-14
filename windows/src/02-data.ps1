@@ -77,7 +77,9 @@ $AppsToRemove = @(
     # StartExperiencesApp is the Widgets board feed and Client.WebExperience the Widgets board itself.
     'Microsoft.WindowsCamera', 'Microsoft.windowscommunicationsapps', 'Microsoft.Messaging', 'Microsoft.MSPaint',
     'Microsoft.NetworkSpeedTest', 'Microsoft.Office.OneNote', 'Microsoft.Office.Sway', 'Microsoft.RemoteDesktop',
-    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*'
+    'Microsoft.StartExperiencesApp', 'MicrosoftWindows.Client.WebExperience', '*PhotoshopExpress*',
+    # From the VM inventory of 14 Nov 2026: Edge's in-game browser overlay, installed for new users too.
+    'Microsoft.Edge.GameAssist'
 )
 
 # Never removed, whatever else is listed. Photos needs the image codec extensions kept below.

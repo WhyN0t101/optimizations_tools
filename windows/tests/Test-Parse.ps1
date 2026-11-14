@@ -706,6 +706,18 @@ Check 'Reapply: the Connected Devices Platform cache, which Windows refills all 
 }
 Check 'Every mode asks Windows to stay awake before it starts working (an idle PC slept mid run in the VM test of 13 Nov 2026)' ($text -match '(?m)^Enable-StayAwake\r?\nInitialize-StateDir' -and $text -match 'SetThreadExecutionState\(\[uint32\]''0x80000001''\)')
 & {
+    # Get-Inventory reads what the script handles from the built script's syntax tree: every list is found, the option
+    # names that key the service and feature groups are not taken for items, and real items are there.
+    $invAst = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\Get-Inventory.ps1'), [ref]$null, [ref]$null)
+    $fn = $invAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-ScriptLists' }, $true) | Select-Object -First 1
+    Invoke-Expression $fn.Extent.Text
+    $lists = Get-ScriptLists -Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'FocusedTweaks.ps1')
+    $ok = ($lists.TelemetryServices -contains 'DiagTrack') -and ($lists.ServiceGroups -contains 'WerSvc') -and ($lists.ServiceGroups -notcontains 'SvcOther') -and
+        ($lists.FeatureGroups -contains 'SMB1Protocol') -and ($lists.FeatureGroups -notcontains 'LegacyFeatures') -and
+        ($lists.AppsToRemove -contains 'Microsoft.BingNews') -and ($lists.KeepApps -contains 'Microsoft.WindowsStore')
+    Check 'Inventory: the handled lists come from the built script, without the group option names' $ok
+}
+& {
     # Invoke-Timed passes the result through and writes its Starting and Completed lines to the log file only, also when
     # the work fails, so CI's step times see them.
     $LogFile = Join-Path ([IO.Path]::GetTempPath()) ('ft-timed-' + [guid]::NewGuid().ToString('N') + '.log')

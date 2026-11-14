@@ -5,6 +5,14 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- From the first VM inventory (14 Nov 2026): `SvcSysMain` (on) disables SysMain (Superfetch); Edge's in-game overlay
+  `Microsoft.Edge.GameAssist` joins the app list. The other 89 unknown items were core Windows or kept on purpose and are
+  now in `tools\inventory-known.json` with their reasons; the inventory also sees services and apps handled by steps of
+  their own (WSearch, Quick Assist).
+- Inventory: `tools\Get-Inventory.ps1` (reads only) lists services, scheduled tasks, Store apps, startup entries and
+  optional features, and marks each handled, kept, reviewed (`tools\inventory-known.json`) or unknown; services that
+  only start on demand and are idle are counted, not listed. The smoke run takes it on the fresh Windows 11 runner before
+  any change and lists what is new since the last main run; `Test-InVm.ps1 -Stages Inventory` takes it in the VM.
 - Smoke step times also show, per stage, the time before the first log line (PowerShell starting, the script loading),
   after the last one, and inside the log outside any timed step, with the line the longest such gap followed.
 - Journal: only lines that announce a change are forced to disk before it (they hold the value before). Result lines
