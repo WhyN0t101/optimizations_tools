@@ -118,6 +118,29 @@ function Test-HealthTools {
     }
 }
 
+function Test-HealthMaintenance {
+    if ($Opt['ReapplyTask']) {
+        $task = Get-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -ErrorAction SilentlyContinue
+        $copy = Test-Path -LiteralPath (Join-Path $StateDir 'FocusedTweaks.ps1')
+        if ($task -and $copy) { Write-Health 'PASS' 'Maintenance' "$ReapplyTaskPath$ReapplyTaskName is registered and its script copy is in the state folder." }
+        else { Write-Health 'WARN' 'Maintenance' "The reapply task or its script copy is missing (task $([bool]$task), copy $copy). Run the script again with -Enable ReapplyTask." }
+    }
+    if ($Opt['ReservedStorageOff']) {
+        $state = Get-ReservedStorageState
+        if ($state -eq 'Disabled') { Write-Health 'PASS' 'Maintenance' 'Reserved storage is off.' }
+        elseif ($state -eq 'Enabled') { Write-Health $(if ($Ctx.SoftRuntime) { 'INFO' } else { 'WARN' }) 'Maintenance' 'Reserved storage is still on (Windows may apply the change after a restart, or servicing was busy during the run).' }
+        else { Write-Health 'INFO' 'Maintenance' 'DISM could not report the reserved storage state, so it was not checked.' }
+    }
+}
+
+function Test-DisabledServiceEvent {
+    # A service this run disabled logs 7023 or 7034 while it goes down: that is the change taking effect, not a fault.
+    param([string]$Message, [string[]]$DisabledNames = @())
+    $m = [regex]::Match($Message, '^The (.+) service terminated')
+    if (-not $m.Success) { return $false }
+    return @($DisabledNames) -contains $m.Groups[1].Value
+}
+
 function Test-HealthApps {
     $installed = @(Get-AppxPackage -AllUsers | ForEach-Object { $_.Name })
     $expect = [ordered]@{
@@ -307,6 +330,13 @@ function Test-HealthRegistry {
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['ShellComfort']) { Test-HealthTweakTable -Label 'Shell comforts' -Tweaks $ShellComfortRegs }
+    if ($Opt['SvcHostGrouping']) { Test-HealthTweakTable -Label 'Service process grouping' -Tweaks $SvcHostGroupingRegs }
+    if ($Opt['Short8dot3Off']) { Test-HealthTweakTable -Label '8.3 short names off' -Tweaks $Short8dot3Regs }
+    if ($Opt['TcpLatency']) {
+        $tcp = @(Get-TcpLatencyTweaks)
+        if ($tcp.Count -gt 0) { Test-HealthTweakTable -Label 'TCP latency' -Tweaks $tcp }
+        else { Write-Health 'INFO' 'Registry' 'TCP latency: no physical network adapter with a TCP/IP interface key to check.' }
+    }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
@@ -601,6 +631,13 @@ function Test-HealthEvents {
             Write-Health 'WARN' 'Events' "$($own.Count) Windows Modules Installer service error(s) since the last start. If you ran this script since the last restart they come from its TrustedInstaller helper and are harmless. Otherwise Windows servicing may have a problem."
         }
     }
+    $disabledNames = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { $_.StartMode -eq 'Disabled' } | ForEach-Object { $_.DisplayName })
+    $expected = @($other | Where-Object { Test-DisabledServiceEvent -Message $_.Message -DisabledNames $disabledNames })
+    if ($expected.Count -gt 0) {
+        $names = @($expected | ForEach-Object { [regex]::Match($_.Message, '^The (.+) service terminated').Groups[1].Value } | Select-Object -Unique)
+        Write-Health 'INFO' 'Events' "$($expected.Count) service error(s) come from services that are disabled now and were stopped while running ($($names -join ', ')). That is the change taking effect."
+        $other = @($other | Where-Object { -not (Test-DisabledServiceEvent -Message $_.Message -DisabledNames $disabledNames) })
+    }
     if ($other.Count -eq 0) { return }
     $top = $other | Group-Object { '{0}: {1}' -f $_.Id, (($_.Message -split "`r?`n")[0]) } | Sort-Object Count -Descending | Select-Object -First 5
     Write-Health 'WARN' 'Events' "$($other.Count) service error(s) since the last start. A disabled service that something depends on is the usual cause."
@@ -678,6 +715,7 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
     Invoke-HealthArea 'Tools' { Test-HealthTools }
+    Invoke-HealthArea 'Maintenance' { Test-HealthMaintenance }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
     Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }

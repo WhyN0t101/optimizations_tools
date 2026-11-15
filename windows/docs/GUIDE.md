@@ -60,6 +60,7 @@ to show differences; the percentiles and stutter count work either way.
 | Machine | Profile | What it means |
 |---|---|---|
 | Gaming or work desktop, maximum performance | `profiles\desktop-max.json` | The defaults (everything below) plus the Best power mode. |
+| Gaming desktop | `profiles\gaming.json` | The desktop defaults plus lower network latency (`TcpLatency`), no device wake-ups and no lock screen. |
 | Laptop | `profiles\laptop.json` | Keeps mitigations, core isolation, UAC, power mode and Windows Update; skips the timer service; trims Lenovo and Intel helpers. |
 | Privacy first | `profiles\privacy.json` | Keeps the security features and updates; strongest on telemetry. |
 

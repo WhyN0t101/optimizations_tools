@@ -106,6 +106,37 @@ function Remove-PauseEndTask {
     }
 }
 
+function Register-ReapplyTask {
+    param([string]$Source = $PSCommandPath)
+    # Runs -Reapply ten minutes after every sign in, as the account that ran this script (per user settings need it),
+    # elevated. It runs a copy of this script in the state folder, which only administrators can write, so nothing a
+    # normal user can change runs with elevated rights.
+    $target = Join-Path $StateDir 'FocusedTweaks.ps1'
+    if (Test-DryRun "copy this script to $target and schedule $ReapplyTaskPath$ReapplyTaskName at sign in to run -Reapply") { return }
+    if (-not $Source) { throw 'The path of this script is unknown, so the reapply task cannot be set up.' }
+    $user = '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
+    Set-StateValue -Name 'ReapplyTask' -Value $true   # recorded first, so -Revert removes the task even after a crash here
+    if ((Resolve-Path -LiteralPath $Source).ProviderPath -ine $target) { Copy-Item -LiteralPath $Source -Destination $target -Force }
+    $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Reapply -Force -StateDir "{1}"' -f $target, $StateDir
+    $action = New-ScheduledTaskAction -Execute $exe -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+    $trigger.Delay = 'PT10M'
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+    Register-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    Write-Log "$ReapplyTaskPath$ReapplyTaskName runs -Reapply ten minutes after you sign in as $user." 'OK'
+}
+
+function Remove-ReapplyTask {
+    if (Get-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -Confirm:$false
+        Write-Log 'The reapply task is removed.' 'OK'
+    }
+    $copy = Join-Path $StateDir 'FocusedTweaks.ps1'
+    if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy -Force }
+}
+
 function Disable-UpdateTasks {
     foreach ($pattern in $UpdateTaskPaths) {
         foreach ($task in @(Get-ScheduledTask -TaskPath $pattern -ErrorAction SilentlyContinue)) {

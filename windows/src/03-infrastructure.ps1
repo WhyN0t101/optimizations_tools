@@ -21,6 +21,8 @@ $script:State = @{
     Defender   = $false
     DefenderPrefs = $null
     PauseEndTask = $false
+    ReservedStorage = $null     # $true when the run turned reserved storage off (it was on)
+    ReapplyTask = $false
     Hibernate  = $null
     MemCompress = $null
     SleepStudy = $false
@@ -379,7 +381,7 @@ function Import-State {
                 }
             }
         }
-        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
+        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs', 'PauseEndTask', 'ReservedStorage', 'ReapplyTask') {
             if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
         }
         # Version 1 files (v7.4 and older) have no JournalSeq; there was no journal then, so every line is newer.

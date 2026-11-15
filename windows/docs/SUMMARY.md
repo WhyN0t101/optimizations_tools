@@ -53,7 +53,9 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - ToolPackages (on, own option): CPU-Z, WizTree and Process Explorer. A failed download is a warning, never a failure.
   GPU-Z is not in it because winget's installer URL for it answers 404 (15 Nov 2026), HWiNFO for the same reason as
   before, CrystalDiskInfo because SourceForge refuses automated downloads; add them when winget's links work again.
-- ShellComfort (on): Explorer opens at This PC, no Aero Shake, no thumbs.db on network folders, no new app installed
+- v8.3 batch (not yet run in the VM): `SvcHostGrouping` and `Short8dot3Off` on; `TcpLatency`, `ReservedStorageOff`,
+  `ComponentCleanup` and `ReapplyTask` off; wildcard option names; the revert fix for `PauseEndTask`.
+- ShellComfort (on): Explorer opens at This PC in compact view with the full path in the title bar, no Aero Shake, no thumbs.db on network folders, no new app installed
   alert, no promoted apps installed by themselves (Enterprise and Education only). Not covered before: the rest of the
   usual comforts (file extensions, hidden files, classic menu, no web search, sticky keys) were already in the registry set.
 - Defender stays on by default and is switchable. Taskbar pin changes were dropped.

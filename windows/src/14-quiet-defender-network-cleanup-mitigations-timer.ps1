@@ -69,6 +69,61 @@ function Set-NetAdapterOff {
     Write-Log "$Label`: $($tweaks.Count) value(s) set on $adapters adapter(s). They apply after a restart." 'OK'
 }
 
+function Get-TcpLatencyTweaks {
+    # Two values per physical adapter, under the TCP/IP interface key named by its GUID (skipped when the key is absent).
+    $tweaks = [System.Collections.Generic.List[object]]::new()
+    foreach ($adapter in @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue)) {
+        $full = "$TcpInterfacesKey\$($adapter.InterfaceGuid)"
+        if (-not (Test-Path -LiteralPath "Registry::$full")) { continue }
+        $tweaks.Add((New-Tweak $full 'TcpAckFrequency' 1 'DWord'))
+        $tweaks.Add((New-Tweak $full 'TCPNoDelay' 1 'DWord'))
+    }
+    return $tweaks
+}
+
+function Set-TcpLatency {
+    $tweaks = @(Get-TcpLatencyTweaks)
+    if ($tweaks.Count -eq 0) { Write-Log 'TCP latency: no physical network adapter with a TCP/IP interface key.' 'WARN'; return }
+    Set-TweakList $tweaks
+    if ($Ctx.DryRun) { return }
+    Write-Log "TCP latency: $($tweaks.Count) value(s) set on $([int]($tweaks.Count / 2)) adapter(s). They apply after a restart." 'OK'
+}
+
+function Get-ReservedStorageState {
+    # 'Enabled', 'Disabled', or '' when DISM cannot say (servicing busy, or a Windows that does not answer in English).
+    $out = @(& cmd.exe /d /c 'dism.exe /Online /Get-ReservedStorageState 2>&1')
+    if ($LASTEXITCODE -ne 0) { return '' }
+    $m = [regex]::Match(($out -join ' '), 'state is:\s*(Enabled|Disabled)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if ($m.Success) { return $m.Groups[1].Value }
+    return ''
+}
+
+function Disable-ReservedStorage {
+    if (Test-DryRun 'turn reserved storage off with DISM') { return }
+    $before = Get-ReservedStorageState
+    if ($before -eq 'Disabled') { Write-Log 'Reserved storage is already off.'; return }
+    if ($before -eq '') { Write-Log 'DISM could not report the reserved storage state (Windows servicing may be busy), so it was left as it is.' 'WARN'; return }
+    Set-StateValue -Name 'ReservedStorage' -Value $true   # recorded first: it was on, -Revert turns it on again
+    $null = & cmd.exe /d /c 'dism.exe /Online /Set-ReservedStorageState /State:Disabled >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { Write-Log "DISM could not turn reserved storage off (exit code $LASTEXITCODE). Try again after a restart." 'WARN'; return }
+    Write-Log 'Reserved storage is off. The space it held is free again.' 'OK'
+}
+
+function Restore-ReservedStorage {
+    $null = & cmd.exe /d /c 'dism.exe /Online /Set-ReservedStorageState /State:Enabled >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { throw "DISM could not turn reserved storage back on (exit code $LASTEXITCODE)." }
+    Write-Log 'Reserved storage is on again.' 'OK'
+}
+
+function Clear-ComponentStore {
+    # StartComponentCleanup without /ResetBase: superseded versions go, installed updates can still be uninstalled.
+    if (Test-DryRun 'clean up the component store with DISM (superseded update files are deleted, not reversible)') { return }
+    Write-Log 'Component store cleanup started. It can take several minutes.'
+    $null = & cmd.exe /d /c 'dism.exe /Online /Cleanup-Image /StartComponentCleanup >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { Write-Log "Component store cleanup did not finish (DISM exit code $LASTEXITCODE). Windows servicing may be busy; try again after a restart." 'WARN'; return }
+    Write-Log 'Component store cleaned up.' 'OK'
+}
+
 function Test-ProtectedPath {
     # Never delete the running script, the state folder, or a folder that holds either.
     param([string]$Path, [string[]]$Keep = @($PSCommandPath, $StateDir))

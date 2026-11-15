@@ -1,0 +1,13 @@
+{
+  "Enable": ["TcpLatency", "DeviceWakeOff", "LockScreenOff"],
+  "Skip": [],
+  "TaskMode": "Delete",
+  "ServiceMode": "Disable",
+  "Defender": "Keep",
+  "PowerProfile": "High",
+  "PowerMode": "Best",
+  "PauseDays": 365,
+  "SkipRegGroup": [],
+  "TaskKeep": [],
+  "StartupKeep": []
+}

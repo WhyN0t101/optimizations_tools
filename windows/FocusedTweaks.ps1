@@ -238,6 +238,12 @@ $OptionInfo = [ordered]@{
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports, notifications, and its own telemetry and remote experiments (policy)', 'n/a', '')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
+    SvcHostGrouping       = @($true, 'Let services share svchost.exe processes again, as Windows 10 did, instead of one process each: fewer processes and a little less memory. A service that crashes can take the ones it shares with it. Needs a restart', 'Documented', 'https://learn.microsoft.com/en-us/windows/application-management/svchost-service-refactoring')
+    Short8dot3Off         = @($true, 'Stop creating 8.3 short file names on NTFS volumes (names that exist stay). A very old installer that needs short names can fail. Needs a restart', 'Documented', 'https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/fsutil-8dot3name')
+    TcpLatency            = @($false, 'Turn off delayed acknowledgements and Nagle on physical network adapters (TcpAckFrequency, TCPNoDelay): a few milliseconds less for small TCP messages, slightly more overhead on bulk transfers. Needs a restart', 'Folklore', '')
+    ReservedStorageOff    = @($false, 'Turn off reserved storage (about 7 GB that Windows keeps free for updates) with DISM. Frees disk space, not speed; -Revert turns it back on', 'n/a', '')
+    ComponentCleanup      = @($false, 'Delete superseded update files from the component store (DISM /StartComponentCleanup, no /ResetBase). Frees 1 to 5 GB, takes minutes. Not reversible', 'n/a', '')
+    ReapplyTask           = @($false, 'Register a task that runs -Reapply ten minutes after you sign in, so what Windows undid after an update comes back by itself. Copies the script into the state folder; -Revert removes both', 'n/a', '')
     TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible', 'Folklore', '')
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible', 'Folklore', '')
     SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart', 'Documented', 'https://support.microsoft.com/en-us/topic/kb4073119-windows-client-guidance-for-it-pros-to-protect-against-silicon-based-microarchitectural-and-speculative-execution-side-channel-vulnerabilities-35820a8a-ae13-1299-88cc-357f104f5b11')
@@ -272,7 +278,7 @@ $OptionInfo = [ordered]@{
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
     SvcSysMain            = @($true, 'Disable SysMain (Superfetch): it preloads apps into memory and runs all the time; on an SSD that gains little and costs background disk and CPU work', 'Folklore', '')
     SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
-    ShellComfort          = @($true, 'Explorer opens at This PC, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
+    ShellComfort          = @($true, 'Explorer opens at This PC with compact view and the full path in the title bar, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
     HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
@@ -334,6 +340,14 @@ function Import-RunProfile {
 try { Import-RunProfile }
 catch { Exit-OptionError $_.Exception.Message }
 
+function Resolve-OptionNames {
+    # One option name, or a wildcard such as Svc* or Menu*, as the option names it stands for (not case sensitive).
+    param([Parameter(Mandatory)][string]$Name)
+    $found = @($OptionInfo.Keys | Where-Object { $_ -like $Name })
+    if ($found.Count -eq 0) { throw "Unknown option '$Name'. Run with -ListOptions to see the valid names." }
+    return $found
+}
+
 function Resolve-Options {
     $enableList = $Enable; $skipList = $Skip
     if ($Only.Count -gt 0) {
@@ -355,9 +369,7 @@ function Resolve-Options {
         # powershell -File passes "A,B" as one string, so each entry is split on commas here. Only option names are
         # split: registry group titles (-SkipRegGroup) can contain a comma.
         foreach ($name in @($pair[0] | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-            $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
-            if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
-            $Opt[$match] = $pair[1]
+            foreach ($match in @(Resolve-OptionNames -Name $name)) { $Opt[$match] = $pair[1] }
         }
     }
 }
@@ -370,6 +382,7 @@ if ($ListOptions) {
     Write-Host 'Evidence: Documented (a vendor page describes the mechanism, sources in docs\OPTIONS.md), Folklore (no measurement), n/a (not about speed).'
     Write-Host ''
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
+    Write-Host 'Option names accept * and ?, for example -Skip Svc* or -Revert -Only Menu*.'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -ServiceMode Disable|Delete (default Disable),'
     Write-Host '-Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>,'
@@ -2440,16 +2453,37 @@ $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
 )
 
-# Small comforts that nothing in the registry set covers: Explorer opens at This PC, no Aero Shake (shaking a window
+# Small comforts that nothing in the registry set covers: Explorer opens at This PC, compact view (shorter rows, more
+# files on screen), the full folder path in the title bar, no Aero Shake (shaking a window
 # minimises the others), no thumbs.db files on network folders, no new app installed alert, and no promoted apps that
 # Windows installs by itself (enforced on Enterprise and Education; Pro and Home ignore that one).
 $ShellComfortRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 1 'DWord'
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DisallowShaking' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'UseCompactMode' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CabinetState' 'FullPath' 1 'DWord'
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\Explorer' 'DisableThumbsDBOnNetworkFolders' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'NoNewAppAlert' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 'DWord'
 )
+
+# Windows 11 gives every service its own svchost.exe once RAM is above 3.5 GB. A threshold above the installed RAM
+# (256 GB here, in KB) makes them share processes again.
+$SvcHostGroupingRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control' 'SvcHostSplitThresholdInKB' 268435456 'DWord'
+)
+
+# 1 = no 8.3 short names on any volume, the system volume included. Names that already exist are not removed.
+$Short8dot3Regs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsDisable8dot3NameCreation' 1 'DWord'
+)
+
+# TcpLatency writes under one key per adapter, named by the adapter GUID.
+$TcpInterfacesKey = 'HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces'
+
+# The task that runs -Reapply after sign in (Register-ReapplyTask). It is under \FocusedTweaks\, which TaskMode keeps.
+$ReapplyTaskPath = '\FocusedTweaks\'
+$ReapplyTaskName = 'Reapply after sign in'
 
 # Lock screen off (from the vendored data, optional tweaks).
 $LockScreenRegs = @(
@@ -2576,6 +2610,8 @@ $script:State = @{
     Defender   = $false
     DefenderPrefs = $null
     PauseEndTask = $false
+    ReservedStorage = $null     # $true when the run turned reserved storage off (it was on)
+    ReapplyTask = $false
     Hibernate  = $null
     MemCompress = $null
     SleepStudy = $false
@@ -2934,7 +2970,7 @@ function Import-State {
                 }
             }
         }
-        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs') {
+        foreach ($scalar in 'Power', 'Defender', 'DefenderPrefs', 'Hibernate', 'MemCompress', 'SleepStudy', 'PwAge', 'ConsentDb', 'Run', 'StartLayout', 'Dep', 'TimerService', 'PowerOverlay', 'PowerOverlaySet', 'PowerOverlaySource', 'NvidiaDrs', 'PauseEndTask', 'ReservedStorage', 'ReapplyTask') {
             if ($raw.PSObject.Properties[$scalar]) { $script:State[$scalar] = $raw.$scalar }
         }
         # Version 1 files (v7.4 and older) have no JournalSeq; there was no journal then, so every line is newer.
@@ -4423,6 +4459,37 @@ function Remove-PauseEndTask {
     }
 }
 
+function Register-ReapplyTask {
+    param([string]$Source = $PSCommandPath)
+    # Runs -Reapply ten minutes after every sign in, as the account that ran this script (per user settings need it),
+    # elevated. It runs a copy of this script in the state folder, which only administrators can write, so nothing a
+    # normal user can change runs with elevated rights.
+    $target = Join-Path $StateDir 'FocusedTweaks.ps1'
+    if (Test-DryRun "copy this script to $target and schedule $ReapplyTaskPath$ReapplyTaskName at sign in to run -Reapply") { return }
+    if (-not $Source) { throw 'The path of this script is unknown, so the reapply task cannot be set up.' }
+    $user = '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
+    Set-StateValue -Name 'ReapplyTask' -Value $true   # recorded first, so -Revert removes the task even after a crash here
+    if ((Resolve-Path -LiteralPath $Source).ProviderPath -ine $target) { Copy-Item -LiteralPath $Source -Destination $target -Force }
+    $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Reapply -Force -StateDir "{1}"' -f $target, $StateDir
+    $action = New-ScheduledTaskAction -Execute $exe -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+    $trigger.Delay = 'PT10M'
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+    Register-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    Write-Log "$ReapplyTaskPath$ReapplyTaskName runs -Reapply ten minutes after you sign in as $user." 'OK'
+}
+
+function Remove-ReapplyTask {
+    if (Get-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -Confirm:$false
+        Write-Log 'The reapply task is removed.' 'OK'
+    }
+    $copy = Join-Path $StateDir 'FocusedTweaks.ps1'
+    if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy -Force }
+}
+
 function Disable-UpdateTasks {
     foreach ($pattern in $UpdateTaskPaths) {
         foreach ($task in @(Get-ScheduledTask -TaskPath $pattern -ErrorAction SilentlyContinue)) {
@@ -5183,6 +5250,61 @@ function Set-NetAdapterOff {
     Write-Log "$Label`: $($tweaks.Count) value(s) set on $adapters adapter(s). They apply after a restart." 'OK'
 }
 
+function Get-TcpLatencyTweaks {
+    # Two values per physical adapter, under the TCP/IP interface key named by its GUID (skipped when the key is absent).
+    $tweaks = [System.Collections.Generic.List[object]]::new()
+    foreach ($adapter in @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue)) {
+        $full = "$TcpInterfacesKey\$($adapter.InterfaceGuid)"
+        if (-not (Test-Path -LiteralPath "Registry::$full")) { continue }
+        $tweaks.Add((New-Tweak $full 'TcpAckFrequency' 1 'DWord'))
+        $tweaks.Add((New-Tweak $full 'TCPNoDelay' 1 'DWord'))
+    }
+    return $tweaks
+}
+
+function Set-TcpLatency {
+    $tweaks = @(Get-TcpLatencyTweaks)
+    if ($tweaks.Count -eq 0) { Write-Log 'TCP latency: no physical network adapter with a TCP/IP interface key.' 'WARN'; return }
+    Set-TweakList $tweaks
+    if ($Ctx.DryRun) { return }
+    Write-Log "TCP latency: $($tweaks.Count) value(s) set on $([int]($tweaks.Count / 2)) adapter(s). They apply after a restart." 'OK'
+}
+
+function Get-ReservedStorageState {
+    # 'Enabled', 'Disabled', or '' when DISM cannot say (servicing busy, or a Windows that does not answer in English).
+    $out = @(& cmd.exe /d /c 'dism.exe /Online /Get-ReservedStorageState 2>&1')
+    if ($LASTEXITCODE -ne 0) { return '' }
+    $m = [regex]::Match(($out -join ' '), 'state is:\s*(Enabled|Disabled)', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if ($m.Success) { return $m.Groups[1].Value }
+    return ''
+}
+
+function Disable-ReservedStorage {
+    if (Test-DryRun 'turn reserved storage off with DISM') { return }
+    $before = Get-ReservedStorageState
+    if ($before -eq 'Disabled') { Write-Log 'Reserved storage is already off.'; return }
+    if ($before -eq '') { Write-Log 'DISM could not report the reserved storage state (Windows servicing may be busy), so it was left as it is.' 'WARN'; return }
+    Set-StateValue -Name 'ReservedStorage' -Value $true   # recorded first: it was on, -Revert turns it on again
+    $null = & cmd.exe /d /c 'dism.exe /Online /Set-ReservedStorageState /State:Disabled >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { Write-Log "DISM could not turn reserved storage off (exit code $LASTEXITCODE). Try again after a restart." 'WARN'; return }
+    Write-Log 'Reserved storage is off. The space it held is free again.' 'OK'
+}
+
+function Restore-ReservedStorage {
+    $null = & cmd.exe /d /c 'dism.exe /Online /Set-ReservedStorageState /State:Enabled >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { throw "DISM could not turn reserved storage back on (exit code $LASTEXITCODE)." }
+    Write-Log 'Reserved storage is on again.' 'OK'
+}
+
+function Clear-ComponentStore {
+    # StartComponentCleanup without /ResetBase: superseded versions go, installed updates can still be uninstalled.
+    if (Test-DryRun 'clean up the component store with DISM (superseded update files are deleted, not reversible)') { return }
+    Write-Log 'Component store cleanup started. It can take several minutes.'
+    $null = & cmd.exe /d /c 'dism.exe /Online /Cleanup-Image /StartComponentCleanup >nul 2>&1'
+    if ($LASTEXITCODE -ne 0) { Write-Log "Component store cleanup did not finish (DISM exit code $LASTEXITCODE). Windows servicing may be busy; try again after a restart." 'WARN'; return }
+    Write-Log 'Component store cleaned up.' 'OK'
+}
+
 function Test-ProtectedPath {
     # Never delete the running script, the state folder, or a folder that holds either.
     param([string]$Path, [string[]]$Keep = @($PSCommandPath, $StateDir))
@@ -5721,6 +5843,29 @@ function Test-HealthTools {
     }
 }
 
+function Test-HealthMaintenance {
+    if ($Opt['ReapplyTask']) {
+        $task = Get-ScheduledTask -TaskPath $ReapplyTaskPath -TaskName $ReapplyTaskName -ErrorAction SilentlyContinue
+        $copy = Test-Path -LiteralPath (Join-Path $StateDir 'FocusedTweaks.ps1')
+        if ($task -and $copy) { Write-Health 'PASS' 'Maintenance' "$ReapplyTaskPath$ReapplyTaskName is registered and its script copy is in the state folder." }
+        else { Write-Health 'WARN' 'Maintenance' "The reapply task or its script copy is missing (task $([bool]$task), copy $copy). Run the script again with -Enable ReapplyTask." }
+    }
+    if ($Opt['ReservedStorageOff']) {
+        $state = Get-ReservedStorageState
+        if ($state -eq 'Disabled') { Write-Health 'PASS' 'Maintenance' 'Reserved storage is off.' }
+        elseif ($state -eq 'Enabled') { Write-Health $(if ($Ctx.SoftRuntime) { 'INFO' } else { 'WARN' }) 'Maintenance' 'Reserved storage is still on (Windows may apply the change after a restart, or servicing was busy during the run).' }
+        else { Write-Health 'INFO' 'Maintenance' 'DISM could not report the reserved storage state, so it was not checked.' }
+    }
+}
+
+function Test-DisabledServiceEvent {
+    # A service this run disabled logs 7023 or 7034 while it goes down: that is the change taking effect, not a fault.
+    param([string]$Message, [string[]]$DisabledNames = @())
+    $m = [regex]::Match($Message, '^The (.+) service terminated')
+    if (-not $m.Success) { return $false }
+    return @($DisabledNames) -contains $m.Groups[1].Value
+}
+
 function Test-HealthApps {
     $installed = @(Get-AppxPackage -AllUsers | ForEach-Object { $_.Name })
     $expect = [ordered]@{
@@ -5910,6 +6055,13 @@ function Test-HealthRegistry {
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['ShellComfort']) { Test-HealthTweakTable -Label 'Shell comforts' -Tweaks $ShellComfortRegs }
+    if ($Opt['SvcHostGrouping']) { Test-HealthTweakTable -Label 'Service process grouping' -Tweaks $SvcHostGroupingRegs }
+    if ($Opt['Short8dot3Off']) { Test-HealthTweakTable -Label '8.3 short names off' -Tweaks $Short8dot3Regs }
+    if ($Opt['TcpLatency']) {
+        $tcp = @(Get-TcpLatencyTweaks)
+        if ($tcp.Count -gt 0) { Test-HealthTweakTable -Label 'TCP latency' -Tweaks $tcp }
+        else { Write-Health 'INFO' 'Registry' 'TCP latency: no physical network adapter with a TCP/IP interface key to check.' }
+    }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
@@ -6204,6 +6356,13 @@ function Test-HealthEvents {
             Write-Health 'WARN' 'Events' "$($own.Count) Windows Modules Installer service error(s) since the last start. If you ran this script since the last restart they come from its TrustedInstaller helper and are harmless. Otherwise Windows servicing may have a problem."
         }
     }
+    $disabledNames = @(Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { $_.StartMode -eq 'Disabled' } | ForEach-Object { $_.DisplayName })
+    $expected = @($other | Where-Object { Test-DisabledServiceEvent -Message $_.Message -DisabledNames $disabledNames })
+    if ($expected.Count -gt 0) {
+        $names = @($expected | ForEach-Object { [regex]::Match($_.Message, '^The (.+) service terminated').Groups[1].Value } | Select-Object -Unique)
+        Write-Health 'INFO' 'Events' "$($expected.Count) service error(s) come from services that are disabled now and were stopped while running ($($names -join ', ')). That is the change taking effect."
+        $other = @($other | Where-Object { -not (Test-DisabledServiceEvent -Message $_.Message -DisabledNames $disabledNames) })
+    }
     if ($other.Count -eq 0) { return }
     $top = $other | Group-Object { '{0}: {1}' -f $_.Id, (($_.Message -split "`r?`n")[0]) } | Sort-Object Count -Descending | Select-Object -First 5
     Write-Health 'WARN' 'Events' "$($other.Count) service error(s) since the last start. A disabled service that something depends on is the usual cause."
@@ -6281,6 +6440,7 @@ function Invoke-HealthCheck {
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
     Invoke-HealthArea 'Tools' { Test-HealthTools }
+    Invoke-HealthArea 'Maintenance' { Test-HealthMaintenance }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
     Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }
@@ -6737,6 +6897,12 @@ function Invoke-ApplySteps {
     if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' -Option 'DefenderQuiet' { Set-DefenderQuiet } }
     if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' -Option 'NetAdapterPower' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
     if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' -Option 'NetAdapterEee' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
+    if ($Opt['SvcHostGrouping']) { Invoke-Step 'Service process grouping' -Option 'SvcHostGrouping' { Set-TweakList $SvcHostGroupingRegs } }
+    if ($Opt['Short8dot3Off']) { Invoke-Step '8.3 short names' -Option 'Short8dot3Off' { Set-TweakList $Short8dot3Regs } }
+    if ($Opt['TcpLatency']) { Invoke-Step 'TCP latency' -Option 'TcpLatency' { Set-TcpLatency } }
+    if ($Opt['ReservedStorageOff']) { Invoke-Step 'Reserved storage' -Option 'ReservedStorageOff' { Disable-ReservedStorage } }
+    if ($Opt['ComponentCleanup']) { Invoke-Step 'Component store cleanup' -Option 'ComponentCleanup' { Clear-ComponentStore } }
+    if ($Opt['ReapplyTask']) { Invoke-Step 'Reapply task' -Option 'ReapplyTask' { Register-ReapplyTask } }
     if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' -Option 'SpectreMeltdownOff' { Disable-SpectreMeltdownMitigations } }
     if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' -Option 'TimerResolution' { Install-TimerResolutionService } }
     if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' -Option 'DevicePowerSaving' { Set-DevicePowerSaving } }
@@ -6777,7 +6943,7 @@ function Invoke-ApplySteps {
 # Options -Reapply leaves alone: running them again would undo choices made since the run (startup entries, pins,
 # desktop shortcuts, app permissions, installed software), or they are one shot actions (cleanup, heap reset, NVIDIA
 # profile import). PauseStopsUpdateTasks: Windows turns those tasks back on at every start; NoAutoUpdate covers them.
-$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
+$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'ReservedStorageOff', 'ComponentCleanup', 'ReapplyTask', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
     'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'FaultTolerantHeap', 'NvidiaProfile', 'NvidiaReBar',
     'NvidiaTelemetryStrip', 'PauseStopsUpdateTasks')
 
@@ -6874,7 +7040,7 @@ function Test-HealthDrift {
 
 # -Revert -Only: what the journal can undo per option. Registry values and keys, service start values and tasks carry
 # the option that changed them; these other options keep their own records and are undone here as well.
-$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask' }
+$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask'; ReapplyTask = 'ReapplyTask' }
 
 function Get-OptionChanges {
     # From journal lines: the registry values, key exports and tasks that the named options changed. A value another
@@ -6906,11 +7072,8 @@ function Invoke-RevertOptions {
     # Undoes only the named options, from the journal of the current cycle, and keeps everything else as it is.
     param([string[]]$Names)
     if (-not (Test-Path -LiteralPath $JournalFile)) { Write-Log "No change journal at $JournalFile, so single options cannot be undone. Use -Revert without -Only." 'WARN'; return }
-    $options = @(foreach ($n in @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-            $m = @($OptionInfo.Keys | Where-Object { $_ -ieq $n })
-            if ($m.Count -eq 0) { throw "Unknown option '$n'. Run with -ListOptions to see the valid names." }
-            $m[0]
-        })
+    $options = @(foreach ($n in @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) { Resolve-OptionNames -Name $n })
+    $options = @($options | Select-Object -Unique)
     $lines = @(foreach ($text in [IO.File]::ReadAllLines($JournalFile)) { if ($text.Trim()) { try { $text | ConvertFrom-Json } catch { } } })
     $sel = Get-OptionChanges -Options $options -Lines $lines
     Write-Log "Undoing only: $($options -join ', ') ($($sel.Registry.Count) registry value(s), $($sel.Keys.Count) deleted key(s), $($sel.Tasks.Count) task(s))."
@@ -6934,6 +7097,7 @@ function Invoke-RevertOptions {
                 }
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
                 'PauseEndTask' { Remove-PauseEndTask }
+                'ReapplyTask' { Remove-ReapplyTask }
                 'Features' {
                     $f = @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })
                     if ($f.Count -gt 0) { Set-FeatureState -Names $f -Enable $true }
@@ -6956,7 +7120,7 @@ function Invoke-RevertOptions {
 
 # Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
 # like. -Revert -Only says so instead of pretending.
-$NotRevertedAlone = @('Packages', 'ToolPackages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+$NotRevertedAlone = @('Packages', 'ToolPackages', 'ReservedStorageOff', 'ComponentCleanup', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
     'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 
@@ -7031,6 +7195,8 @@ function Invoke-Revert {
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
     if ($script:State.PauseEndTask) { Invoke-Step 'Remove the task that ends the update pause' { Remove-PauseEndTask } }
+    if ($script:State.ReapplyTask) { Invoke-Step 'Remove the reapply task' { Remove-ReapplyTask } }
+    if ($script:State.ReservedStorage -eq $true) { Invoke-Step 'Restore reserved storage' { Restore-ReservedStorage } }
     if ($script:State.NetBindings.Count -gt 0) { Invoke-Step 'Turn IPv6 back on' { Restore-NetBindings } }
     if ($script:State.StartLayout) { Invoke-Step 'Restore Start menu layout' { Restore-StartPins } }
     if ($script:State.DesktopMoved.Count -gt 0) { Invoke-Step 'Restore desktop shortcuts' { Restore-DesktopIcons } }

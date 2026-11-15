@@ -280,17 +280,18 @@ OPTION_GROUPS = [
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',
                         'KeepDefinitionUpdates', 'BlockFeatureUpgrades', 'UpdateNoReboot']),
     ('Power, devices and network', ['DisableHibernate', 'MsiMode', 'MemoryCompression', 'SleepStudy', 'NetAdapterPower',
-                                    'NetAdapterEee', 'DevicePowerSaving', 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff',
+                                    'NetAdapterEee', 'SvcHostGrouping', 'TcpLatency', 'DevicePowerSaving', 'DeviceWakeOff', 'MpoOff', 'WriteCacheFlushOff',
                                     'TimerResolution', 'HardwareGpuScheduling', 'NvmeNativeDriver', 'IPv4Only',
                                     'StandbyNetworkOff']),
     ('Security trade-offs', ['SpectreMeltdownOff', 'NoDeviceEncryption']),
     ('System and cleanup', ['NoAutoMaintenance', 'PasswordExpiry', 'FaultTolerantHeap', 'FastShutdown', 'TimeServerPool', 'EnableSystemRestore',
-                            'TempCleanup', 'UpdateCacheCleanup', 'HealthCheckAfter']),
+                            'Short8dot3Off', 'ReservedStorageOff', 'ComponentCleanup', 'ReapplyTask', 'TempCleanup', 'UpdateCacheCleanup', 'HealthCheckAfter']),
 ]
 # What -Revert cannot undo, and options that change nothing by themselves.
 NOT_REVERTED = {
     'Packages': 'no, installed software stays',
     'ToolPackages': 'no, installed software stays',
+    'ComponentCleanup': 'no, the superseded update files are deleted',
     'Debloat': 'no, reinstall apps from the Store or winget',
     'RemoveQuickAssist': 'no, add it back with Add-WindowsCapability',
     'RemoveOneDrive': 'the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive',

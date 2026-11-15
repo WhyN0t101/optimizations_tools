@@ -23,7 +23,7 @@ zip). The short version:
        Set-ExecutionPolicy -Scope Process Bypass
 
 3. Pick a profile, or none for the maximum performance defaults:
-   `profiles\desktop-max.json` (the defaults, plus the Best power mode for a desktop), `profiles\laptop.json` (keeps security, battery life and Windows Update),
+   `profiles\desktop-max.json` (the defaults, plus the Best power mode for a desktop), `profiles\gaming.json` (the same plus lower network latency, no device wake-ups and no lock screen), `profiles\laptop.json` (keeps security, battery life and Windows Update),
    `profiles\privacy.json` (privacy first: keeps UAC, mitigations, core isolation, Windows Update, driver updates
    and the Defender and update tasks; Defender stays on with cloud sample submission off).
 4. See what it would do, then do it, then restart:
@@ -136,6 +136,10 @@ profile; `-StartupReview` lists the names), and Windows Security always stays. `
 Recall snapshot and Click to Do policies for your account, where Microsoft documents them, and hides the Edge
 sidebar. `VendorServices` (on in the laptop profile) disables Lenovo Vantage and presence sensing services and sets
 other Lenovo and Intel helpers to Manual, never thermal, power, Fn key, audio or display services.
+
+Option names accept wildcards, so `-Skip Svc*` leaves every service group alone and `-Revert -Only Menu*` undoes the right
+click menu options. `ReapplyTask` (off) registers a task that runs `-Reapply` ten minutes after you sign in, so what Windows
+undid after an update comes back by itself.
 
 `-Revert -Only A,B` undoes just those options from the change journal (registry values, deleted keys, services,
 tasks, hosts blocks, optional features, the timer service) and keeps the rest. A value another option set too is

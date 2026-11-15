@@ -378,6 +378,12 @@ function Invoke-ApplySteps {
     if ($Opt['DefenderQuiet']) { Invoke-Step 'Quiet Defender' -Option 'DefenderQuiet' { Set-DefenderQuiet } }
     if ($Opt['NetAdapterPower']) { Invoke-Step 'Network adapter power saving' -Option 'NetAdapterPower' { Set-NetAdapterOff -Label 'Network adapter power saving' -Keywords $NetPowerKeywords -AllowOff } }
     if ($Opt['NetAdapterEee']) { Invoke-Step 'Energy Efficient Ethernet' -Option 'NetAdapterEee' { Set-NetAdapterOff -Label 'Energy Efficient Ethernet' -Keywords $NetEeeKeywords } }
+    if ($Opt['SvcHostGrouping']) { Invoke-Step 'Service process grouping' -Option 'SvcHostGrouping' { Set-TweakList $SvcHostGroupingRegs } }
+    if ($Opt['Short8dot3Off']) { Invoke-Step '8.3 short names' -Option 'Short8dot3Off' { Set-TweakList $Short8dot3Regs } }
+    if ($Opt['TcpLatency']) { Invoke-Step 'TCP latency' -Option 'TcpLatency' { Set-TcpLatency } }
+    if ($Opt['ReservedStorageOff']) { Invoke-Step 'Reserved storage' -Option 'ReservedStorageOff' { Disable-ReservedStorage } }
+    if ($Opt['ComponentCleanup']) { Invoke-Step 'Component store cleanup' -Option 'ComponentCleanup' { Clear-ComponentStore } }
+    if ($Opt['ReapplyTask']) { Invoke-Step 'Reapply task' -Option 'ReapplyTask' { Register-ReapplyTask } }
     if ($Opt['SpectreMeltdownOff']) { Invoke-Step 'Spectre and Meltdown mitigations' -Option 'SpectreMeltdownOff' { Disable-SpectreMeltdownMitigations } }
     if ($Opt['TimerResolution']) { Invoke-Step 'Timer resolution service' -Option 'TimerResolution' { Install-TimerResolutionService } }
     if ($Opt['DevicePowerSaving']) { Invoke-Step 'Device power saving' -Option 'DevicePowerSaving' { Set-DevicePowerSaving } }
@@ -418,7 +424,7 @@ function Invoke-ApplySteps {
 # Options -Reapply leaves alone: running them again would undo choices made since the run (startup entries, pins,
 # desktop shortcuts, app permissions, installed software), or they are one shot actions (cleanup, heap reset, NVIDIA
 # profile import). PauseStopsUpdateTasks: Windows turns those tasks back on at every start; NoAutoUpdate covers them.
-$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
+$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'ReservedStorageOff', 'ComponentCleanup', 'ReapplyTask', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
     'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'FaultTolerantHeap', 'NvidiaProfile', 'NvidiaReBar',
     'NvidiaTelemetryStrip', 'PauseStopsUpdateTasks')
 
@@ -515,7 +521,7 @@ function Test-HealthDrift {
 
 # -Revert -Only: what the journal can undo per option. Registry values and keys, service start values and tasks carry
 # the option that changed them; these other options keep their own records and are undone here as well.
-$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask' }
+$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask'; ReapplyTask = 'ReapplyTask' }
 
 function Get-OptionChanges {
     # From journal lines: the registry values, key exports and tasks that the named options changed. A value another
@@ -547,11 +553,8 @@ function Invoke-RevertOptions {
     # Undoes only the named options, from the journal of the current cycle, and keeps everything else as it is.
     param([string[]]$Names)
     if (-not (Test-Path -LiteralPath $JournalFile)) { Write-Log "No change journal at $JournalFile, so single options cannot be undone. Use -Revert without -Only." 'WARN'; return }
-    $options = @(foreach ($n in @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-            $m = @($OptionInfo.Keys | Where-Object { $_ -ieq $n })
-            if ($m.Count -eq 0) { throw "Unknown option '$n'. Run with -ListOptions to see the valid names." }
-            $m[0]
-        })
+    $options = @(foreach ($n in @($Names | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) { Resolve-OptionNames -Name $n })
+    $options = @($options | Select-Object -Unique)
     $lines = @(foreach ($text in [IO.File]::ReadAllLines($JournalFile)) { if ($text.Trim()) { try { $text | ConvertFrom-Json } catch { } } })
     $sel = Get-OptionChanges -Options $options -Lines $lines
     Write-Log "Undoing only: $($options -join ', ') ($($sel.Registry.Count) registry value(s), $($sel.Keys.Count) deleted key(s), $($sel.Tasks.Count) task(s))."
@@ -575,6 +578,7 @@ function Invoke-RevertOptions {
                 }
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
                 'PauseEndTask' { Remove-PauseEndTask }
+                'ReapplyTask' { Remove-ReapplyTask }
                 'Features' {
                     $f = @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })
                     if ($f.Count -gt 0) { Set-FeatureState -Names $f -Enable $true }
@@ -597,7 +601,7 @@ function Invoke-RevertOptions {
 
 # Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
 # like. -Revert -Only says so instead of pretending.
-$NotRevertedAlone = @('Packages', 'ToolPackages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+$NotRevertedAlone = @('Packages', 'ToolPackages', 'ReservedStorageOff', 'ComponentCleanup', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
     'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 
@@ -672,6 +676,8 @@ function Invoke-Revert {
     if ($script:State.Dep) { Invoke-Step 'Restore Data Execution Prevention' { Restore-Dep } }
     if ($script:State.TimerService) { Invoke-Step 'Remove timer resolution service' { Remove-TimerResolutionService } }
     if ($script:State.PauseEndTask) { Invoke-Step 'Remove the task that ends the update pause' { Remove-PauseEndTask } }
+    if ($script:State.ReapplyTask) { Invoke-Step 'Remove the reapply task' { Remove-ReapplyTask } }
+    if ($script:State.ReservedStorage -eq $true) { Invoke-Step 'Restore reserved storage' { Restore-ReservedStorage } }
     if ($script:State.NetBindings.Count -gt 0) { Invoke-Step 'Turn IPv6 back on' { Restore-NetBindings } }
     if ($script:State.StartLayout) { Invoke-Step 'Restore Start menu layout' { Restore-StartPins } }
     if ($script:State.DesktopMoved.Count -gt 0) { Invoke-Step 'Restore desktop shortcuts' { Restore-DesktopIcons } }

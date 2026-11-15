@@ -67,6 +67,12 @@ $OptionInfo = [ordered]@{
     DefenderQuiet         = @($true, 'Keep Defender on but turn off cloud reporting, sample submission, infection reports, notifications, and its own telemetry and remote experiments (policy)', 'n/a', '')
     NetAdapterPower       = @($true, 'Turn off power saving on physical network adapters (allow-off and wake flags, green Ethernet, ultra low power)', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
     NetAdapterEee         = @($true, 'Turn off Energy Efficient Ethernet on physical network adapters that expose it', 'Documented', 'https://learn.microsoft.com/en-us/windows-hardware/drivers/network/standardized-inf-keywords-for-power-management')
+    SvcHostGrouping       = @($true, 'Let services share svchost.exe processes again, as Windows 10 did, instead of one process each: fewer processes and a little less memory. A service that crashes can take the ones it shares with it. Needs a restart', 'Documented', 'https://learn.microsoft.com/en-us/windows/application-management/svchost-service-refactoring')
+    Short8dot3Off         = @($true, 'Stop creating 8.3 short file names on NTFS volumes (names that exist stay). A very old installer that needs short names can fail. Needs a restart', 'Documented', 'https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/fsutil-8dot3name')
+    TcpLatency            = @($false, 'Turn off delayed acknowledgements and Nagle on physical network adapters (TcpAckFrequency, TCPNoDelay): a few milliseconds less for small TCP messages, slightly more overhead on bulk transfers. Needs a restart', 'Folklore', '')
+    ReservedStorageOff    = @($false, 'Turn off reserved storage (about 7 GB that Windows keeps free for updates) with DISM. Frees disk space, not speed; -Revert turns it back on', 'n/a', '')
+    ComponentCleanup      = @($false, 'Delete superseded update files from the component store (DISM /StartComponentCleanup, no /ResetBase). Frees 1 to 5 GB, takes minutes. Not reversible', 'n/a', '')
+    ReapplyTask           = @($false, 'Register a task that runs -Reapply ten minutes after you sign in, so what Windows undid after an update comes back by itself. Copies the script into the state folder; -Revert removes both', 'n/a', '')
     TempCleanup           = @($true, 'Delete the contents of the user and Windows Temp folders (files in use are skipped). Not reversible', 'Folklore', '')
     UpdateCacheCleanup    = @($true, 'Delete the Windows Update download cache (SoftwareDistribution\Download). Not reversible', 'Folklore', '')
     SpectreMeltdownOff    = @($true, 'Turn off Spectre and Meltdown mitigations (FeatureSettingsOverride). Faster CPU, but programs and websites can read memory they should not. Needs a restart', 'Documented', 'https://support.microsoft.com/en-us/topic/kb4073119-windows-client-guidance-for-it-pros-to-protect-against-silicon-based-microarchitectural-and-speculative-execution-side-channel-vulnerabilities-35820a8a-ae13-1299-88cc-357f104f5b11')
@@ -101,7 +107,7 @@ $OptionInfo = [ordered]@{
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
     SvcSysMain            = @($true, 'Disable SysMain (Superfetch): it preloads apps into memory and runs all the time; on an SSD that gains little and costs background disk and CPU work', 'Folklore', '')
     SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
-    ShellComfort          = @($true, 'Explorer opens at This PC, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
+    ShellComfort          = @($true, 'Explorer opens at This PC with compact view and the full path in the title bar, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
     HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
@@ -163,6 +169,14 @@ function Import-RunProfile {
 try { Import-RunProfile }
 catch { Exit-OptionError $_.Exception.Message }
 
+function Resolve-OptionNames {
+    # One option name, or a wildcard such as Svc* or Menu*, as the option names it stands for (not case sensitive).
+    param([Parameter(Mandatory)][string]$Name)
+    $found = @($OptionInfo.Keys | Where-Object { $_ -like $Name })
+    if ($found.Count -eq 0) { throw "Unknown option '$Name'. Run with -ListOptions to see the valid names." }
+    return $found
+}
+
 function Resolve-Options {
     $enableList = $Enable; $skipList = $Skip
     if ($Only.Count -gt 0) {
@@ -184,9 +198,7 @@ function Resolve-Options {
         # powershell -File passes "A,B" as one string, so each entry is split on commas here. Only option names are
         # split: registry group titles (-SkipRegGroup) can contain a comma.
         foreach ($name in @($pair[0] | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-            $match = $OptionInfo.Keys | Where-Object { $_ -ieq $name } | Select-Object -First 1
-            if (-not $match) { throw "Unknown option '$name'. Run with -ListOptions to see the valid names." }
-            $Opt[$match] = $pair[1]
+            foreach ($match in @(Resolve-OptionNames -Name $name)) { $Opt[$match] = $pair[1] }
         }
     }
 }
@@ -199,6 +211,7 @@ if ($ListOptions) {
     Write-Host 'Evidence: Documented (a vendor page describes the mechanism, sources in docs\OPTIONS.md), Folklore (no measurement), n/a (not about speed).'
     Write-Host ''
     Write-Host 'Run only some options: -Only Name1,Name2 (everything else is switched off).'
+    Write-Host 'Option names accept * and ?, for example -Skip Svc* or -Revert -Only Menu*.'
     Write-Host 'Other choices: -TaskMode Delete|Disable|None (default Delete), -ServiceMode Disable|Delete (default Disable),'
     Write-Host '-Defender Keep|Disable|Enable, -PowerProfile Off|Medium|High,'
     Write-Host '-PowerMode Keep|Balanced|Best, -PauseDays 1..730, -SkipRegGroup <title wildcards>, -TaskKeep <task path wildcards>,'

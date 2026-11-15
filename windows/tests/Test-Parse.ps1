@@ -32,9 +32,9 @@ Check 'CRLF line endings only' (($text -replace "`r`n", '') -notmatch "`n")
 Check 'No state entry named Keys (shadows the hashtable property)' ($text -notmatch '\$script:State\.Keys\b')
 
 # Load the data blocks and the pure helper functions, then test them
-$wantedFns = 'Initialize-StateDir', 'Restore-ExplorerValues', 'Invoke-Timed', 'Get-FeaturesNotBackOn', 'Get-EnabledFeatureNames', 'Get-TaskIndex', 'Get-TaskSchedulerService', 'Get-TaskFolderDirect', 'Export-TaskXmlDirect', 'Set-FeatureState', 'Get-TaskMissingAccount', 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Invoke-AsTI', 'Install-RuntimePackages', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-OptionErrorResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-RegValueIs', 'Set-ReapplyOptions', 'Get-EdgeState', 'Get-EdgeRemovalBlock', 'Test-StartupKept', 'Remove-StartupEntries', 'Get-OptionChanges', 'Test-WindowsUpdateMessage', 'Get-PauseExpiry', 'Get-ModeConflict', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText', 'Remove-QuickAssist', 'Remove-AllScheduledTasks', 'Set-UpdatePolicies', 'Register-PauseEndTask', 'Invoke-Preflight'
+$wantedFns = 'Resolve-OptionNames', 'Get-TcpLatencyTweaks', 'Set-TcpLatency', 'Get-ReservedStorageState', 'Disable-ReservedStorage', 'Restore-ReservedStorage', 'Clear-ComponentStore', 'Register-ReapplyTask', 'Remove-ReapplyTask', 'Test-DisabledServiceEvent', 'Initialize-StateDir', 'Restore-ExplorerValues', 'Invoke-Timed', 'Get-FeaturesNotBackOn', 'Get-EnabledFeatureNames', 'Get-TaskIndex', 'Get-TaskSchedulerService', 'Get-TaskFolderDirect', 'Export-TaskXmlDirect', 'Set-FeatureState', 'Get-TaskMissingAccount', 'Split-RegPath', 'Open-RegKey', 'Get-RegSnapshot', 'Write-RegRaw', 'Remove-RegKey', 'ConvertTo-StoredRecord', 'ConvertFrom-StoredRecord', 'Add-StateItem', 'Invoke-JournalEvent', 'Add-JournalEvents', 'Set-StateValue', 'Add-StateRecord', 'New-ChangeResult', 'Import-Journal', 'Undo-CreatedKey', 'Test-RollbackSafe', 'Undo-FailedStep', 'Invoke-Step', 'Get-MissingKeyEvents', 'New-RegChangeEvents', 'Format-RegIntent', 'Complete-RegChange', 'Remove-CreatedKeys', 'Set-RegValue', 'Remove-RegValueRaw', 'Remove-RegValue', 'Invoke-AsTI', 'Install-RuntimePackages', 'Restore-RegValue', 'Restore-KeyBackups', 'Test-RegValueNow', 'Format-RegValueShort', 'Show-RegName', 'Get-TaskRecord', 'Save-DefenderPrefs', 'Restore-DefenderPrefs', 'ConvertFrom-DmtfDate', 'Test-RestorePointSince', 'Invoke-Checkpoint', 'New-SafetyRestorePoint', 'Confirm-NoRestorePoint', 'Get-ManagedReasons', 'Get-PreflightResults', 'Test-MdmProvider', 'Get-RunMode', 'Get-RunResult', 'Get-OptionErrorResult', 'Get-SecurityTradeoffs', 'Get-TimerSkipReason', 'Test-HagsDriverSupport', 'Test-MemoryCompressionTarget', 'Test-WindowsRewritten', 'Remove-ServiceKey', 'Test-ServiceKeyDeletedByRun', 'Get-OneDriveState', 'Remove-OneDrive', 'Set-TweakList', 'Test-RegValueIs', 'Set-ReapplyOptions', 'Get-EdgeState', 'Get-EdgeRemovalBlock', 'Test-StartupKept', 'Remove-StartupEntries', 'Get-OptionChanges', 'Test-WindowsUpdateMessage', 'Get-PauseExpiry', 'Get-ModeConflict', 'Test-AccessDenied', 'Save-State', 'Read-StateFile', 'Import-State', 'Import-RunProfile', 'Resolve-Options', 'Get-Windows10Notice', 'Get-EditionVerdict', 'Get-PolicyTweaks', 'Get-EditionReport', 'Test-ServiceStartChanged', 'Test-RecordedFirst', 'ConvertTo-PsLiteral','Test-ProtectedPath','Test-ReparsePoint', 'Get-CleanupTree', 'Remove-CleanupEntry', 'Clear-FolderContents', 'Test-DryRun','New-Tweak','ConvertFrom-RegHex', 'ConvertFrom-RegText', 'Get-RegGroupOption', 'Get-RegOpOption', 'Test-NameMatch', 'ConvertTo-FullRegPath', 'ConvertTo-StoredValue', 'ConvertFrom-StoredValue', 'Format-TiRegAdd', 'Get-GuidFromText', 'Remove-HostsText', 'Remove-QuickAssist', 'Remove-AllScheduledTasks', 'Set-UpdatePolicies', 'Register-PauseEndTask', 'Invoke-Preflight'
 foreach ($n in $wantedFns) { $f = $fns | Where-Object { $_.Name -eq $n } | Select-Object -First 1; . ([scriptblock]::Create($f.Extent.Text)) }
-$wantedVars = '$PackageIds', '$ToolPackageIds', '$NvidiaOnlyPackages', '$ShellComfortRegs', '$PauseEndTaskPath', '$PauseEndTaskName', '$UpdateKbsNotWindows', '$NotRevertedAlone', '$RevertOnlyExtra', '$WindowsAIRegs', '$VendorServicesDisable', '$VendorServicesManual', '$StartupKeepBuiltIn', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
+$wantedVars = '$SvcHostGroupingRegs', '$Short8dot3Regs', '$TcpInterfacesKey', '$ReapplyTaskPath', '$ReapplyTaskName', '$PackageIds', '$ToolPackageIds', '$NvidiaOnlyPackages', '$ShellComfortRegs', '$PauseEndTaskPath', '$PauseEndTaskName', '$UpdateKbsNotWindows', '$NotRevertedAlone', '$RevertOnlyExtra', '$WindowsAIRegs', '$VendorServicesDisable', '$VendorServicesManual', '$StartupKeepBuiltIn', '$ReapplyLeavesAlone', '$NoAutoUpdateRegs', '$ServicesRoot', '$EdgeBackgroundRegs', '$OneDriveRegs', '$WindowsRewrittenValues', '$WindowsManagedTasks', '$BuiltInMdmProviders', '$MemoryCompressionMinGB', '$EvidenceTiers', '$ExitCodes', '$PreflightChecks', '$StateVersion', '$script:Hives', '$UpstreamRegText', '$EditionRules', '$EditionFullPolicy', '$BiometricsRegs', '$TelemetryRegs', '$ServiceGroups', '$TelemetryDomains', '$RazerDomains', '$AsusDomains', '$MouseProfiles', '$DriverExclusionRegs', '$SecurityUpdatesRegs', '$PauseRegs', '$UpdateClassifications', '$OptionInfo', '$AppsToRemove', '$KeepApps', '$EmptyStartLayout', '$PowerProfiles', '$UsbSuspendGuid', '$DefenderQuietRegs', '$MitigationRegs', '$TimerGlobalRegs', '$TimerServiceSource', '$NetPowerKeywords', '$NetEeeKeywords', '$DeviceEnumRoots', '$DevicePowerValues', '$MpoRegs', '$FastShutdownRegs', '$TimeServerRegs', '$MenuKillRegs', '$MenuRestartExplorerRegs', '$TakeOwnFile', '$TakeOwnDir', '$MenuTakeOwnershipRegs', '$PowerOverlayNames', '$KnownStuckValues', '$LockScreenRegs', '$BlockedExt', '$MenuBlocks', '$MenuRunAsAdminRegs', '$NvmeRegs', '$TaskKeepBuiltIn', '$FeatureGroups'
 $assigns = $ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] -and $args[0].Left.Extent.Text -in $wantedVars }, $true)
 foreach ($a in $assigns) { Invoke-Expression $a.Extent.Text }
 # The run context the functions read, built from the script's own definition (a dry run is off in the tests).
@@ -142,7 +142,7 @@ $blocked = @($MenuBlocks.Values | ForEach-Object { $_ } | Where-Object { $_.Path
 Check 'Blocked shell extensions are named by a CLSID' (@($blocked | Where-Object { $_.Name -notmatch '^\{[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}$' }).Count -eq 0)
 foreach ($o in 'MenuRunAsAdmin', 'LockScreenOff', 'IPv4Only', 'NvmeNativeDriver') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
 foreach ($o in 'ShellComfort', 'ToolPackages') { Check "$o exists and is on by default" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
-Check 'ShellComfort: every value is a DWord set to 1 under a path the script already writes elsewhere (HKCU Explorer, or HKLM and HKCU Policies)' (@($ShellComfortRegs).Count -eq 5 -and @($ShellComfortRegs | Where-Object { $_.Type -ne 'DWord' -or $_.Value -ne 1 }).Count -eq 0)
+Check 'ShellComfort: every value is a DWord set to 1 under a path the script already writes elsewhere (HKCU Explorer, or HKLM and HKCU Policies)' (@($ShellComfortRegs).Count -eq 7 -and @($ShellComfortRegs | Where-Object { $_.Type -ne 'DWord' -or $_.Value -ne 1 }).Count -eq 0)
 Check 'Run as administrator commands keep the file argument' (@($MenuRunAsAdminRegs | Where-Object { $_.Path -like '*\command' -and $_.Value -notmatch '%1' }).Count -eq 0)
 Check 'Native NVMe driver sets 4 overrides and both Safe Mode entries' (@($NvmeRegs | Where-Object { $_.Path -like '*Overrides' }).Count -eq 4 -and @($NvmeRegs | Where-Object { $_.Path -like '*SafeBoot*' }).Count -eq 2)
 Check 'Power mode names cover the default overlay' ($PowerOverlayNames['00000000-0000-0000-0000-000000000000'] -eq 'OVERLAY_SCHEME_NONE')
@@ -810,6 +810,87 @@ Check 'Every mode asks Windows to stay awake before it starts working (an idle P
     $badId = @($ToolPackageIds | Where-Object { $_ -notmatch '^[A-Za-z0-9]+(\.[A-Za-z0-9+-]+)+$' })
     Check 'ToolPackages: exact winget IDs, none shared with the runtime packages, and not the ones whose download link is dead (HWiNFO, GPU-Z)' ($badId.Count -eq 0 -and @($ToolPackageIds | Where-Object { $PackageIds -contains $_ }).Count -eq 0 -and @($ToolPackageIds | Where-Object { $_ -match 'HWiNFO|GPU-Z' }).Count -eq 0 -and $ToolPackageIds.Count -eq 3)
 }
+& {
+    # TcpLatency: two values per physical adapter whose TCP/IP interface key exists.
+    function Get-NetAdapter { param([switch]$Physical) @([pscustomobject]@{ InterfaceGuid = '{AAA}' }, [pscustomobject]@{ InterfaceGuid = '{BBB}' }) }
+    function Test-Path { param($LiteralPath) $LiteralPath -notlike '*BBB*' }
+    $t = @(Get-TcpLatencyTweaks)
+    Check 'Behaviour, TcpLatency: TcpAckFrequency and TCPNoDelay as DWord 1 on each physical adapter that has a TCP/IP key, none for one without' ($t.Count -eq 2 -and @($t | Where-Object { $_.Path -like '*Interfaces\{AAA}' }).Count -eq 2 -and (($t | ForEach-Object { $_.Name }) -join ',') -eq 'TcpAckFrequency,TCPNoDelay' -and @($t | Where-Object { $_.Value -ne 1 -or $_.Type -ne 'DWord' }).Count -eq 0)
+}
+& {
+    # Reserved storage: DISM is asked first and the state recorded before the change; a DISM that cannot answer or fails is a
+    # warning, never a failure, and nothing is recorded when nothing was touched.
+    $script:dism = [System.Collections.Generic.List[string]]::new()
+    $script:logs = [System.Collections.Generic.List[string]]::new()
+    $script:rec = [System.Collections.Generic.List[string]]::new()
+    $script:reported = 'Enabled'; $script:getExit = 0; $script:setExit = 0
+    function cmd.exe {
+        $line = $args -join ' '
+        $script:dism.Add($line)
+        if ($line -like '*Get-ReservedStorageState*') { $global:LASTEXITCODE = $script:getExit; "Reserved storage state is: $script:reported" }
+        else { $global:LASTEXITCODE = $script:setExit }
+    }
+    function Write-Log { param($Message, $Level) $script:logs.Add("$Level $Message") }
+    function Set-StateValue { param($Name, $Value) $script:rec.Add("$Name=$Value") }
+    $failuresBefore = $Ctx.Failures
+    Disable-ReservedStorage
+    $on = ($script:rec -join ';') -eq 'ReservedStorage=True' -and @($script:dism | Where-Object { $_ -like '*/State:Disabled*' }).Count -eq 1
+    $script:dism.Clear(); $script:rec.Clear(); $script:reported = 'Disabled'
+    Disable-ReservedStorage
+    $already = $script:rec.Count -eq 0 -and @($script:dism | Where-Object { $_ -like '*Set-ReservedStorageState*' }).Count -eq 0
+    $script:dism.Clear(); $script:rec.Clear(); $script:reported = 'Enabled'; $script:getExit = 5; $script:logs.Clear()
+    Disable-ReservedStorage
+    $unknown = $script:rec.Count -eq 0 -and @($script:dism | Where-Object { $_ -like '*Set-ReservedStorageState*' }).Count -eq 0 -and @($script:logs | Where-Object { $_ -like 'WARN*' }).Count -eq 1
+    $script:dism.Clear(); $script:rec.Clear(); $script:getExit = 0; $script:setExit = 1; $script:logs.Clear()
+    Disable-ReservedStorage
+    $setFails = @($script:logs | Where-Object { $_ -like 'WARN*' }).Count -eq 1
+    $script:setExit = 0; $script:dism.Clear()
+    Restore-ReservedStorage
+    $back = @($script:dism | Where-Object { $_ -like '*/State:Enabled*' }).Count -eq 1
+    Check 'Behaviour, ReservedStorageOff: recorded before DISM turns it off, left alone when already off, a DISM that cannot answer or fails is a warning, -Revert turns it back on, and no failure counted' ($on -and $already -and $unknown -and $setFails -and $back -and $Ctx.Failures -eq $failuresBefore) "$on $already $unknown $setFails $back"
+}
+& {
+    # ReapplyTask: a copy of the script in the state folder, a task at sign in with a ten minute delay that runs the copy
+    # elevated as the current user, recorded before it is made, and removed together with the copy.
+    $StateDir = Join-Path ([IO.Path]::GetTempPath()) ('ft-reapply-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $StateDir | Out-Null
+    $source = Join-Path ([IO.Path]::GetTempPath()) ('ft-source-' + [guid]::NewGuid().ToString('N') + '.ps1')
+    Set-Content -LiteralPath $source -Value 'Write-Output copy'
+    $script:calls = [System.Collections.Generic.List[string]]::new(); $script:task = @{}
+    function Write-Log { param($Message, $Level) }
+    function Set-StateValue { param($Name, $Value) $script:calls.Add("state $Name") }
+    function New-ScheduledTaskAction { param($Execute, $Argument) $script:task.Execute = $Execute; $script:task.Argument = $Argument; 'action' }
+    function New-ScheduledTaskTrigger { param([switch]$AtLogOn, $User) $script:task.User = $User; [pscustomobject]@{ Delay = '' } }
+    function New-ScheduledTaskSettingsSet { param([switch]$StartWhenAvailable, [switch]$AllowStartIfOnBatteries, [switch]$DontStopIfGoingOnBatteries, $ExecutionTimeLimit) 'settings' }
+    function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) $script:task.Principal = "$LogonType|$RunLevel"; 'principal' }
+    function Register-ScheduledTask { param($TaskPath, $TaskName, $Action, $Trigger, $Settings, $Principal, [switch]$Force) $script:calls.Add("register $TaskPath$TaskName"); $script:task.Delay = $Trigger.Delay }
+    function Get-ScheduledTask { param($TaskPath, $TaskName, $ErrorAction) $null }
+    $target = Join-Path $StateDir 'FocusedTweaks.ps1'
+    Register-ReapplyTask -Source $source
+    $copied = (Test-Path -LiteralPath $target) -and (Get-Content -LiteralPath $target -Raw) -eq (Get-Content -LiteralPath $source -Raw)
+    $args1 = [string]$script:task.Argument
+    $made = (@($script:calls) -join ';') -eq 'state ReapplyTask;register \FocusedTweaks\Reapply after sign in' -and $script:task.Delay -eq 'PT10M' -and $script:task.Principal -eq 'Interactive|Highest' -and $script:task.Execute -like '*\powershell.exe' -and $args1 -like "*-File `"$target`" -Reapply -Force -StateDir `"$StateDir`"*"
+    $script:calls.Clear()
+    Register-ReapplyTask -Source $target
+    $again = $script:calls.Count -eq 2 -and (Test-Path -LiteralPath $target)
+    Remove-ReapplyTask
+    $gone = -not (Test-Path -LiteralPath $target)
+    Remove-Item -LiteralPath $StateDir -Recurse -Force; Remove-Item -LiteralPath $source -Force
+    Check 'Behaviour, ReapplyTask: copies the script into the state folder, schedules -Reapply at sign in (ten minutes later, elevated, as the current user) after recording it, runs again from the copy, and -Revert removes the copy' ($copied -and $made -and $again -and $gone) "$copied $made $again $gone"
+    Check 'ReapplyTask: the task is on the never-delete list, and -Revert -Only ReapplyTask removes it' ((Test-NameMatch "$ReapplyTaskPath$ReapplyTaskName" $TaskKeepBuiltIn) -and $RevertOnlyExtra['ReapplyTask'] -eq 'ReapplyTask')
+}
+$thrownUnknown = $false
+try { [void](Resolve-OptionNames -Name 'Nope*') } catch { $thrownUnknown = $true }
+Check 'Option names: a wildcard stands for every option it matches, names are not case sensitive, an unknown name is an error' (@(Resolve-OptionNames -Name 'Svc*').Count -ge 10 -and (@(Resolve-OptionNames -Name 'svc*') -contains 'SvcOther') -and @(Resolve-OptionNames -Name 'tempcleanup')[0] -eq 'TempCleanup' -and (@(Resolve-OptionNames -Name 'Menu*') -contains 'MenuRunAsAdmin') -and $thrownUnknown)
+foreach ($o in 'SvcHostGrouping', 'Short8dot3Off') { Check "$o exists and is on by default" ($OptionInfo.Contains($o) -and $OptionInfo[$o][0]) }
+foreach ($o in 'TcpLatency', 'ReservedStorageOff', 'ComponentCleanup', 'ReapplyTask') { Check "$o exists and is off by default" ($OptionInfo.Contains($o) -and -not $OptionInfo[$o][0]) }
+Check 'SvcHostGrouping: the split threshold is above any real amount of RAM (in KB), so services share processes' (@($SvcHostGroupingRegs).Count -eq 1 -and $SvcHostGroupingRegs[0].Name -eq 'SvcHostSplitThresholdInKB' -and [int64]$SvcHostGroupingRegs[0].Value -ge 134217728)
+$stateBlock = [regex]::Match($text, '(?s)\$script:State = @\{(.*?)\r?\n\}').Groups[1].Value
+$scalarKeys = @([regex]::Matches($stateBlock, '(?m)^\s+(\w+)\s*=\s*(\$null|\$false|\$true)\b') | ForEach-Object { $_.Groups[1].Value })
+$restoreLine = [regex]::Match($text, 'foreach \(\$scalar in ([^)]*)\)').Groups[1].Value
+$notRestored = @($scalarKeys | Where-Object { $restoreLine -notmatch "'$_'" })
+Check 'State: every single value of the state is read back by Import-State (one that is not is forgotten after a restart and -Revert skips it, as PauseEndTask was)' ($scalarKeys.Count -ge 18 -and $notRestored.Count -eq 0) ($notRestored -join ', ')
+Check 'Events: a service this run disabled that logs 7023 while it stops is expected, any other service error is not' ((Test-DisabledServiceEvent -Message 'The Downloaded Maps Manager service terminated with the following error: ' -DisabledNames @('Downloaded Maps Manager')) -and -not (Test-DisabledServiceEvent -Message 'The Windows Audio service terminated unexpectedly.' -DisabledNames @('Downloaded Maps Manager')) -and -not (Test-DisabledServiceEvent -Message 'Something else' -DisabledNames @('Something else')))
 & {
     # Get-Inventory reads what the script handles from the built script's syntax tree: every list is found, the option
     # names that key the service and feature groups are not taken for items, and real items are there.

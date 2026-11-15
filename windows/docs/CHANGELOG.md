@@ -5,12 +5,35 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- Fixed: `-Revert` after a restart did not remove the task that ends the update pause. `PauseEndTask` was saved in
+  state.json but not read back by `Import-State` (it only survived inside one session), so the task stayed; the
+  VM revert log of 14 Nov 2026 has no step for it. A test now fails when any single value of the state is not read
+  back, which also covers the two new ones below.
+- Option names accept wildcards (`-Skip Svc*`, `-Enable Menu*`, `-Only`, `-Revert -Only Menu*`, also in profiles'
+  lists); names stay case insensitive and an unknown name is still an error.
+- `SvcHostGrouping` (on): services share `svchost.exe` processes again (`SvcHostSplitThresholdInKB` above any RAM
+  size). In the VM run of 14 Nov 2026 40 of the 87 processes were svchost.
+- `Short8dot3Off` (on): no 8.3 short names on NTFS volumes (`NtfsDisable8dot3NameCreation` 1; names that exist stay).
+- `TcpLatency` (off): `TcpAckFrequency` 1 and `TCPNoDelay` 1 on each physical adapter's TCP/IP interface key.
+- `ReservedStorageOff` (off, DISM): turns reserved storage off, asks DISM first and records that it was on; `-Revert`
+  turns it on again. A DISM that cannot answer or fails is a warning, never a failure.
+- `ComponentCleanup` (off, DISM): `StartComponentCleanup` without `/ResetBase`. Not reversible; the scheduled task
+  that does this by itself is deleted by `TaskMode Delete`.
+- `ReapplyTask` (off): copies the script into the state folder and registers `\FocusedTweaks\Reapply after sign in`,
+  which runs `-Reapply -Force` ten minutes after sign in, elevated, as the account that ran the script. Removed by
+  `-Revert` and `-Revert -Only ReapplyTask`; the health check warns when the task or the copy is missing.
+- Health check: a service error 7023 or 7034 from a service the run disabled and stopped while it was running (the
+  Downloaded Maps Manager one of the last VM run) is a note, not a warning. The Defender `0x800106ba` message of that
+  run was already fixed in v8.1 (Defender's live settings are not read while it is off).
+- `profiles\gaming.json`: the desktop defaults plus `TcpLatency`, `DeviceWakeOff` and `LockScreenOff`.
+
 - `ToolPackages` (on): CPU-Z, WizTree and Process Explorer through winget, as an option of their own. A package that
   fails to install is a warning (`Install-RuntimePackages -Soft`), never a failure, and the health check has a Tools
   area (`winget list`, a warning when one is missing). GPU-Z, HWiNFO and CrystalDiskInfo were checked and left out
   because winget's installer links for them do not download today; each ID in the bundle was checked with
   `winget show` and its installer URL answered on 15 Nov 2026.
-- `ShellComfort` (on): Explorer opens at This PC (`LaunchTo`), Aero Shake off, no thumbs.db files on network folders,
+- `ShellComfort` (on): Explorer opens at This PC (`LaunchTo`) in compact view (`UseCompactMode`) with the full path in
+  the title bar (`CabinetState\FullPath`), Aero Shake off, no thumbs.db files on network folders,
   no new app installed alert, and `DisableWindowsConsumerFeatures` (promoted apps, enforced on Enterprise and
   Education). Everything else on the usual comfort list (file extensions, hidden files, classic context menu, no Bing or
   web results, sticky keys, startup sound) was already in the registry set.

@@ -537,16 +537,37 @@ $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
 )
 
-# Small comforts that nothing in the registry set covers: Explorer opens at This PC, no Aero Shake (shaking a window
+# Small comforts that nothing in the registry set covers: Explorer opens at This PC, compact view (shorter rows, more
+# files on screen), the full folder path in the title bar, no Aero Shake (shaking a window
 # minimises the others), no thumbs.db files on network folders, no new app installed alert, and no promoted apps that
 # Windows installs by itself (enforced on Enterprise and Education; Pro and Home ignore that one).
 $ShellComfortRegs = @(
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 1 'DWord'
     New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DisallowShaking' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'UseCompactMode' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CabinetState' 'FullPath' 1 'DWord'
     New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\Explorer' 'DisableThumbsDBOnNetworkFolders' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'NoNewAppAlert' 1 'DWord'
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 'DWord'
 )
+
+# Windows 11 gives every service its own svchost.exe once RAM is above 3.5 GB. A threshold above the installed RAM
+# (256 GB here, in KB) makes them share processes again.
+$SvcHostGroupingRegs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control' 'SvcHostSplitThresholdInKB' 268435456 'DWord'
+)
+
+# 1 = no 8.3 short names on any volume, the system volume included. Names that already exist are not removed.
+$Short8dot3Regs = @(
+    New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' 'NtfsDisable8dot3NameCreation' 1 'DWord'
+)
+
+# TcpLatency writes under one key per adapter, named by the adapter GUID.
+$TcpInterfacesKey = 'HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces'
+
+# The task that runs -Reapply after sign in (Register-ReapplyTask). It is under \FocusedTweaks\, which TaskMode keeps.
+$ReapplyTaskPath = '\FocusedTweaks\'
+$ReapplyTaskName = 'Reapply after sign in'
 
 # Lock screen off (from the vendored data, optional tweaks).
 $LockScreenRegs = @(
