@@ -50,6 +50,12 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - Excluded by default: core isolation, hide Lock, hide Sleep, hibernate off.
 - Debloat keeps Store, Xbox, Edge, Paint, Photos (plus Calculator, Notepad, Terminal, Snipping Tool, winget, image codecs).
 - Packages: Visual C++ 2015+ x64 and x86, DirectX, 7-Zip, Firefox, NVIDIA Profile Inspector, Autoruns.
+- ToolPackages (on, own option): CPU-Z, WizTree and Process Explorer. A failed download is a warning, never a failure.
+  GPU-Z is not in it because winget's installer URL for it answers 404 (15 Nov 2026), HWiNFO for the same reason as
+  before, CrystalDiskInfo because SourceForge refuses automated downloads; add them when winget's links work again.
+- ShellComfort (on): Explorer opens at This PC, no Aero Shake, no thumbs.db on network folders, no new app installed
+  alert, no promoted apps installed by themselves (Enterprise and Education only). Not covered before: the rest of the
+  usual comforts (file extensions, hidden files, classic menu, no web search, sticky keys) were already in the registry set.
 - Defender stays on by default and is switchable. Taskbar pin changes were dropped.
 - Start pins cleared, desktop icons cleared (shortcuts moved, restorable), Quick Assist removed.
 - v5: quiet Defender, network adapter power saving and EEE off, temp and update cache cleanup (junction safe,

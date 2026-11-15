@@ -28,6 +28,14 @@ $PackageIds = @(
     # Not HWiNFO: its site removes each old installer on release, and winget's link breaks until its entry catches
     # up (HTTP 404 on 13 Nov 2026, version 8.60 out, winget still on 8.54). docs/GUIDE.md says how to get it.
 )
+# Small tools, their own option (ToolPackages) so a download that fails never counts as a failed run. Each ID was
+# checked with winget show and its installer URL answered on 15 Nov 2026. Not GPU-Z (TechPowerUp's installer URL in
+# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads).
+$ToolPackageIds = @(
+    'CPUID.CPU-Z'
+    'AntibodySoftware.WizTree'
+    'Microsoft.Sysinternals.ProcessExplorer'
+)
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
 
@@ -527,6 +535,17 @@ $StandbyNetworkRegs = @(
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
 $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
+)
+
+# Small comforts that nothing in the registry set covers: Explorer opens at This PC, no Aero Shake (shaking a window
+# minimises the others), no thumbs.db files on network folders, no new app installed alert, and no promoted apps that
+# Windows installs by itself (enforced on Enterprise and Education; Pro and Home ignore that one).
+$ShellComfortRegs = @(
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DisallowShaking' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\Explorer' 'DisableThumbsDBOnNetworkFolders' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'NoNewAppAlert' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 'DWord'
 )
 
 # Lock screen off (from the vendored data, optional tweaks).

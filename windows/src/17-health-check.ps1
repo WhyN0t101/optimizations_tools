@@ -106,6 +106,18 @@ function Test-HealthServices {
     if ($before.Count -gt 0) { Write-Health 'WARN' 'Services' "Core services were already disabled before FocusedTweaks ran (it did not change them): $($before -join ', '). Store installs or updates may fail; set them back to Manual if that matters." }
 }
 
+function Test-HealthTools {
+    # The tool bundle is best effort, so a missing tool is a warning. winget runs through cmd.exe: its stderr output would
+    # stop the check under Windows PowerShell 5.1.
+    if (-not $Opt['ToolPackages']) { return }
+    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { Write-Health 'INFO' 'Tools' 'winget is not available in this session, so the tool packages were not checked.'; return }
+    foreach ($id in $ToolPackageIds) {
+        $null = & cmd.exe /d /c "winget.exe list --id $id --exact --accept-source-agreements >nul 2>&1"
+        if ($LASTEXITCODE -eq 0) { Write-Health 'PASS' 'Tools' "$id is installed." }
+        else { Write-Health 'WARN' 'Tools' "$id is not installed (winget list exit code $LASTEXITCODE). Its download link may be broken; try: winget install $id" }
+    }
+}
+
 function Test-HealthApps {
     $installed = @(Get-AppxPackage -AllUsers | ForEach-Object { $_.Name })
     $expect = [ordered]@{
@@ -294,6 +306,7 @@ function Test-HealthRegistry {
     if ($Opt['MenuRunAsAdmin']) { Test-HealthTweakTable -Label 'Run as administrator menu' -Tweaks $MenuRunAsAdminRegs }
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
+    if ($Opt['ShellComfort']) { Test-HealthTweakTable -Label 'Shell comforts' -Tweaks $ShellComfortRegs }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
@@ -664,6 +677,7 @@ function Invoke-HealthCheck {
 
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
+    Invoke-HealthArea 'Tools' { Test-HealthTools }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
     Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }

@@ -5,6 +5,7 @@
 # effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
     Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
+    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Process Explorer. A download that fails is a warning, not a failure', 'n/a', '')
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
@@ -100,6 +101,7 @@ $OptionInfo = [ordered]@{
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
     SvcSysMain            = @($true, 'Disable SysMain (Superfetch): it preloads apps into memory and runs all the time; on an SSD that gains little and costs background disk and CPU work', 'Folklore', '')
     SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
+    ShellComfort          = @($true, 'Explorer opens at This PC, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
     HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')

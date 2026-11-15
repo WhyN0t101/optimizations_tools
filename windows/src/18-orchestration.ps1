@@ -221,7 +221,7 @@ function Get-PolicyTweaks {
     }
     $tables = [ordered]@{
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
-        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs; ShellComfort = $ShellComfortRegs
         EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs; WindowsAIOff = $WindowsAIRegs
         TelemetryExtra = $TelemetryExtraRegs; BrowserPolicies = $BrowserPolicyRegs; NoDeviceEncryption = $NoDeviceEncryptionRegs
         UpdateNoReboot = $UpdateNoRebootRegs; StandbyNetworkOff = $StandbyNetworkRegs
@@ -331,6 +331,7 @@ function Invoke-Apply {
 function Invoke-ApplySteps {
     # Every change of a run, in order. -Reapply runs the same steps; see Invoke-Reapply.
     if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
+    if ($Opt['ToolPackages']) { Invoke-Step 'Tool packages' -Option 'ToolPackages' { Install-RuntimePackages -Ids $ToolPackageIds -Soft } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
     if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
     if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
@@ -394,6 +395,7 @@ function Invoke-ApplySteps {
     $menus = @($MenuBlocks.Keys | Where-Object { $Opt[$_] })
     if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
     if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' -Option 'LockScreenOff' { Set-TweakList $LockScreenRegs } }
+    if ($Opt['ShellComfort']) { Invoke-Step 'Shell comforts' -Option 'ShellComfort' { Set-TweakList $ShellComfortRegs } }
     if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' -Option 'NvmeNativeDriver' { Set-NvmeNativeDriver } }
     if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' -Option 'IPv4Only' { Set-IPv4Only } }
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' -Option 'ClearDesktopIcons' { Clear-DesktopIcons } }
@@ -416,7 +418,7 @@ function Invoke-ApplySteps {
 # Options -Reapply leaves alone: running them again would undo choices made since the run (startup entries, pins,
 # desktop shortcuts, app permissions, installed software), or they are one shot actions (cleanup, heap reset, NVIDIA
 # profile import). PauseStopsUpdateTasks: Windows turns those tasks back on at every start; NoAutoUpdate covers them.
-$ReapplyLeavesAlone = @('Packages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
+$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
     'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'FaultTolerantHeap', 'NvidiaProfile', 'NvidiaReBar',
     'NvidiaTelemetryStrip', 'PauseStopsUpdateTasks')
 
@@ -595,7 +597,7 @@ function Invoke-RevertOptions {
 
 # Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
 # like. -Revert -Only says so instead of pretending.
-$NotRevertedAlone = @('Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+$NotRevertedAlone = @('Packages', 'ToolPackages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
     'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 

@@ -210,6 +210,11 @@ REALiX.HWiNFO`, which fails for a while after each HWiNFO release until winget's
 the default packages). Run it in sensors only mode to watch CPU and GPU temperatures, clocks and throttling while you
 game.
 
+**Tools the script installs.** `ToolPackages` (on) installs CPU-Z (CPU, memory and board details), WizTree (what fills
+your disk, in seconds) and Process Explorer (what every process is doing). Switch it off with `-Skip ToolPackages`. GPU-Z
+is not included because winget's download link for it is dead at the moment; get it from
+https://www.techpowerup.com/gpuz/.
+
 ## 9. Undoing
 
 | Command | Undoes |

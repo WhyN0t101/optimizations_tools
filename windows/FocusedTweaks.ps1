@@ -176,6 +176,7 @@ $Ctx = [pscustomobject]@{
 # effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
     Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
+    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Process Explorer. A download that fails is a warning, not a failure', 'n/a', '')
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
@@ -271,6 +272,7 @@ $OptionInfo = [ordered]@{
     StandbyNetworkOff     = @($true, 'Modern standby PCs: no network while asleep, so nothing downloads or syncs in sleep (policy). PCs with classic sleep ignore it', 'Folklore', '')
     SvcSysMain            = @($true, 'Disable SysMain (Superfetch): it preloads apps into memory and runs all the time; on an SSD that gains little and costs background disk and CPU work', 'Folklore', '')
     SvcUpdaters           = @($true, 'Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand', 'Folklore', '')
+    ShellComfort          = @($true, 'Explorer opens at This PC, no Aero Shake, no thumbs.db files on network folders, no new app installed alert, and no promoted apps installed by themselves (policy)', 'n/a', '')
     LockScreenOff         = @($false, 'Skip the lock screen picture and go straight to sign in (policy)', 'n/a', '')
     IPv4Only              = @($false, 'Turn off IPv6 on physical network adapters. Breaks IPv6-only networks and some VPNs', 'Folklore', '')
     HardwareGpuScheduling = @($true, 'Turn on hardware accelerated GPU scheduling (HwSchMode 2, upstream group). Skipped when no display driver is WDDM 2.7 or later. Needs a restart', 'Documented', 'https://devblogs.microsoft.com/directx/hardware-accelerated-gpu-scheduling/')
@@ -1693,7 +1695,7 @@ $CdpServices = @('CDPSvc', 'CDPUserSvc')
 # Service groups from upstream disable-services. Each key is the option that switches the group on.
 $ServiceGroups = [ordered]@{
     SvcOther = @('Fax', 'shpamsvc', 'RemoteRegistry', 'PhoneSvc', 'wisvc', 'TabletInputService', 'AssignedAccessManagerSvc', 'MapsBroker', 'lfsvc', 'Netlogon', 'WpcMonSvc', 'WalletService', 'whesvc', 'wuqisvc', 'WSAIFabricSvc')
-    SvcExtra = @('PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc', 'RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer')
+    SvcExtra = @('PimIndexMaintenanceSvc', 'UnistoreSvc', 'UserDataSvc', 'SSDPSRV', 'smphost', 'RasMan', 'SstpSvc', 'RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer', 'PushToInstall')
     SvcBackground = @('OneSyncSvc', 'PcaSvc', 'TrkWks', 'InventorySvc', 'iphlpsvc', 'LanmanServer', 'cbdhsvc')
     SvcAggressive = @('WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDetection')
     SvcUpdaters = @('AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service')
@@ -1928,6 +1930,14 @@ $PackageIds = @(
     'Microsoft.Sysinternals.Autoruns'
     # Not HWiNFO: its site removes each old installer on release, and winget's link breaks until its entry catches
     # up (HTTP 404 on 13 Nov 2026, version 8.60 out, winget still on 8.54). docs/GUIDE.md says how to get it.
+)
+# Small tools, their own option (ToolPackages) so a download that fails never counts as a failed run. Each ID was
+# checked with winget show and its installer URL answered on 15 Nov 2026. Not GPU-Z (TechPowerUp's installer URL in
+# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads).
+$ToolPackageIds = @(
+    'CPUID.CPU-Z'
+    'AntibodySoftware.WizTree'
+    'Microsoft.Sysinternals.ProcessExplorer'
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
@@ -2428,6 +2438,17 @@ $StandbyNetworkRegs = @(
 # OneDrive: after the uninstall this policy stops it from setting itself up again or being used.
 $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
+)
+
+# Small comforts that nothing in the registry set covers: Explorer opens at This PC, no Aero Shake (shaking a window
+# minimises the others), no thumbs.db files on network folders, no new app installed alert, and no promoted apps that
+# Windows installs by itself (enforced on Enterprise and Education; Pro and Home ignore that one).
+$ShellComfortRegs = @(
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 1 'DWord'
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DisallowShaking' 1 'DWord'
+    New-Tweak 'HKCU\Software\Policies\Microsoft\Windows\Explorer' 'DisableThumbsDBOnNetworkFolders' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Explorer' 'NoNewAppAlert' 1 'DWord'
+    New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsConsumerFeatures' 1 'DWord'
 )
 
 # Lock screen off (from the vendored data, optional tweaks).
@@ -3698,13 +3719,15 @@ function Confirm-NoRestorePoint {
 }
 
 function Install-RuntimePackages {
+    # -Soft: a package that fails to install is a warning, not a failure (the tool bundle depends on third party download links).
+    param([string[]]$Ids = $PackageIds, [switch]$Soft)
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
         Write-Log 'winget not found in this session (common on a fresh VM). Update App Installer from the Microsoft Store, open a new elevated window and run again.' 'WARN'
         return
     }
     $acceptable = @(0, -1978335189, -1978335135)
     $nvidia = Test-NvidiaGpu
-    foreach ($id in $PackageIds) {
+    foreach ($id in $Ids) {
         if ($NvidiaOnlyPackages -contains $id -and -not $nvidia) { Write-Log "Package $id skipped: no NVIDIA GPU."; continue }
         if (Test-DryRun "winget install $id") { continue }
         # Tools this script later runs elevated go into an administrator-only folder (see Find-ProfileInspector).
@@ -3712,6 +3735,7 @@ function Install-RuntimePackages {
         if ($NvidiaOnlyPackages -contains $id) { $scope = @('--scope', 'machine') }
         & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @scope | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
+        elseif ($Soft) { Write-Log "Package $id was not installed (winget exit code $LASTEXITCODE). Its download link may be broken; try later with: winget install $id" 'WARN' }
         else { $Ctx.Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
     }
 }
@@ -5685,6 +5709,18 @@ function Test-HealthServices {
     if ($before.Count -gt 0) { Write-Health 'WARN' 'Services' "Core services were already disabled before FocusedTweaks ran (it did not change them): $($before -join ', '). Store installs or updates may fail; set them back to Manual if that matters." }
 }
 
+function Test-HealthTools {
+    # The tool bundle is best effort, so a missing tool is a warning. winget runs through cmd.exe: its stderr output would
+    # stop the check under Windows PowerShell 5.1.
+    if (-not $Opt['ToolPackages']) { return }
+    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) { Write-Health 'INFO' 'Tools' 'winget is not available in this session, so the tool packages were not checked.'; return }
+    foreach ($id in $ToolPackageIds) {
+        $null = & cmd.exe /d /c "winget.exe list --id $id --exact --accept-source-agreements >nul 2>&1"
+        if ($LASTEXITCODE -eq 0) { Write-Health 'PASS' 'Tools' "$id is installed." }
+        else { Write-Health 'WARN' 'Tools' "$id is not installed (winget list exit code $LASTEXITCODE). Its download link may be broken; try: winget install $id" }
+    }
+}
+
 function Test-HealthApps {
     $installed = @(Get-AppxPackage -AllUsers | ForEach-Object { $_.Name })
     $expect = [ordered]@{
@@ -5873,6 +5909,7 @@ function Test-HealthRegistry {
     if ($Opt['MenuRunAsAdmin']) { Test-HealthTweakTable -Label 'Run as administrator menu' -Tweaks $MenuRunAsAdminRegs }
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
+    if ($Opt['ShellComfort']) { Test-HealthTweakTable -Label 'Shell comforts' -Tweaks $ShellComfortRegs }
     if ($Opt['EdgeBackground']) { Test-HealthTweakTable -Label 'Edge in the background off' -Tweaks $EdgeBackgroundRegs }
     if ($Opt['WindowsAIOff']) { Test-HealthTweakTable -Label 'Copilot and Windows AI off' -Tweaks $WindowsAIRegs }
     if ($Opt['TelemetryExtra']) { Test-HealthTweakTable -Label 'More telemetry off' -Tweaks $TelemetryExtraRegs }
@@ -6243,6 +6280,7 @@ function Invoke-HealthCheck {
 
     Invoke-HealthArea 'Services' { Test-HealthServices }
     Invoke-HealthArea 'Apps' { Test-HealthApps }
+    Invoke-HealthArea 'Tools' { Test-HealthTools }
     Invoke-HealthArea 'Registry' { Test-HealthRegistry }
     Invoke-HealthArea 'Edition' { Test-HealthEdition }
     Invoke-HealthArea 'Hosts' { Test-HealthHosts }
@@ -6542,7 +6580,7 @@ function Get-PolicyTweaks {
     }
     $tables = [ordered]@{
         TelemetryPolicy = $TelemetryRegs; BiometricsPolicy = $BiometricsRegs; DriverExclusion = $DriverExclusionRegs
-        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs
+        SecurityUpdatesOnly = $SecurityUpdatesRegs; PauseUpdates = @($PauseRegs) + @($NoAutoUpdateRegs); DefenderQuiet = $DefenderQuietRegs; LockScreenOff = $LockScreenRegs; ShellComfort = $ShellComfortRegs
         EdgeBackground = $EdgeBackgroundRegs; RemoveOneDrive = $OneDriveRegs; WindowsAIOff = $WindowsAIRegs
         TelemetryExtra = $TelemetryExtraRegs; BrowserPolicies = $BrowserPolicyRegs; NoDeviceEncryption = $NoDeviceEncryptionRegs
         UpdateNoReboot = $UpdateNoRebootRegs; StandbyNetworkOff = $StandbyNetworkRegs
@@ -6652,6 +6690,7 @@ function Invoke-Apply {
 function Invoke-ApplySteps {
     # Every change of a run, in order. -Reapply runs the same steps; see Invoke-Reapply.
     if ($Opt['Packages']) { Invoke-Step 'Packages' -Option 'Packages' { Install-RuntimePackages } }
+    if ($Opt['ToolPackages']) { Invoke-Step 'Tool packages' -Option 'ToolPackages' { Install-RuntimePackages -Ids $ToolPackageIds -Soft } }
     if ($WantNvidia) { Invoke-Step 'NVIDIA driver' { Install-NvidiaDriver } }
     if ($Opt['NvidiaProfile']) { Invoke-Step 'NVIDIA global profile' -Option 'NvidiaProfile' { Import-NvidiaSettings -Label 'base profile' -Settings $NvidiaBaseSettings } }
     if ($Opt['NvidiaReBar']) { Invoke-Step 'NVIDIA Resizable BAR' -Option 'NvidiaReBar' { Import-NvidiaSettings -Label 'Resizable BAR' -Settings $NvidiaReBarSettings } }
@@ -6715,6 +6754,7 @@ function Invoke-ApplySteps {
     $menus = @($MenuBlocks.Keys | Where-Object { $Opt[$_] })
     if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
     if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' -Option 'LockScreenOff' { Set-TweakList $LockScreenRegs } }
+    if ($Opt['ShellComfort']) { Invoke-Step 'Shell comforts' -Option 'ShellComfort' { Set-TweakList $ShellComfortRegs } }
     if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' -Option 'NvmeNativeDriver' { Set-NvmeNativeDriver } }
     if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' -Option 'IPv4Only' { Set-IPv4Only } }
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' -Option 'ClearDesktopIcons' { Clear-DesktopIcons } }
@@ -6737,7 +6777,7 @@ function Invoke-ApplySteps {
 # Options -Reapply leaves alone: running them again would undo choices made since the run (startup entries, pins,
 # desktop shortcuts, app permissions, installed software), or they are one shot actions (cleanup, heap reset, NVIDIA
 # profile import). PauseStopsUpdateTasks: Windows turns those tasks back on at every start; NoAutoUpdate covers them.
-$ReapplyLeavesAlone = @('Packages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
+$ReapplyLeavesAlone = @('Packages', 'ToolPackages', 'RunKeys', 'ClearStartPins', 'ClearDesktopIcons', 'HideAllDesktopIcons', 'PrivacyDenials',
     'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'FaultTolerantHeap', 'NvidiaProfile', 'NvidiaReBar',
     'NvidiaTelemetryStrip', 'PauseStopsUpdateTasks')
 
@@ -6916,7 +6956,7 @@ function Invoke-RevertOptions {
 
 # Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
 # like. -Revert -Only says so instead of pretending.
-$NotRevertedAlone = @('Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+$NotRevertedAlone = @('Packages', 'ToolPackages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
     'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 

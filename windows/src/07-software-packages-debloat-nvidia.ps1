@@ -74,13 +74,15 @@ function Confirm-NoRestorePoint {
 }
 
 function Install-RuntimePackages {
+    # -Soft: a package that fails to install is a warning, not a failure (the tool bundle depends on third party download links).
+    param([string[]]$Ids = $PackageIds, [switch]$Soft)
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
         Write-Log 'winget not found in this session (common on a fresh VM). Update App Installer from the Microsoft Store, open a new elevated window and run again.' 'WARN'
         return
     }
     $acceptable = @(0, -1978335189, -1978335135)
     $nvidia = Test-NvidiaGpu
-    foreach ($id in $PackageIds) {
+    foreach ($id in $Ids) {
         if ($NvidiaOnlyPackages -contains $id -and -not $nvidia) { Write-Log "Package $id skipped: no NVIDIA GPU."; continue }
         if (Test-DryRun "winget install $id") { continue }
         # Tools this script later runs elevated go into an administrator-only folder (see Find-ProfileInspector).
@@ -88,6 +90,7 @@ function Install-RuntimePackages {
         if ($NvidiaOnlyPackages -contains $id) { $scope = @('--scope', 'machine') }
         & winget.exe install --id $id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @scope | Out-Null
         if ($acceptable -contains $LASTEXITCODE) { Write-Log "Package ready: $id" 'OK' }
+        elseif ($Soft) { Write-Log "Package $id was not installed (winget exit code $LASTEXITCODE). Its download link may be broken; try later with: winget install $id" 'WARN' }
         else { $Ctx.Failures++; Write-Log "Package $id returned exit code $LASTEXITCODE (check the ID with: winget search $id)" 'ERROR' }
     }
 }

@@ -130,6 +130,9 @@ groups['SvcAggressive'] = ['WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDe
 # extra group; third party updaters get a group of their own. Services that are not installed are skipped.
 groups['SvcDiagnostics'] += ['WerSvc', 'wercplsupport', 'diagnosticshub.standardcollector.service', 'VSStandardCollectorService150']
 groups['SvcExtra'] += ['RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer']
+# From the VM inventory of 14 Nov 2026: PushToInstall (installs apps sent from the Store website) was left running;
+# nothing on a PC set up by this script uses it.
+groups['SvcExtra'] += ['PushToInstall']
 groups['SvcUpdaters'] = ['AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service']
 # From the VM inventory of 14 Nov 2026 (tools/Get-Inventory.ps1): SysMain (Superfetch) starts by itself and runs all the
 # time, preloading apps into memory; on an SSD that gains little and costs background disk and CPU work.
@@ -259,13 +262,13 @@ print('mouse scales', [c[0] for c in cases])
 
 # 7. docs/OPTIONS.md, generated from $OptionInfo so the option reference cannot drift from the script.
 OPTION_GROUPS = [
-    ('Software', ['Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'EdgeBackground', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
+    ('Software', ['Packages', 'ToolPackages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'EdgeBackground', 'LegacyFeatures', 'HypervisorFeatures', 'NvidiaProfile', 'NvidiaReBar',
                   'NvidiaTelemetryStrip']),
     ('Registry and account', ['Registry', 'Uac', 'RunKeys', 'PrivacyDenials', 'TaskbarEndTask', 'CoreIsolation',
                               'HideLockOption', 'HideSleepOption', 'RegHibernateOff']),
     ('Desktop, Start and sign in', ['NotificationSettings', 'RestartExplorer', 'ClearDesktopIcons', 'HideAllDesktopIcons',
                                     'ClearStartPins', 'NoRecentDocsHistory', 'ForceDpi100', 'MouseAccel', 'LockScreenOff',
-                                    'StartupDelayOff', 'MouseFullRateBackground']),
+                                    'StartupDelayOff', 'MouseFullRateBackground', 'ShellComfort']),
     ('Right click menu', ['MenuKillNotResponding', 'MenuRestartExplorer', 'MenuTakeOwnership', 'MenuRunAsAdmin',
                           'MenuNoShare', 'MenuNoGiveAccess', 'MenuNoCast', 'MenuNoLibrary', 'MenuNoQuickAccess',
                           'MenuNoPinToStart', 'MenuNoPrevVersions', 'MenuNoTroubleshoot', 'MenuNoDefenderScan',
@@ -287,6 +290,7 @@ OPTION_GROUPS = [
 # What -Revert cannot undo, and options that change nothing by themselves.
 NOT_REVERTED = {
     'Packages': 'no, installed software stays',
+    'ToolPackages': 'no, installed software stays',
     'Debloat': 'no, reinstall apps from the Store or winget',
     'RemoveQuickAssist': 'no, add it back with Add-WindowsCapability',
     'RemoveOneDrive': 'the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive',

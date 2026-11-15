@@ -5,6 +5,19 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- `ToolPackages` (on): CPU-Z, WizTree and Process Explorer through winget, as an option of their own. A package that
+  fails to install is a warning (`Install-RuntimePackages -Soft`), never a failure, and the health check has a Tools
+  area (`winget list`, a warning when one is missing). GPU-Z, HWiNFO and CrystalDiskInfo were checked and left out
+  because winget's installer links for them do not download today; each ID in the bundle was checked with
+  `winget show` and its installer URL answered on 15 Nov 2026.
+- `ShellComfort` (on): Explorer opens at This PC (`LaunchTo`), Aero Shake off, no thumbs.db files on network folders,
+  no new app installed alert, and `DisableWindowsConsumerFeatures` (promoted apps, enforced on Enterprise and
+  Education). Everything else on the usual comfort list (file extensions, hidden files, classic context menu, no Bing or
+  web results, sticky keys, startup sound) was already in the registry set.
+- `SvcExtra` also disables `PushToInstall`, the one service the inventory of the last VM run left running that nothing
+  here uses. The other 55 services still running after a full run are core Windows, security, networking, audio or
+  Store services the script keeps on purpose (`tools\inventory-known.json` has the reason for each).
+
 - Credits: the project names are gone from the script, its comments and the docs (the code has grown far past its
   sources). They are credited only in NOTICE.md, as the licences require, like the other projects. `upstream/zoicware/`
   became `vendor/` (same three files, same SHA256 pins) with a README holding both source repositories; `build.py`
