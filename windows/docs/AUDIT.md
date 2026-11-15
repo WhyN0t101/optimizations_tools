@@ -252,7 +252,7 @@ C-1 has no commit subject of its own: it is the journal of `3bc0a0e` (A-01 A-02 
     commit SHA. The release job has `contents: write`.
   - CI does fail when the committed script or `docs/OPTIONS.md` differ from a fresh build
     (`git diff --ignore-cr-at-eol --exit-code`). Verified in the workflow and reproduced locally.
-  - The ZOICWARE inputs are pinned by SHA256 in `build.py`; the build is reproducible.
+  - The vendored inputs are pinned by SHA256 in `build.py`; the build is reproducible.
 - **Proposed fix (needs approval, changes the hashing and signing process):** Add
   `actions/attest-build-provenance` and document `gh attestation verify`; pin actions by SHA; state in the README
   what the SHA256 does and does not prove. Authenticode signing is optional and costs a certificate.

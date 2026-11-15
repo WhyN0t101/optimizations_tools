@@ -47,7 +47,7 @@ function New-SafetyRestorePoint {
     if ($Opt['EnableSystemRestore']) {
         Write-Log "Restore point not created. Windows said: $reason Turning System Protection on for $env:SystemDrive and trying again (EnableSystemRestore)."
         try {
-            # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
+            # Same approach as other tweak scripts: allow several restore points per day, switch System Protection on, retry.
             Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
             Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
         }
@@ -192,7 +192,7 @@ function Test-NvidiaGpu {
 function Find-ProfileInspector {
     # This runs elevated, so only folders that need administrator rights to write are searched: never PATH or
     # %LOCALAPPDATA%, where any program running as the user could plant a file named like Profile Inspector.
-    # Packages installs it per machine (winget --scope machine); Ultimate uses its own folder under Program Files.
+    # Packages installs it per machine (winget --scope machine); other scripts use their own folder under Program Files.
     $candidates = @(
         @(Get-ChildItem -Path (Join-Path $env:ProgramFiles 'WinGet\Packages\Orbmu2k.nvidiaProfileInspector_*') -Directory -ErrorAction SilentlyContinue)
         @(Get-Item -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Nvidia Profile Inspector') -ErrorAction SilentlyContinue)

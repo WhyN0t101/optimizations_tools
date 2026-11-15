@@ -1,6 +1,6 @@
 # FocusedTweaks: guide for Claude Code
 
-A Windows tweak script derived from ZOICWARE (MIT). Read `docs/SUMMARY.md` first (what it is, safety model, decisions,
+A Windows tweak script derived from MIT licensed projects (credited in `NOTICE.md`). Read `docs/SUMMARY.md` first (what it is, safety model, decisions,
 test status); `docs/CHANGELOG.md` holds the history, newest first. Every change gets a line under its Unreleased
 heading.
 
@@ -12,8 +12,8 @@ heading.
   Never edit it by hand. Change the file in `src/`, build, then run the tests. The build inserts upstream data (registry
   file, telemetry values, domain lists, mouse curves, Start layout) so `src/02-data.ps1` holds only placeholders for those.
   It also writes `docs/OPTIONS.md` and `docs/REGISTRY.md`.
-  The build needs Python 3. It reads the three ZOICWARE files kept in `upstream/zoicware/` (commit 2363922; the
-  ZOICWARE repository left GitHub on 8 Nov 2026) and checks them against the SHA256 values in `ZOICWARE_FILES`.
+  The build needs Python 3. It reads the three vendored files kept in `vendor/` (commit 2363922; their repository
+  left GitHub on 8 Nov 2026; see `vendor/README.md`) and checks them against the SHA256 values in `VENDOR_FILES`.
   Never edit those files.
 - CI (`.github/workflows/windows-build.yml`) builds on every push, fails if the committed `FocusedTweaks.ps1` or
   `docs/OPTIONS.md` differ from the build, and runs `Test-Parse` under 5.1 and 7. Pushing a `v*` tag runs
@@ -60,7 +60,7 @@ copies logs and JSON results to `test-results/<time>/`. Read `summary.txt` there
 the commits pinned in `tools/references.json` (`--update` moves the pins) and writes `docs/COVERAGE.md`. It downloads
 into `.cache/` (ignored) and needs the network, so CI does not run it. Its rows are leads: check each in `src/` and
 add it the usual way (option, journal, health check). Never copy from privacy.sexy (AGPL-3.0); credit an MIT project
-in NOTICE.md if its data is taken over, as with ZOICWARE.
+in NOTICE.md if its data is taken over, as with the vendored data.
 
 ## What Windows ships (inventory)
 `tools\Get-Inventory.ps1` lists a Windows' services, tasks, Store apps, startup entries and optional features and marks
@@ -69,8 +69,8 @@ unknown; with `-Previous` it also lists what is new since. The smoke run does it
 any stage (summary section "Inventory of the fresh image"; the last main run is kept in the Actions cache), and
 `Test-InVm.ps1 -Stages Inventory` in the VM. An unknown item ends up in an option or in inventory-known.json.
 
-## When upstream changes
-Only if ZOICWARE becomes available again (or a fork is chosen): build once with `--zoicware <new checkout>
+## When the vendored data changes
+Only if its source becomes available again (or a fork is chosen): build once with `--vendor <new checkout>
 --allow-other-commit` (the build asserts the expected list sizes and fails loudly), copy its three files into
-`upstream/zoicware/src`, update `ZOICWARE_COMMIT` and `ZOICWARE_FILES` in build.py and the folder's README, then
+`vendor/src`, update `VENDOR_COMMIT` and `VENDOR_FILES` in build.py and the folder's README, then
 run the tests and a VM dry run.

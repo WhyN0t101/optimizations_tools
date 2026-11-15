@@ -95,7 +95,7 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 | Option | Default | Undone by -Revert | Evidence | What it does |
 |---|---|---|---|---|
 | `SvcOther` | on | yes | Folklore | Disable misc services: location, maps, Netlogon, tablet input, wallet and more |
-| `SvcExtra` | on | yes | Folklore | Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container |
+| `SvcExtra` | on | yes | Folklore | Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container |
 | `SvcBackground` | on | yes | Folklore | Disable background helpers: Mail and Calendar sync, Program Compatibility Assistant, link tracking, app inventory, IP Helper (IPv6 tunnels; WSL localhost forwarding uses it), file sharing from this PC (Server) and clipboard history (Win+V) |
 | `SvcAggressive` | off | yes | Folklore | Also disable push notifications (no toasts; Store and Teams alerts stop), data usage (its Settings page and metered settings stop working) and Shell Hardware Detection (no AutoPlay; scanners and camera import through WIA stop). Off: each costs a visible feature |
 | `SvcUpdaters` | on | yes | Folklore | Disable third party updater services: Adobe Acrobat and Creative Cloud updaters, Dropbox update, Razer Game Scanner. Update those apps by hand |

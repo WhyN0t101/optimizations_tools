@@ -2,8 +2,8 @@
 
 ## What it is
 One Windows-only PowerShell 5.1 script (`FocusedTweaks.ps1`, about 4,500 lines, elevates itself) that applies only the Windows
-tweaks you chose from ZOICWARE (MIT, commit 2363922 of 24 Oct 2026, pinned in `tools/build.py`), plus a few ideas from
-FR33THYFR33THY/Ultimate (MIT). Every risky item is a named option. Since v7.0 the defaults aim for maximum performance
+tweaks you chose from a vendored data set (MIT, commit 2363922 of 24 Oct 2026, pinned in `tools/build.py`), plus a few ideas
+from a second MIT project (both credited in NOTICE.md). Every risky item is a named option. Since v7.0 the defaults aim for maximum performance
 with Windows still usable, and things are removed or left alone, never half done; profiles relax them per machine.
 Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with the README, NOTICE and starter profiles.
 
@@ -60,7 +60,7 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
   "Take ownership" menu. Game Mode and Game Bar were already covered by the upstream registry set.
 - Tamper Protection is never bypassed. When `DefenderQuiet` or `-Defender Disable` is used, the run asks you up front to
   turn it off (and opens the Windows Security page); `-Force` skips the question. Turn it back on afterwards.
-- Not offered: SMT off and per app priority. Ultimate implements both as a temporary affinity or priority on one running
+- Not offered: SMT off and per app priority. The set they come from implements both as a temporary affinity or priority on one running
   process, which is not a system setting.
 
 - v7 (not yet run in the VM): `MenuRunAsAdmin`, eleven right click menu removals, `LockScreenOff`, `IPv4Only` and
@@ -68,7 +68,7 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - v7.0 (7 Nov 2026), maximum performance defaults. These replace earlier decisions above where they differ: on by
   default now Spectre and Meltdown mitigations off, core isolation off, the timer service (always held), Delivery
   Optimisation off, Search indexing off, faster shutdown, and `SvcExtra` (contact and user data sync, SSDP, Storage
-  Spaces, built-in VPN, from Ultimate). Still kept by default: Bluetooth, printing and radio services, hide Lock, hide
+  Spaces, built-in VPN, see NOTICE.md). Still kept by default: Bluetooth, printing and radio services, hide Lock, hide
   Sleep, hibernation. Off by default and part of the hard floor: `SvcDefrag`, `NoAutoMaintenance`, `ForceDpi100`.
 - v7.1: six upstream registry groups now belong to the option they duplicate (mouse acceleration, notifications, sleep
   study, background apps, fault tolerant heap, Delivery Optimisation), so skipping the option keeps the feature.

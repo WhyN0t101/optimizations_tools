@@ -92,7 +92,7 @@ function Get-DeviceTweaks {
 }
 
 function Get-WriteCacheTweaks {
-    # Disks only: Enum\SCSI also lists optical drives, which Ultimate changes as well.
+    # Disks only: Enum\SCSI also lists optical drives, which other scripts change as well.
     foreach ($d in @(Get-DeviceParameterKeys -Roots 'SCSI', 'NVME' -HardwareLike 'Disk*')) { New-Tweak "$($d.Path)\Disk" 'CacheIsPowerProtected' 1 'DWord' }
 }
 

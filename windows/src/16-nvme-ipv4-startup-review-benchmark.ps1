@@ -7,7 +7,7 @@ function Set-NvmeNativeDriver {
 }
 
 function Set-IPv4Only {
-    # Only IPv6 is unbound. Ultimate also unbinds file sharing, the SMB client and QoS, which breaks network shares.
+    # Only IPv6 is unbound. Other scripts also unbind file sharing, the SMB client and QoS, which breaks network shares.
     $bindings = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object {
             Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue
         } | Where-Object { $_.Enabled })

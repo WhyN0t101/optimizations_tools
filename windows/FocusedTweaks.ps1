@@ -1,10 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). Development build; releases carry their tag here.
+    Focused Windows 10/11 tweak script derived from MIT licensed projects, credited in NOTICE.md. Development build; releases carry their tag here.
 
 .DESCRIPTION
-    A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
+    A stripped down set of tweaks, with every risky item exposed as a
     named option. Defaults aim for maximum performance with Windows still usable: things are removed or left
     alone, never half done. Left alone by default because removing them gains nothing or costs speed: SSD
     retrim (Optimize Drives service, Defrag tasks, automatic maintenance), time sync, TPM and BitLocker tasks,
@@ -199,7 +199,7 @@ $OptionInfo = [ordered]@{
     BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)', 'n/a', '')
     Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache', 'Folklore', '')
     SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more', 'Folklore', '')
-    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc) (from FR33THY Ultimate), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container', 'Folklore', '')
+    SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container', 'Folklore', '')
     SvcBackground         = @($true, 'Disable background helpers: Mail and Calendar sync, Program Compatibility Assistant, link tracking, app inventory, IP Helper (IPv6 tunnels; WSL localhost forwarding uses it), file sharing from this PC (Server) and clipboard history (Win+V)', 'Folklore', '')
     SvcAggressive         = @($false, 'Also disable push notifications (no toasts; Store and Teams alerts stop), data usage (its Settings page and metered settings stop working) and Shell Hardware Detection (no AutoPlay; scanners and camera import through WIA stop). Off: each costs a visible feature', 'Folklore', '')
     VendorServices        = @($false, 'Laptops: disable Lenovo Vantage and its installer, and presence sensing (Lenovo, ELAN, Intel); set Lenovo standby, camera effects installer and Intel reporting, tuning telemetry and graphics panel services to Manual. Keeps thermal, power, Fn key, audio and display services. On in laptop.json', 'Folklore', '')
@@ -385,7 +385,7 @@ catch { Exit-OptionError $_.Exception.Message }
 $WantNvidia = [bool]($NvidiaInstaller -or $NvidiaDownload -or $NvidiaVersion)
 #endregion
 
-#region Data (generated from the upstream ZOICWARE source) ---------------------------------
+#region Data (generated from the vendored source data) ---------------------------------
 function New-Tweak {
     param([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord')
     [pscustomobject]@{ Path = $Path; Name = $Name; Value = $Value; Type = $Type }
@@ -1932,7 +1932,7 @@ $PackageIds = @(
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
 
-# NVIDIA global (Base Profile) settings for NvidiaProfile, from FR33THY Ultimate "5 Nvidia Settings" (MIT), imported
+# NVIDIA global (Base Profile) settings for NvidiaProfile, taken over from a third party NVIDIA settings set (see NOTICE.md), imported
 # with Profile Inspector's merge import so nothing else in the profile changes. Left out on purpose: G-SYNC, V-Sync and
 # the frame rate limiter (people rely on them), forced antialiasing and anisotropic overrides (they override what games
 # ask for), and the preferred OpenGL GPU (its value names one specific card).
@@ -1952,7 +1952,7 @@ $NvidiaBaseSettings = @(
     @{ Name = 'Shader Cache - Cache Size'; Id = 11306135; Value = 4294967295 } # unlimited
     @{ Name = 'Threaded Optimization'; Id = 549528094; Value = 1 }
 )
-# Resizable BAR forced on for every application (NvidiaReBar), from Ultimate "7 ReBar Force".
+# Resizable BAR forced on for every application (NvidiaReBar), see NOTICE.md.
 $NvidiaReBarSettings = @(
     @{ Name = 'rBAR - Enable'; Id = 983226; Value = 1 }
 )
@@ -2106,18 +2106,18 @@ $DebloatRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'BlockedOobeUpdaters' '["MS_Outlook"]' 'String'
 )
 
-# Network adapter driver keywords (from Ultimate, 6 Windows\26). Only keywords a driver already exposes are changed.
+# Network adapter driver keywords (see NOTICE.md). Only keywords a driver already exposes are changed.
 $NetAdapterClassKey = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'
 $NetPowerKeywords = @('SipsEnabled', 'ULPMode', 'GigaLite', 'EnableGreenEthernet', 'PowerSavingMode')
 $NetEeeKeywords = @('AdvancedEEE', '*EEE', 'EEELinkAdvertisement')
 
-# Spectre and Meltdown mitigations off (from Ultimate, 8 Advanced\3).
+# Spectre and Meltdown mitigations off (see NOTICE.md).
 $MitigationRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverride' 3 'DWord'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 3 'DWord'
 )
 
-# Timer resolution service (reduced from Ultimate, 6 Windows\30): sets the finest timer resolution at start and holds it.
+# Timer resolution service (reduced from a third party service, see NOTICE.md): sets the finest timer resolution at start and holds it.
 # Windows 10 2004 and later honour the request per process, so GlobalTimerResolutionRequests makes it system wide.
 # A 0.5 ms timer fires about 2000 times a second, which costs battery: laptop profiles should skip this option.
 $TimerServiceName = 'FocusedTimerResolution'
@@ -2155,7 +2155,7 @@ public class TimerResolutionService : ServiceBase
 }
 '@
 
-# Device power saving and wake (from Ultimate, 6 Windows\25). Values go under each device's 'Device Parameters' key.
+# Device power saving and wake (see NOTICE.md). Values go under each device's 'Device Parameters' key.
 $DeviceEnumRoots = @('ACPI', 'HID', 'PCI', 'USB')
 $DevicePowerValues = @(
     @{ Name = 'EnhancedPowerManagementEnabled'; Value = 0; Type = 'DWord' }
@@ -2163,26 +2163,26 @@ $DevicePowerValues = @(
     @{ Name = 'SelectiveSuspendOn'; Value = 0; Type = 'DWord' }
 )
 
-# Multiplane overlay off (from Ultimate, 8 Advanced\11). Only the overlay switch: Ultimate also rewrites the per user
+# Multiplane overlay off (see NOTICE.md). Only the overlay switch: the original also rewrites the per user
 # DirectX settings string, which would drop any other per app GPU preference stored in it.
 $MpoRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Dwm' 'OverlayTestMode' 5 'DWord'
 )
 
-# Faster shutdown (from ZOICWARE, optional tweaks).
+# Faster shutdown (from the vendored data, optional tweaks).
 $FastShutdownRegs = @(
     New-Tweak 'HKCU\Control Panel\Desktop' 'WaitToKillAppTimeout' '1500' 'String'
     New-Tweak 'HKCU\Control Panel\Desktop' 'AutoEndTasks' '1' 'String'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control' 'WaitToKillServiceTimeout' '1500' 'String'
 )
 
-# Time server (from ZOICWARE, optional tweaks). Written to the registry so -Revert restores the old servers.
+# Time server (from the vendored data, optional tweaks). Written to the registry so -Revert restores the old servers.
 $TimeServerRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'NtpServer' '0.pool.ntp.org,0x9 1.pool.ntp.org,0x9 2.pool.ntp.org,0x9 3.pool.ntp.org,0x9' 'String'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'Type' 'NTP' 'String'
 )
 
-# Right click menu entries (from ZOICWARE, UltimateContextMenu\killTasks.reg, AddRestartExplorer.reg and Take Ownership).
+# Right click menu entries (from the vendored data: the kill tasks, restart Explorer and Take Ownership entries).
 $MenuKillRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'MUIVerb' 'Kill not responding tasks' 'String'
     New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'Icon' '%SystemRoot%\System32\imageres.dll,-98' 'String'
@@ -2392,7 +2392,7 @@ $BrowserPolicyRegs = @(
 )
 
 # Windows 11 caps mouse raw input to windows in the background at about 125 reports a second; 0 lifts the cap (idea
-# from FR33THY Ultimate, "Background Polling Rate Cap"). Check with tools/Test-Mouse.ps1.
+# see NOTICE.md). Check with tools/Test-Mouse.ps1.
 $MouseFullRateRegs = @(
     New-Tweak 'HKCU\Control Panel\Mouse' 'RawMouseThrottleEnabled' 0 'DWord'
 )
@@ -2430,13 +2430,13 @@ $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
 )
 
-# Lock screen off (from ZOICWARE, optional tweaks).
+# Lock screen off (from the vendored data, optional tweaks).
 $LockScreenRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'
 )
 
-# Right click menu entries hidden by blocking their shell extension (from ZOICWARE, optional tweaks). A blocked value is
-# removed again by -Revert, which ZOICWARE's key deletions could not undo. Quick access verbs are hidden instead.
+# Right click menu entries hidden by blocking their shell extension (from the vendored data, optional tweaks). A blocked value is
+# removed again by -Revert, which the vendored key deletions could not undo. Quick access verbs are hidden instead.
 $BlockedExt = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'
 $MenuBlocks = [ordered]@{
     MenuNoShare        = @(New-Tweak $BlockedExt '{e2bf9676-5f8f-435c-97eb-11607a5bedf7}' '' 'String')
@@ -2456,7 +2456,7 @@ $MenuBlocks = [ordered]@{
     MenuNoTerminal     = @(New-Tweak $BlockedExt '{9F156763-7844-4DC4-B2B1-901F640F5155}' '' 'String')
 }
 
-# Run as administrator for scripts and installers (from ZOICWARE, UltimateContextMenu\runAsAdmin.reg).
+# Run as administrator for scripts and installers (from the vendored data, the run as administrator entry).
 $MenuRunAsAdminRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas' 'HasLUAShield' '' 'String'
     New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas\command' '' 'powershell.exe "-Command" "if((Get-ExecutionPolicy ) -ne ''AllSigned'') { Set-ExecutionPolicy -Scope Process Bypass }; & ''%1''"' 'ExpandString'
@@ -2466,7 +2466,7 @@ $MenuRunAsAdminRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\VBSFile\Shell\runas\command' '' '"%SystemRoot%\System32\WScript.exe" "%1" %*' 'ExpandString'
 )
 
-# Native NVMe driver (from Ultimate, 8 Advanced\19): feature overrides plus Safe Mode entries so Safe Mode still boots.
+# Native NVMe driver (see NOTICE.md): feature overrides plus Safe Mode entries so Safe Mode still boots.
 $NvmeRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '735209102' 1 'DWord'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '3244671118' 1 'DWord'
@@ -3671,7 +3671,7 @@ function New-SafetyRestorePoint {
     if ($Opt['EnableSystemRestore']) {
         Write-Log "Restore point not created. Windows said: $reason Turning System Protection on for $env:SystemDrive and trying again (EnableSystemRestore)."
         try {
-            # Same approach as the Ultimate repo: allow several restore points per day, switch System Protection on, retry.
+            # Same approach as other tweak scripts: allow several restore points per day, switch System Protection on, retry.
             Set-RegValue -Path 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0
             Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction Stop
         }
@@ -3816,7 +3816,7 @@ function Test-NvidiaGpu {
 function Find-ProfileInspector {
     # This runs elevated, so only folders that need administrator rights to write are searched: never PATH or
     # %LOCALAPPDATA%, where any program running as the user could plant a file named like Profile Inspector.
-    # Packages installs it per machine (winget --scope machine); Ultimate uses its own folder under Program Files.
+    # Packages installs it per machine (winget --scope machine); other scripts use their own folder under Program Files.
     $candidates = @(
         @(Get-ChildItem -Path (Join-Path $env:ProgramFiles 'WinGet\Packages\Orbmu2k.nvidiaProfileInspector_*') -Directory -ErrorAction SilentlyContinue)
         @(Get-Item -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Nvidia Profile Inspector') -ErrorAction SilentlyContinue)
@@ -5459,7 +5459,7 @@ function Get-DeviceTweaks {
 }
 
 function Get-WriteCacheTweaks {
-    # Disks only: Enum\SCSI also lists optical drives, which Ultimate changes as well.
+    # Disks only: Enum\SCSI also lists optical drives, which other scripts change as well.
     foreach ($d in @(Get-DeviceParameterKeys -Roots 'SCSI', 'NVME' -HardwareLike 'Disk*')) { New-Tweak "$($d.Path)\Disk" 'CacheIsPowerProtected' 1 'DWord' }
 }
 
@@ -5516,7 +5516,7 @@ function Set-NvmeNativeDriver {
 }
 
 function Set-IPv4Only {
-    # Only IPv6 is unbound. Ultimate also unbinds file sharing, the SMB client and QoS, which breaks network shares.
+    # Only IPv6 is unbound. Other scripts also unbind file sharing, the SMB client and QoS, which breaks network shares.
     $bindings = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | ForEach-Object {
             Get-NetAdapterBinding -Name $_.Name -ComponentID 'ms_tcpip6' -ErrorAction SilentlyContinue
         } | Where-Object { $_.Enabled })

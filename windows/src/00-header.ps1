@@ -1,10 +1,10 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Focused Windows 10/11 tweak script derived from ZOICWARE (MIT licence, copyright (c) 2024 zoicware). __FT_VERSION__.
+    Focused Windows 10/11 tweak script derived from MIT licensed projects, credited in NOTICE.md. __FT_VERSION__.
 
 .DESCRIPTION
-    A stripped down port of the ZOICWARE features in the supplied ZCONFIG, with every risky item exposed as a
+    A stripped down set of tweaks, with every risky item exposed as a
     named option. Defaults aim for maximum performance with Windows still usable: things are removed or left
     alone, never half done. Left alone by default because removing them gains nothing or costs speed: SSD
     retrim (Optimize Drives service, Defrag tasks, automatic maintenance), time sync, TPM and BitLocker tasks,

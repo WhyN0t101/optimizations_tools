@@ -1,7 +1,7 @@
 # FocusedTweaks
 
-A focused, option driven Windows 10/11 tweak script derived from [ZOICWARE](https://github.com/zoicware/ZOICWARE) (MIT),
-with ideas from [FR33THYFR33THY/Ultimate](https://github.com/FR33THYFR33THY/Ultimate) (MIT). Windows only.
+A focused, option driven Windows 10/11 tweak script derived from MIT licensed tweak projects (credited in [NOTICE.md](NOTICE.md); sources and licences in
+[vendor/](vendor/README.md)). Windows only.
 
 ## Quick start
 
@@ -116,8 +116,8 @@ for common Windows, Lenovo, Intel, Dolby, Realtek and Synaptics services. Compar
 `tools\Test-Mouse.ps1` checks Enhance pointer precision, pointer speed and the background polling cap, then measures
 the mouse's real polling rate and steadiness while you move it. It only reads.
 
-Building it yourself needs only Python: `python tools/build.py --out FocusedTweaks.ps1` in this folder. The ZOICWARE
-data comes from the copy in `upstream/zoicware/`, checked against pinned SHA256 values.
+Building it yourself needs only Python: `python tools/build.py --out FocusedTweaks.ps1` in this folder. The vendored
+data comes from the copy in `vendor/`, checked against pinned SHA256 values.
 
 ## Options
 
@@ -148,7 +148,7 @@ Every option, with its default, whether `-Revert` undoes it and what evidence ba
 the vendor page, Folklore, or n/a for options that are not about speed), is in [`docs/OPTIONS.md`](docs/OPTIONS.md).
 The evidence column is information only: options are chosen for speed, less bloat, less telemetry and smoothness.
 That file is generated from the script by `tools/build.py`, so it always matches. `-ListOptions` prints the same list.
-Every one of the 482 upstream ZOICWARE registry items (192 groups), with its key, value, data and the option that
+Every one of the 482 upstream registry items (192 groups), with its key, value, data and the option that
 applies it, is in [`docs/REGISTRY.md`](docs/REGISTRY.md), generated the same way.
 
 Third party licence notices are in `NOTICE.md`.

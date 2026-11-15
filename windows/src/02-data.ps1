@@ -1,4 +1,4 @@
-#region Data (generated from the upstream ZOICWARE source) ---------------------------------
+#region Data (generated from the vendored source data) ---------------------------------
 function New-Tweak {
     param([string]$Path, [string]$Name, $Value, [string]$Type = 'DWord')
     [pscustomobject]@{ Path = $Path; Name = $Name; Value = $Value; Type = $Type }
@@ -31,7 +31,7 @@ $PackageIds = @(
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
 
-# NVIDIA global (Base Profile) settings for NvidiaProfile, from FR33THY Ultimate "5 Nvidia Settings" (MIT), imported
+# NVIDIA global (Base Profile) settings for NvidiaProfile, taken over from a third party NVIDIA settings set (see NOTICE.md), imported
 # with Profile Inspector's merge import so nothing else in the profile changes. Left out on purpose: G-SYNC, V-Sync and
 # the frame rate limiter (people rely on them), forced antialiasing and anisotropic overrides (they override what games
 # ask for), and the preferred OpenGL GPU (its value names one specific card).
@@ -51,7 +51,7 @@ $NvidiaBaseSettings = @(
     @{ Name = 'Shader Cache - Cache Size'; Id = 11306135; Value = 4294967295 } # unlimited
     @{ Name = 'Threaded Optimization'; Id = 549528094; Value = 1 }
 )
-# Resizable BAR forced on for every application (NvidiaReBar), from Ultimate "7 ReBar Force".
+# Resizable BAR forced on for every application (NvidiaReBar), see NOTICE.md.
 $NvidiaReBarSettings = @(
     @{ Name = 'rBAR - Enable'; Id = 983226; Value = 1 }
 )
@@ -205,18 +205,18 @@ $DebloatRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' 'BlockedOobeUpdaters' '["MS_Outlook"]' 'String'
 )
 
-# Network adapter driver keywords (from Ultimate, 6 Windows\26). Only keywords a driver already exposes are changed.
+# Network adapter driver keywords (see NOTICE.md). Only keywords a driver already exposes are changed.
 $NetAdapterClassKey = 'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}'
 $NetPowerKeywords = @('SipsEnabled', 'ULPMode', 'GigaLite', 'EnableGreenEthernet', 'PowerSavingMode')
 $NetEeeKeywords = @('AdvancedEEE', '*EEE', 'EEELinkAdvertisement')
 
-# Spectre and Meltdown mitigations off (from Ultimate, 8 Advanced\3).
+# Spectre and Meltdown mitigations off (see NOTICE.md).
 $MitigationRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverride' 3 'DWord'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 3 'DWord'
 )
 
-# Timer resolution service (reduced from Ultimate, 6 Windows\30): sets the finest timer resolution at start and holds it.
+# Timer resolution service (reduced from a third party service, see NOTICE.md): sets the finest timer resolution at start and holds it.
 # Windows 10 2004 and later honour the request per process, so GlobalTimerResolutionRequests makes it system wide.
 # A 0.5 ms timer fires about 2000 times a second, which costs battery: laptop profiles should skip this option.
 $TimerServiceName = 'FocusedTimerResolution'
@@ -254,7 +254,7 @@ public class TimerResolutionService : ServiceBase
 }
 '@
 
-# Device power saving and wake (from Ultimate, 6 Windows\25). Values go under each device's 'Device Parameters' key.
+# Device power saving and wake (see NOTICE.md). Values go under each device's 'Device Parameters' key.
 $DeviceEnumRoots = @('ACPI', 'HID', 'PCI', 'USB')
 $DevicePowerValues = @(
     @{ Name = 'EnhancedPowerManagementEnabled'; Value = 0; Type = 'DWord' }
@@ -262,26 +262,26 @@ $DevicePowerValues = @(
     @{ Name = 'SelectiveSuspendOn'; Value = 0; Type = 'DWord' }
 )
 
-# Multiplane overlay off (from Ultimate, 8 Advanced\11). Only the overlay switch: Ultimate also rewrites the per user
+# Multiplane overlay off (see NOTICE.md). Only the overlay switch: the original also rewrites the per user
 # DirectX settings string, which would drop any other per app GPU preference stored in it.
 $MpoRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Microsoft\Windows\Dwm' 'OverlayTestMode' 5 'DWord'
 )
 
-# Faster shutdown (from ZOICWARE, optional tweaks).
+# Faster shutdown (from the vendored data, optional tweaks).
 $FastShutdownRegs = @(
     New-Tweak 'HKCU\Control Panel\Desktop' 'WaitToKillAppTimeout' '1500' 'String'
     New-Tweak 'HKCU\Control Panel\Desktop' 'AutoEndTasks' '1' 'String'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Control' 'WaitToKillServiceTimeout' '1500' 'String'
 )
 
-# Time server (from ZOICWARE, optional tweaks). Written to the registry so -Revert restores the old servers.
+# Time server (from the vendored data, optional tweaks). Written to the registry so -Revert restores the old servers.
 $TimeServerRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'NtpServer' '0.pool.ntp.org,0x9 1.pool.ntp.org,0x9 2.pool.ntp.org,0x9 3.pool.ntp.org,0x9' 'String'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' 'Type' 'NTP' 'String'
 )
 
-# Right click menu entries (from ZOICWARE, UltimateContextMenu\killTasks.reg, AddRestartExplorer.reg and Take Ownership).
+# Right click menu entries (from the vendored data: the kill tasks, restart Explorer and Take Ownership entries).
 $MenuKillRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'MUIVerb' 'Kill not responding tasks' 'String'
     New-Tweak 'HKLM\SOFTWARE\Classes\DesktopBackground\Shell\KillNotResponding' 'Icon' '%SystemRoot%\System32\imageres.dll,-98' 'String'
@@ -491,7 +491,7 @@ $BrowserPolicyRegs = @(
 )
 
 # Windows 11 caps mouse raw input to windows in the background at about 125 reports a second; 0 lifts the cap (idea
-# from FR33THY Ultimate, "Background Polling Rate Cap"). Check with tools/Test-Mouse.ps1.
+# see NOTICE.md). Check with tools/Test-Mouse.ps1.
 $MouseFullRateRegs = @(
     New-Tweak 'HKCU\Control Panel\Mouse' 'RawMouseThrottleEnabled' 0 'DWord'
 )
@@ -529,13 +529,13 @@ $OneDriveRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\OneDrive' 'DisableFileSyncNGSC' 1 'DWord'
 )
 
-# Lock screen off (from ZOICWARE, optional tweaks).
+# Lock screen off (from the vendored data, optional tweaks).
 $LockScreenRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'
 )
 
-# Right click menu entries hidden by blocking their shell extension (from ZOICWARE, optional tweaks). A blocked value is
-# removed again by -Revert, which ZOICWARE's key deletions could not undo. Quick access verbs are hidden instead.
+# Right click menu entries hidden by blocking their shell extension (from the vendored data, optional tweaks). A blocked value is
+# removed again by -Revert, which the vendored key deletions could not undo. Quick access verbs are hidden instead.
 $BlockedExt = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked'
 $MenuBlocks = [ordered]@{
     MenuNoShare        = @(New-Tweak $BlockedExt '{e2bf9676-5f8f-435c-97eb-11607a5bedf7}' '' 'String')
@@ -555,7 +555,7 @@ $MenuBlocks = [ordered]@{
     MenuNoTerminal     = @(New-Tweak $BlockedExt '{9F156763-7844-4DC4-B2B1-901F640F5155}' '' 'String')
 }
 
-# Run as administrator for scripts and installers (from ZOICWARE, UltimateContextMenu\runAsAdmin.reg).
+# Run as administrator for scripts and installers (from the vendored data, the run as administrator entry).
 $MenuRunAsAdminRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas' 'HasLUAShield' '' 'String'
     New-Tweak 'HKLM\SOFTWARE\Classes\Microsoft.PowerShellScript.1\Shell\runas\command' '' 'powershell.exe "-Command" "if((Get-ExecutionPolicy ) -ne ''AllSigned'') { Set-ExecutionPolicy -Scope Process Bypass }; & ''%1''"' 'ExpandString'
@@ -565,7 +565,7 @@ $MenuRunAsAdminRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Classes\VBSFile\Shell\runas\command' '' '"%SystemRoot%\System32\WScript.exe" "%1" %*' 'ExpandString'
 )
 
-# Native NVMe driver (from Ultimate, 8 Advanced\19): feature overrides plus Safe Mode entries so Safe Mode still boots.
+# Native NVMe driver (see NOTICE.md): feature overrides plus Safe Mode entries so Safe Mode still boots.
 $NvmeRegs = @(
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '735209102' 1 'DWord'
     New-Tweak 'HKLM\SYSTEM\CurrentControlSet\Policies\Microsoft\FeatureManagement\Overrides' '3244671118' 1 'DWord'
