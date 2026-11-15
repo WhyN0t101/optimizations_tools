@@ -5,6 +5,12 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+## v8.2 (15 Nov 2026)
+
+- Option errors under -Json (the item left open by the code audit below): a profile that cannot be used, an unknown
+  option name and modes that do not go together now print one JSON object (exit code, its meaning, the reason) instead
+  of PowerShell's error text, and end with the new exit code 5, invalid options, with or without -Json (it was 1, the
+  code for failed changes). A parameter PowerShell itself rejects still ends before the script starts.
 - Inventory: `seclogon` (Secondary Logon, on demand) and `WaaSMedicSvc` (set to Manual by PauseUpdates) are in the reviewed
   list; the CI image showed them running once.
 - From a code audit (ponytail-audit, 14 Nov 2026), fixed with tests: -Revert restores deleted keys before recorded values, so a
@@ -13,8 +19,7 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
   before its first save); -StateDir refuses an existing folder that holds other files and none of the script's (it would
   be closed to administrators) and resolves a relative path; the run is recorded only once it goes ahead, not when it is
   cancelled at the restore point question; the Temp cleanup checks again, right before deleting, that a top level folder
-  has not become a link; one parser and one message for an ended update pause. Not done: JSON output for option errors
-  under -Json (those come before the result object exists; needs the start up order changed).
+  has not become a link; one parser and one message for an ended update pause.
 
 ## v8.1 (14 Nov 2026)
 
