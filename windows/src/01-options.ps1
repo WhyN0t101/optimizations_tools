@@ -118,6 +118,22 @@ $BoundNames = @($PSBoundParameters.Keys)
 $CommandLineNames = @($PSBoundParameters.Keys)
 $ProfileNames = @()
 
+function Get-OptionErrorResult {
+    # What -Json prints for an option error. Smaller than the run result: the state folder, the log and the checks
+    # come later, and none of them is touched.
+    param([Parameter(Mandatory)][string]$Reason)
+    return [ordered]@{ ExitCode = 5; Result = 'invalid options'; Reason = $Reason }
+}
+
+function Exit-OptionError {
+    # A profile that cannot be used, an unknown option name or modes that do not go together end the run here, before
+    # anything is read or changed. With -Json the console still gets exactly one object.
+    param([Parameter(Mandatory)][string]$Reason)
+    if ($Json) { Write-Output (ConvertTo-Json -InputObject (Get-OptionErrorResult -Reason $Reason)) }
+    else { Write-Host $Reason -ForegroundColor Red }
+    exit 5
+}
+
 function Import-RunProfile {
     # A profile holds the same choices as the command line. Anything also given on the command line wins.
     if (-not $ProfilePath) { return }
@@ -142,7 +158,8 @@ function Import-RunProfile {
         else { throw "Profile: unknown setting '$name'. Valid: $(($lists + @($choices.Keys) + 'PauseDays') -join ', ')." }
     }
 }
-Import-RunProfile
+try { Import-RunProfile }
+catch { Exit-OptionError $_.Exception.Message }
 
 function Resolve-Options {
     $enableList = $Enable; $skipList = $Skip
@@ -192,7 +209,8 @@ if ($ListOptions) {
     Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
 }
-Resolve-Options
+try { Resolve-Options }
+catch { Exit-OptionError $_.Exception.Message }
 $WantNvidia = [bool]($NvidiaInstaller -or $NvidiaDownload -or $NvidiaVersion)
 #endregion
 

@@ -61,6 +61,10 @@ else; the log file still gets every line. Exit codes, with or without `-Json`:
 | 2 | Cancelled: not confirmed, no restore point and not confirmed, or `-Json` without `-Force` |
 | 3 | Refused by a pre flight check, or `-Json` without administrator rights |
 | 4 | The saved state cannot be read (nothing was changed) |
+| 5 | Invalid options: a profile that cannot be used, an unknown option name, or modes that do not go together (nothing was changed). With `-Json` the object then holds only the exit code, its meaning and the reason |
+
+A parameter PowerShell itself rejects (a misspelt parameter name, a value outside a fixed list such as `-TaskMode`) ends
+before the script starts: exit code 1 and PowerShell's own error text, also with `-Json`.
 
 Keep a set of choices in a file and pass it with `-ProfilePath`; `profiles\example.json` shows every setting.
 Command line parameters win over the profile.

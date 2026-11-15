@@ -249,5 +249,6 @@ Privacy first: `profiles\privacy.json`, same commands.
 | `The saved state ... cannot be read` (exit code 4) | Nothing was changed. The message names the file; `state.json.bak` is tried first automatically. |
 | Something broke after the run | `-HealthCheck` names it; `-Revert -Only <Option>` undoes that option; `-Revert` undoes everything. |
 
-Exit codes: 0 ok, 1 failures, 2 cancelled, 3 refused by a pre flight check, 4 state unreadable. For unattended use
+Exit codes: 0 ok, 1 failures, 2 cancelled, 3 refused by a pre flight check, 4 state unreadable, 5 invalid
+options. For unattended use
 add `-Json -Force`: the console then prints one JSON result object.

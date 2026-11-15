@@ -65,7 +65,7 @@ function Invoke-Timed {
 }
 
 # docs/AUDIT.md C-5: exit codes, also in the README and in the -Json result.
-$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable' }
+$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable'; 5 = 'invalid options' }
 $script:PreflightResults = @()
 
 function Get-RunMode {

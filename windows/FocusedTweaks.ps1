@@ -44,7 +44,8 @@
 
     Unattended: -Json prints one result object and nothing else on the console (the log file still gets everything);
     a real run with -Json needs -Force, since it cannot answer questions. Exit codes: 0 ok, 1 failures (or a failed
-    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable.
+    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable,
+    5 invalid options (a profile that cannot be used, an unknown option name, modes that do not go together).
     tools\Explain-Processes.ps1 explains what is running and why, without changing anything.
 
 .EXAMPLE
@@ -286,6 +287,22 @@ $BoundNames = @($PSBoundParameters.Keys)
 $CommandLineNames = @($PSBoundParameters.Keys)
 $ProfileNames = @()
 
+function Get-OptionErrorResult {
+    # What -Json prints for an option error. Smaller than the run result: the state folder, the log and the checks
+    # come later, and none of them is touched.
+    param([Parameter(Mandatory)][string]$Reason)
+    return [ordered]@{ ExitCode = 5; Result = 'invalid options'; Reason = $Reason }
+}
+
+function Exit-OptionError {
+    # A profile that cannot be used, an unknown option name or modes that do not go together end the run here, before
+    # anything is read or changed. With -Json the console still gets exactly one object.
+    param([Parameter(Mandatory)][string]$Reason)
+    if ($Json) { Write-Output (ConvertTo-Json -InputObject (Get-OptionErrorResult -Reason $Reason)) }
+    else { Write-Host $Reason -ForegroundColor Red }
+    exit 5
+}
+
 function Import-RunProfile {
     # A profile holds the same choices as the command line. Anything also given on the command line wins.
     if (-not $ProfilePath) { return }
@@ -310,7 +327,8 @@ function Import-RunProfile {
         else { throw "Profile: unknown setting '$name'. Valid: $(($lists + @($choices.Keys) + 'PauseDays') -join ', ')." }
     }
 }
-Import-RunProfile
+try { Import-RunProfile }
+catch { Exit-OptionError $_.Exception.Message }
 
 function Resolve-Options {
     $enableList = $Enable; $skipList = $Skip
@@ -360,7 +378,8 @@ if ($ListOptions) {
     Write-Host 'Undo only some deleted or disabled tasks: -RestoreTask <task path wildcards>, for example -RestoreTask ''\Microsoft\Windows\Application Experience\*''.'
     exit 0
 }
-Resolve-Options
+try { Resolve-Options }
+catch { Exit-OptionError $_.Exception.Message }
 $WantNvidia = [bool]($NvidiaInstaller -or $NvidiaDownload -or $NvidiaVersion)
 #endregion
 
@@ -2578,7 +2597,7 @@ function Invoke-Timed {
 }
 
 # docs/AUDIT.md C-5: exit codes, also in the README and in the -Json result.
-$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable' }
+$ExitCodes = @{ 0 = 'ok'; 1 = 'failures'; 2 = 'cancelled'; 3 = 'pre flight refused'; 4 = 'state unreadable'; 5 = 'invalid options' }
 $script:PreflightResults = @()
 
 function Get-RunMode {
@@ -7028,7 +7047,7 @@ $conflict = Get-ModeConflict -Flags @{
     StartupReview = [bool]$StartupReview; RestoreTask = ($RestoreTask.Count -gt 0); Only = ($Only.Count -gt 0)
     Benchmark = [bool]$Benchmark; FrameBenchmark = [bool]$FrameBenchmark
 }
-if ($conflict) { throw $conflict }
+if ($conflict) { Exit-OptionError $conflict }
 Enable-StayAwake
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.

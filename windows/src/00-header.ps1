@@ -44,7 +44,8 @@
 
     Unattended: -Json prints one result object and nothing else on the console (the log file still gets everything);
     a real run with -Json needs -Force, since it cannot answer questions. Exit codes: 0 ok, 1 failures (or a failed
-    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable.
+    health check), 2 cancelled, 3 pre flight refused (also: not elevated with -Json), 4 state unreadable,
+    5 invalid options (a profile that cannot be used, an unknown option name, modes that do not go together).
     tools\Explain-Processes.ps1 explains what is running and why, without changing anything.
 
 .EXAMPLE

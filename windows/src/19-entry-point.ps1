@@ -48,7 +48,7 @@ $conflict = Get-ModeConflict -Flags @{
     StartupReview = [bool]$StartupReview; RestoreTask = ($RestoreTask.Count -gt 0); Only = ($Only.Count -gt 0)
     Benchmark = [bool]$Benchmark; FrameBenchmark = [bool]$FrameBenchmark
 }
-if ($conflict) { throw $conflict }
+if ($conflict) { Exit-OptionError $conflict }
 Enable-StayAwake
 Initialize-StateDir
 # An unreadable state file ends every mode here with one clear line, before anything is changed.
