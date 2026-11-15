@@ -762,6 +762,25 @@ Check 'Every mode asks Windows to stay awake before it starts working (an idle P
     Check 'Behaviour, revert: Explorer is stopped before its settings are written again, then started' (($script:order -join ';') -eq 'stop explorer;restore HideIcons;start explorer') ($script:order -join ';')
 }
 & {
+    # -Revert and Explorer: an Explorer that Windows started before the values were written holds the old ones, so it is
+    # stopped again (VM run of 15 Nov 2026, HideIcons was back at 1). One that started after the write is left alone.
+    $script:order = [System.Collections.Generic.List[string]]::new()
+    $script:explorerStart = (Get-Date).AddMinutes(-5)
+    function Stop-Process { param([Parameter(ValueFromPipeline = $true)]$InputObject, $Name, [switch]$Force) process { $script:order.Add($(if ($Name) { "stop $Name" } else { 'stop stale' })) } }
+    function Start-Sleep { param($Seconds, $Milliseconds) }
+    function Restore-RegValue { param($Entry) $script:order.Add("restore $($Entry.Name)") }
+    function Get-Process { param($Name) [pscustomobject]@{ StartTime = $script:explorerStart } }
+    function Start-Process { param($FilePath) $script:order.Add('start explorer') }
+    function Write-Log { param($Message, $Level) }
+    $entry = [pscustomobject]@{ Path = 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'HideIcons' }
+    Restore-ExplorerValues -Entries @($entry)
+    $stale = ($script:order -join ';') -eq 'stop explorer;restore HideIcons;stop stale'
+    $script:order.Clear(); $script:explorerStart = (Get-Date).AddMinutes(5)
+    Restore-ExplorerValues -Entries @($entry)
+    $fresh = ($script:order -join ';') -eq 'stop explorer;restore HideIcons'
+    Check 'Behaviour, revert: an Explorer that started before the settings were written is stopped again, one that started after is left alone' ($stale -and $fresh) "$stale $fresh"
+}
+& {
     # docs/AUDIT.md A-18: -NoTrustedInstaller never repoints the TrustedInstaller service. A value only TrustedInstaller
     # may delete is a MISMATCH in the journal, not a failure (a failure would roll the whole step back).
     $NoTrustedInstaller = $true

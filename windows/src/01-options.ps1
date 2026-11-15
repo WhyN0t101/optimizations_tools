@@ -4,8 +4,8 @@
 # Measured (a measurement on real hardware), Documented (a vendor page describes the mechanism; the size of the
 # effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
-    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
-    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Process Explorer. A download that fails is a warning, not a failure', 'n/a', '')
+    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
+    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Autoruns. A download that fails is a warning, not a failure', 'n/a', '')
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')

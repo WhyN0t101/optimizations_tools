@@ -212,7 +212,7 @@ the default packages). Run it in sensors only mode to watch CPU and GPU temperat
 game.
 
 **Tools the script installs.** `ToolPackages` (on) installs CPU-Z (CPU, memory and board details), WizTree (what fills
-your disk, in seconds) and Process Explorer (what every process is doing). Switch it off with `-Skip ToolPackages`. GPU-Z
+your disk, in seconds) and Autoruns (what starts with Windows). Switch it off with `-Skip ToolPackages`. GPU-Z
 is not included because winget's download link for it is dead at the moment; get it from
 https://www.techpowerup.com/gpuz/.
 

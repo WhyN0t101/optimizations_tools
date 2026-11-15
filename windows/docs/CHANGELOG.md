@@ -5,6 +5,17 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+## v8.3 (15 Nov 2026)
+
+- VM run of 15 Nov 2026 (the build before the v8.3 batch below; every stage exit code 0, health 0 failed, 98 passed):
+  processes 129 to 88, running services 87 to 56, committed memory 1907 to 1349 MB, timer 15.6 to 0.5 ms, Sleep(1)
+  15.8 to 1.6 ms, svchost 65 to 39. Found: Process Explorer was refused by winget with 0x8A150011 (installer hash
+  mismatch: Sysinternals replaces its zip files in place, so winget's stored hash goes stale). It left the bundle;
+  Autoruns, which has the same weakness, moved from `Packages` to `ToolPackages`, where a failed download is a warning.
+  The revert check found `HideIcons` at 1 again: Windows starts Explorer by itself a second or two after the kill, and
+  one that came up before the values were written kept the old ones. `Restore-ExplorerValues` now stops any Explorer
+  that started before the write and lets the next one read the restored values.
+
 - Fixed: `-Revert` after a restart did not remove the task that ends the update pause. `PauseEndTask` was saved in
   state.json but not read back by `Import-State` (it only survived inside one session), so the task stayed; the
   VM revert log of 14 Nov 2026 has no step for it. A test now fails when any single value of the state is not read
@@ -27,7 +38,7 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
   run was already fixed in v8.1 (Defender's live settings are not read while it is off).
 - `profiles\gaming.json`: the desktop defaults plus `TcpLatency`, `DeviceWakeOff` and `LockScreenOff`.
 
-- `ToolPackages` (on): CPU-Z, WizTree and Process Explorer through winget, as an option of their own. A package that
+- `ToolPackages` (on): CPU-Z, WizTree and Autoruns through winget, as an option of their own. A package that
   fails to install is a warning (`Install-RuntimePackages -Soft`), never a failure, and the health check has a Tools
   area (`winget list`, a warning when one is missing). GPU-Z, HWiNFO and CrystalDiskInfo were checked and left out
   because winget's installer links for them do not download today; each ID in the bundle was checked with

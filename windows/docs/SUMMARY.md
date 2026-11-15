@@ -49,8 +49,8 @@ Keep/Manual/Remove advice for common Windows and vendor services, and compares t
 - Kept by default: Bluetooth, printing, Delivery Optimisation and radio management services.
 - Excluded by default: core isolation, hide Lock, hide Sleep, hibernate off.
 - Debloat keeps Store, Xbox, Edge, Paint, Photos (plus Calculator, Notepad, Terminal, Snipping Tool, winget, image codecs).
-- Packages: Visual C++ 2015+ x64 and x86, DirectX, 7-Zip, Firefox, NVIDIA Profile Inspector, Autoruns.
-- ToolPackages (on, own option): CPU-Z, WizTree and Process Explorer. A failed download is a warning, never a failure.
+- Packages: Visual C++ 2015+ x64 and x86, DirectX, 7-Zip, Firefox, NVIDIA Profile Inspector.
+- ToolPackages (on, own option): CPU-Z, WizTree and Autoruns. A failed download is a warning, never a failure.
   GPU-Z is not in it because winget's installer URL for it answers 404 (15 Nov 2026), HWiNFO for the same reason as
   before, CrystalDiskInfo because SourceForge refuses automated downloads; add them when winget's links work again.
 - v8.3 batch (not yet run in the VM): `SvcHostGrouping` and `Short8dot3Off` on; `TcpLatency`, `ReservedStorageOff`,

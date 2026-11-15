@@ -175,8 +175,8 @@ $Ctx = [pscustomobject]@{
 # Measured (a measurement on real hardware), Documented (a vendor page describes the mechanism; the size of the
 # effect is not measured here), Folklore (repeated without a measurement), n/a (not about speed).
 $OptionInfo = [ordered]@{
-    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
-    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Process Explorer. A download that fails is a warning, not a failure', 'n/a', '')
+    Packages              = @($true, 'winget: runtimes, Firefox, 7-Zip, and NVIDIA Profile Inspector when an NVIDIA GPU is present', 'n/a', '')
+    ToolPackages          = @($true, 'winget: CPU-Z, WizTree and Autoruns. A download that fails is a warning, not a failure', 'n/a', '')
     Debloat               = @($true, 'Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again', 'Folklore', '')
     Registry              = @($true, 'Upstream RegTweaks.txt (about 270 keys, 470 values), all groups except those with their own option below', 'Folklore', '')
     Uac                   = @($true, 'Disable User Account Control (EnableLUA 0) and LUA file virtualization', 'Folklore', '')
@@ -1940,17 +1940,19 @@ $PackageIds = @(
     '7zip.7zip'
     'Mozilla.Firefox'
     'Orbmu2k.nvidiaProfileInspector'
-    'Microsoft.Sysinternals.Autoruns'
     # Not HWiNFO: its site removes each old installer on release, and winget's link breaks until its entry catches
     # up (HTTP 404 on 13 Nov 2026, version 8.60 out, winget still on 8.54). docs/GUIDE.md says how to get it.
 )
 # Small tools, their own option (ToolPackages) so a download that fails never counts as a failed run. Each ID was
 # checked with winget show and its installer URL answered on 15 Nov 2026. Not GPU-Z (TechPowerUp's installer URL in
-# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads).
+# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads), not
+# Process Explorer (Sysinternals replaces its zip files in place, so winget's stored hash goes stale and winget
+# refuses: exit code 0x8A150011 in the VM run of 15 Nov 2026). Autoruns is here, not in PackageIds, for the same
+# reason: a stale hash must be a warning, not a failed run.
 $ToolPackageIds = @(
     'CPUID.CPU-Z'
     'AntibodySoftware.WizTree'
-    'Microsoft.Sysinternals.ProcessExplorer'
+    'Microsoft.Sysinternals.Autoruns'
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
@@ -4806,7 +4808,16 @@ function Restore-ExplorerValues {
         try { Restore-RegValue -Entry $e }
         catch { Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name) again. $($_.Exception.Message)" 'WARN' }
     }
+    $writtenAt = Get-Date
     Start-Sleep -Seconds 3
+    # Windows starts Explorer again by itself a second or two after the kill. One that came up before the values were
+    # written read the old ones and keeps them in memory, saving them over the restored ones later (HideIcons was back
+    # at 1 after the revert of 15 Nov 2026). Stop any such Explorer; the next one reads the restored values.
+    $stale = @(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.StartTime -lt $writtenAt })
+    if ($stale.Count -gt 0) {
+        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+    }
     if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process -FilePath (Join-Path $env:windir 'explorer.exe') }
     Write-Log "Explorer restarted with $($entries.Count) restored setting(s)." 'OK'
 }
@@ -5718,7 +5729,7 @@ function Show-StartupReview {
     $text = ($rows | Sort-Object Kind, Name | Format-Table Kind, Name, Command, Where -AutoSize -Wrap | Out-String -Width 220)
     Set-Content -LiteralPath $file -Value $text -Encoding UTF8
     if (-not $Json) { Write-Host $text }
-    Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by Packages) shows more detail."
+    Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by ToolPackages) shows more detail."
 }
 
 #endregion

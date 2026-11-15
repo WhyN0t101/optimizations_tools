@@ -166,7 +166,16 @@ function Restore-ExplorerValues {
         try { Restore-RegValue -Entry $e }
         catch { Write-Log "Could not restore $($e.Path)\$(Show-RegName $e.Name) again. $($_.Exception.Message)" 'WARN' }
     }
+    $writtenAt = Get-Date
     Start-Sleep -Seconds 3
+    # Windows starts Explorer again by itself a second or two after the kill. One that came up before the values were
+    # written read the old ones and keeps them in memory, saving them over the restored ones later (HideIcons was back
+    # at 1 after the revert of 15 Nov 2026). Stop any such Explorer; the next one reads the restored values.
+    $stale = @(Get-Process -Name explorer -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.StartTime -lt $writtenAt })
+    if ($stale.Count -gt 0) {
+        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+    }
     if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process -FilePath (Join-Path $env:windir 'explorer.exe') }
     Write-Log "Explorer restarted with $($entries.Count) restored setting(s)." 'OK'
 }

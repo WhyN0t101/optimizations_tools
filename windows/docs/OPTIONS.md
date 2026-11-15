@@ -14,8 +14,8 @@ measurement), **n/a** (not about speed). See `docs/AUDIT.md`.
 
 | Option | Default | Undone by -Revert | Evidence | What it does |
 |---|---|---|---|---|
-| `Packages` | on | no, installed software stays | n/a | winget: runtimes, Firefox, 7-Zip, Autoruns, and NVIDIA Profile Inspector when an NVIDIA GPU is present |
-| `ToolPackages` | on | no, installed software stays | n/a | winget: CPU-Z, WizTree and Process Explorer. A download that fails is a warning, not a failure |
+| `Packages` | on | no, installed software stays | n/a | winget: runtimes, Firefox, 7-Zip, and NVIDIA Profile Inspector when an NVIDIA GPU is present |
+| `ToolPackages` | on | no, installed software stays | n/a | winget: CPU-Z, WizTree and Autoruns. A download that fails is a warning, not a failure |
 | `Debloat` | on | no, reinstall apps from the Store or winget | Folklore | Remove consumer apps (keep list protects Store, Xbox, Edge, Paint, Photos and more), and stop Windows Update installing the new Outlook again |
 | `RemoveQuickAssist` | on | no, add it back with Add-WindowsCapability | n/a | Remove Quick Assist (Windows capability, package and app). Not reversible by -Revert |
 | `RemoveOneDrive` | on | the policy yes; OneDrive itself comes back with winget install Microsoft.OneDrive | n/a | Uninstall OneDrive and block it by policy. Skipped while an account is signed in; files in the OneDrive folder stay on disk. Not reversible by -Revert |

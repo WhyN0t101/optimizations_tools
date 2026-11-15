@@ -63,7 +63,7 @@ function Show-StartupReview {
     $text = ($rows | Sort-Object Kind, Name | Format-Table Kind, Name, Command, Where -AutoSize -Wrap | Out-String -Width 220)
     Set-Content -LiteralPath $file -Value $text -Encoding UTF8
     if (-not $Json) { Write-Host $text }
-    Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by Packages) shows more detail."
+    Write-Log "Startup review: $($rows.Count) entr(ies), nothing was changed. Saved to $file. Autoruns (installed by ToolPackages) shows more detail."
 }
 
 #endregion

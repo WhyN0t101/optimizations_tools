@@ -24,17 +24,19 @@ $PackageIds = @(
     '7zip.7zip'
     'Mozilla.Firefox'
     'Orbmu2k.nvidiaProfileInspector'
-    'Microsoft.Sysinternals.Autoruns'
     # Not HWiNFO: its site removes each old installer on release, and winget's link breaks until its entry catches
     # up (HTTP 404 on 13 Nov 2026, version 8.60 out, winget still on 8.54). docs/GUIDE.md says how to get it.
 )
 # Small tools, their own option (ToolPackages) so a download that fails never counts as a failed run. Each ID was
 # checked with winget show and its installer URL answered on 15 Nov 2026. Not GPU-Z (TechPowerUp's installer URL in
-# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads).
+# winget answers 404), not HWiNFO (see above), not CrystalDiskInfo (SourceForge refuses automated downloads), not
+# Process Explorer (Sysinternals replaces its zip files in place, so winget's stored hash goes stale and winget
+# refuses: exit code 0x8A150011 in the VM run of 15 Nov 2026). Autoruns is here, not in PackageIds, for the same
+# reason: a stale hash must be a warning, not a failed run.
 $ToolPackageIds = @(
     'CPUID.CPU-Z'
     'AntibodySoftware.WizTree'
-    'Microsoft.Sysinternals.ProcessExplorer'
+    'Microsoft.Sysinternals.Autoruns'
 )
 # Installed only when an NVIDIA GPU is present.
 $NvidiaOnlyPackages = @('Orbmu2k.nvidiaProfileInspector')
