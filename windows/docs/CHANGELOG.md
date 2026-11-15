@@ -5,6 +5,8 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- Inventory: `seclogon` (Secondary Logon, on demand) and `WaaSMedicSvc` (set to Manual by PauseUpdates) are in the reviewed
+  list; the CI image showed them running once.
 - From a code audit (ponytail-audit, 14 Nov 2026), fixed with tests: -Revert restores deleted keys before recorded values, so a
   service disabled by one run and deleted by a later one (-ServiceMode Delete) gets its original start value back; -Revert
   keeps the state when a step failed, so it can run again; -Revert works when only the journal exists (the run stopped

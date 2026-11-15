@@ -1,6 +1,8 @@
 {
   "_comment": "Items tools/Get-Inventory.ps1 found that FocusedTweaks leaves alone on purpose, with the reason. Names may hold wildcards. Anything here stops being reported as unknown. First filled from the Windows 11 x64 VM inventory of 14 Nov 2026. Extended from the CI inventory of the Windows 11 ARM runner (Enterprise build server image) the same day.",
   "services": {
+    "WaaSMedicSvc": "updates: managed by the PauseUpdates options (set to Manual with wuauserv and UsoSvc), not disabled",
+    "seclogon": "core: Secondary Logon, Run as different user; on demand",
     "RpcSs": "core: Remote Procedure Call, everything depends on it",
     "RpcEptMapper": "core: RPC endpoint mapper",
     "DcomLaunch": "core: starts COM and DCOM servers",
