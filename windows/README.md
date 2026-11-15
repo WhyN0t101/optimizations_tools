@@ -50,6 +50,12 @@ edition, Tamper Protection and System Protection, and says why each warning fire
 manages (domain, Microsoft Entra ID, MDM or domain Group Policy) unless you pass `-AllowManaged`; skip any check by
 name with `-SkipCheck`, for example `-SkipCheck PendingReboot`.
 
+Some values, tasks and files only TrustedInstaller may change. For those the script points the TrustedInstaller
+service at its own command for a moment and puts the service back right after (and at the next start if the run was
+killed in between). Endpoint security products flag that technique. `-NoTrustedInstaller` never does it: what needs it
+is left out, shown as MISMATCH in the log and journal, counted in one line at the end, and reported by the health
+check. Pass it again with `-Reapply` and `-Revert`.
+
 For unattended use, run it from an elevated PowerShell with `-Json -Force`: the console then gets one JSON object
 (exit code, reason, pre flight results, health results and the paths of the log and the change journal) and nothing
 else; the log file still gets every line. Exit codes, with or without `-Json`:

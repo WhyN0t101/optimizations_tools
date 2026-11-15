@@ -159,6 +159,9 @@ function Invoke-AsTI {
     # Runs a PowerShell command as TrustedInstaller by briefly pointing the TrustedInstaller service at it.
     # The service path is always restored to the default afterwards.
     param([Parameter(Mandatory)][string]$PsCommand)
+    # docs/AUDIT.md A-18: endpoint security flags repointing a service (MITRE ATT&CK T1543.003). -NoTrustedInstaller
+    # never does it; callers read the result back, so what this left out shows up as a MISMATCH, not a failure.
+    if ($NoTrustedInstaller) { $Ctx.TiSkipped++; return $false }
     $Ctx.TiCount++
     $flag = Join-Path $env:TEMP ('ft-ti-{0}.done' -f [guid]::NewGuid().ToString('N'))
     $wrapped = "try { $PsCommand } catch { } ; New-Item -ItemType File -Force -Path '$flag' | Out-Null"
@@ -284,8 +287,10 @@ function Set-RegValue {
 function Remove-RegValueRaw {
     # Deletes one value, falling back to TrustedInstaller when administrators may read the key but not write it. The
     # key is opened inside the try: OpenSubKey(..., $true) itself throws on such keys, and that must reach the fallback.
+    # Returns $false when the value stays because -NoTrustedInstaller left it out; any other value left behind throws.
     param([Parameter(Mandatory)][string]$Full, [Parameter(Mandatory)][AllowEmptyString()][string]$Name)
-    if (-not (Get-RegSnapshot -Full $Full -Name $Name).Existed) { return }
+    if (-not (Get-RegSnapshot -Full $Full -Name $Name).Existed) { return $true }
+    $tiSkipped = $false
     $key = $null
     try {
         $key = Open-RegKey -Full $Full -Write
@@ -294,10 +299,13 @@ function Remove-RegValueRaw {
     catch {
         if (-not (Test-AccessDenied $_)) { throw }
         $nameArg = if ($Name -eq '') { '/ve' } else { '/v ' + (ConvertTo-PsLiteral $Name) }
+        $tiSkipped = $NoTrustedInstaller
         [void](Invoke-AsTI -PsCommand "& reg.exe delete $(ConvertTo-PsLiteral $Full) $nameArg /f | Out-Null")
     }
     finally { if ($key) { $key.Close() } }
-    if ((Get-RegSnapshot -Full $Full -Name $Name).Existed) { throw 'The value is still there, even after trying as TrustedInstaller.' }
+    if (-not (Get-RegSnapshot -Full $Full -Name $Name).Existed) { return $true }
+    if ($tiSkipped) { return $false }
+    throw 'The value is still there, even after trying as TrustedInstaller.'
 }
 
 function Remove-RegValue {
@@ -310,8 +318,11 @@ function Remove-RegValue {
         $events = @(New-RegChangeEvents -Full $full -Name $Name -After '<missing>' -SkipKeys)
         $change = $events[-1]
         Add-JournalEvents $events
-        Remove-RegValueRaw -Full $full -Name $Name
-        Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>')
+        if (Remove-RegValueRaw -Full $full -Name $Name) { Add-JournalEvents @(New-ChangeResult -Change $change -Result 'OK' -Now '<missing>') }
+        else {
+            Write-Log "MISMATCH: $full\$(Show-RegName $Name) is still there. Windows lets only TrustedInstaller delete it, and -NoTrustedInstaller is set." 'WARN'
+            Add-JournalEvents @(New-ChangeResult -Change $change -Result 'MISMATCH' -Now 'still present')
+        }
     }
     catch {
         $Ctx.Failures++
@@ -385,9 +396,12 @@ function Restore-RegValue {
         catch {
             if (-not (Test-AccessDenied $_)) { throw }
             [void](Invoke-AsTI -PsCommand (Format-TiRegAdd -Full $Entry.Path -Name $Entry.Name -Value $value -Kind $Entry.Kind))
+            if ($NoTrustedInstaller) { Write-Log "Not restored: $($Entry.Path)\$(Show-RegName $Entry.Name). Windows lets only TrustedInstaller write it, and -NoTrustedInstaller is set." 'WARN' }
         }
     }
-    else { Remove-RegValueRaw -Full $Entry.Path -Name $Entry.Name }
+    elseif (-not (Remove-RegValueRaw -Full $Entry.Path -Name $Entry.Name)) {
+        Write-Log "Not restored: $($Entry.Path)\$(Show-RegName $Entry.Name) is still there. Windows lets only TrustedInstaller delete it, and -NoTrustedInstaller is set." 'WARN'
+    }
 }
 
 function Set-TweakList {

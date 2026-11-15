@@ -5,6 +5,13 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- `-NoTrustedInstaller` (docs/AUDIT.md A-18): the run never points the TrustedInstaller service at its own command,
+  which endpoint security products flag (MITRE ATT&CK T1543.003). Values, tasks and files only TrustedInstaller may
+  change are left out: a protected value is a MISMATCH in the log and journal, not a failure, so its step is not
+  rolled back; -Revert names each value it could not restore; one line at the end counts what was left out. The
+  consent database reset now warns when a file could not be deleted instead of reporting success. Tests drive the
+  helper with the service calls stubbed.
+
 ## v8.2 (15 Nov 2026)
 
 - Option errors under -Json (the item left open by the code audit below): a profile that cannot be used, an unknown

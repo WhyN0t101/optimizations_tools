@@ -102,6 +102,7 @@ param(
     [switch]$NvidiaHdAudio,
     [switch]$NvidiaNoClean,
     [switch]$SkipRestorePoint,
+    [switch]$NoTrustedInstaller,
     [switch]$ForcePowerPlanOnLaptop,
     [ValidateRange(1, 730)][int]$PauseDays = 365,
     [string]$ProfilePath,
@@ -161,6 +162,7 @@ $Ctx = [pscustomobject]@{
     Failures      = 0
     Warnings      = 0
     TiCount       = 0
+    TiSkipped     = 0       # changes left out because -NoTrustedInstaller forbids the helper they need
     JournalOption = ''      # option the current change belongs to, written into each journal line
     StepId        = 0
     StepName      = ''

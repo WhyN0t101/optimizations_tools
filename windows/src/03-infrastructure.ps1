@@ -97,6 +97,7 @@ function Get-RunResult {
 function Exit-Run {
     # Every exit after start up goes through here, so -Json always prints exactly one result object.
     param([int]$Code, [string]$Reason = '')
+    if ($Ctx.TiSkipped -gt 0) { Write-Log "-NoTrustedInstaller: $($Ctx.TiSkipped) change(s) that Windows lets only TrustedInstaller make were left out. They are listed above as MISMATCH or not restored; run without the switch to make them." 'WARN' }
     if ($Json) { Write-Output (ConvertTo-Json -InputObject (Get-RunResult -Code $Code -Reason $Reason) -Depth 6) }
     exit $Code
 }

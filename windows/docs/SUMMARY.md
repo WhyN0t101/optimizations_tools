@@ -18,7 +18,8 @@ Releases (GitHub, from v7.0) ship the built script, its SHA256 and a zip with th
   database, the Start layout and desktop shortcuts, Defender real time protection, DEP, the timer service, the power
   mode, the time server and optional features. Registry keys the run created are removed again when they are empty.
   Values are restored to what they were before the first run (sleep study logs, password age), not to fixed defaults.
-  Tasks that only SYSTEM may register or change are handled through the TrustedInstaller helper.
+  Tasks that only SYSTEM may register or change are handled through the TrustedInstaller helper; `-NoTrustedInstaller`
+  leaves those changes out and reports them as MISMATCH instead.
 - `-RestoreTask <wildcards>` brings back only the matching deleted or disabled tasks, leaving the rest of the run.
 - Never deleted by `TaskMode Delete`, whatever the profile says: time sync, Defrag, TPM, BitLocker, Defender, the
   System Restore schedule, certificate services, the Edge, Google and Firefox updaters, and `SdbinstMergeDbTask`
@@ -124,5 +125,5 @@ What changed in each version, newest first: [CHANGELOG.md](CHANGELOG.md).
 ## Known gaps and ideas
 Not ported from upstream: Store and App Actions settings, calendar expansion, priority notification blob, terminal and
 console colours, Task Manager always on top, DDU and Safe Mode cleaning.
-Ideas queue: `-NoTrustedInstaller`, wildcard option names, script signing, a keep/disable/delete mode for services
+Ideas queue: wildcard option names, script signing, a keep/disable/delete mode for services
 and startup entries modelled on `TaskMode`, more vendors in `Explain-Processes`.

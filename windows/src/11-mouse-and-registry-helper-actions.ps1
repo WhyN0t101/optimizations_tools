@@ -147,7 +147,9 @@ function Reset-ConsentDatabase {
     Start-Sleep -Seconds 1
     foreach ($f in $files) {
         try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
-        catch { [void](Invoke-AsTI -PsCommand "Remove-Item -LiteralPath $(ConvertTo-PsLiteral $f.FullName) -Force") }
+        catch {
+            if (-not (Invoke-AsTI -PsCommand "Remove-Item -LiteralPath $(ConvertTo-PsLiteral $f.FullName) -Force")) { Write-Log "Could not delete $($f.FullName); app permissions already granted stay as they are." 'WARN' }
+        }
     }
     Write-Log 'Capability consent database reset (backup kept).' 'OK'
 }
