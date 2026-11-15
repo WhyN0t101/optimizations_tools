@@ -133,7 +133,6 @@ function Import-RunProfile {
         elseif ($choices.ContainsKey($name)) {
             if ($choices[$name] -notcontains [string]$prop.Value) { throw "Profile: $name must be one of $($choices[$name] -join ', ')." }
             Set-Variable -Scope Script -Name $name -Value ([string]$prop.Value)
-            $script:BoundNames += $name
         }
         elseif ($name -eq 'PauseDays') {
             $days = [int]$prop.Value

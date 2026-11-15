@@ -5,7 +5,14 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
-Nothing yet.
+- From a code audit (ponytail-audit, 14 Nov 2026), fixed with tests: -Revert restores deleted keys before recorded values, so a
+  service disabled by one run and deleted by a later one (-ServiceMode Delete) gets its original start value back; -Revert
+  keeps the state when a step failed, so it can run again; -Revert works when only the journal exists (the run stopped
+  before its first save); -StateDir refuses an existing folder that holds other files and none of the script's (it would
+  be closed to administrators) and resolves a relative path; the run is recorded only once it goes ahead, not when it is
+  cancelled at the restore point question; the Temp cleanup checks again, right before deleting, that a top level folder
+  has not become a link; one parser and one message for an ended update pause. Not done: JSON output for option errors
+  under -Json (those come before the result object exists; needs the start up order changed).
 
 ## v8.1 (14 Nov 2026)
 

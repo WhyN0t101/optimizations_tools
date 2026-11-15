@@ -367,15 +367,12 @@ function Test-HealthTasks {
 
 function Test-HealthUpdates {
     if ($Opt['PauseUpdates']) {
-        $p = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime'
-        $expiry = [DateTime]::MinValue
-        if ($p.Existed -and [DateTime]::TryParse([string]$p.Value, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$expiry)) {
-            $left = [int][Math]::Floor(($expiry - [DateTime]::UtcNow).TotalDays)
-            if ($left -lt 0) { Write-Health 'WARN' 'Updates' "The update pause ended $(-$left) day(s) ago. Updates are running again. Run the script again to pause."; }
-            elseif ($left -le 14) { Write-Health 'WARN' 'Updates' "The update pause ends in $left day(s) ($($expiry.ToString('yyyy-MM-dd'))). Run the script again to extend it." }
-            else { Write-Health 'PASS' 'Updates' "Updates are paused for another $left day(s) (until $($expiry.ToString('yyyy-MM-dd')))." }
-        }
-        else { Write-Health 'WARN' 'Updates' 'The pause expiry value is missing, so updates are not paused.' }
+        # The same parser as the policy check above, which already reports a pause that has ended.
+        $expiry = Get-PauseExpiry
+        $left = if ($expiry) { [int][Math]::Floor(($expiry - [DateTime]::UtcNow).TotalDays) } else { $null }
+        if (-not $expiry) { Write-Health 'WARN' 'Updates' 'The pause expiry value is missing, so updates are not paused.' }
+        elseif ($left -ge 0 -and $left -le 14) { Write-Health 'WARN' 'Updates' "The update pause ends in $left day(s) ($($expiry.ToString('yyyy-MM-dd'))). Run the script again to extend it." }
+        elseif ($left -gt 14) { Write-Health 'PASS' 'Updates' "Updates are paused for another $left day(s) (until $($expiry.ToString('yyyy-MM-dd')))." }
     }
     $hot = @(Get-HotFix -ErrorAction SilentlyContinue | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 1)
     if ($hot.Count -gt 0) {

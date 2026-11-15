@@ -302,11 +302,11 @@ function Invoke-Apply {
     $mPower = if ($PowerProfile -ne 'Off') { $PowerProfile } elseif ($prev -and $prev.PowerProfile) { $prev.PowerProfile } else { 'Off' }
     $mDays = if ($Opt['PauseUpdates'] -or -not ($prev -and $prev.PauseDays)) { $PauseDays } else { [int]$prev.PauseDays }
     $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
-    Set-StateValue -Name 'Run' -Value ([pscustomobject]@{
+    $run = [pscustomobject]@{
         When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
         ServiceMode = $(if ($ServiceMode -eq 'Delete' -or ($prev -and $prev.PSObject.Properties['ServiceMode'] -and $prev.ServiceMode -eq 'Delete')) { 'Delete' } else { 'Disable' })
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
-    })
+    }
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
@@ -322,6 +322,9 @@ function Invoke-Apply {
         }
     }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
+    # Recorded only now that the run goes ahead: a run cancelled at the restore point question changed nothing, and
+    # recording it would make -HealthCheck report drift and -Reapply apply a run that never happened.
+    Set-StateValue -Name 'Run' -Value $run
     Invoke-ApplySteps
 }
 
@@ -597,8 +600,12 @@ $NotRevertedAlone = @('Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDriv
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 
 function Invoke-Revert {
-    if (-not (Test-Path -LiteralPath $StateFile)) { Write-Log "No state file at $StateFile. Nothing to revert." 'WARN'; return }
+    # A run that stopped before its first save has only the journal; Import-State rebuilt the state from it.
+    if (-not (Test-Path -LiteralPath $StateFile) -and -not (Test-Path -LiteralPath $JournalFile)) { Write-Log "No state file at $StateFile and no journal. Nothing to revert." 'WARN'; return }
     Write-Log 'Reverting recorded changes.'
+    # Deleted keys first, recorded values after: a key exported by a later run (ServiceMode Delete after a run that
+    # disabled the service) holds the changed value, so the original recorded before it must be written last.
+    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore registry values' {
         # Newest first, so if one value was recorded twice (an older state file used other key spellings) the
         # earliest, original snapshot is written last and wins.
@@ -615,7 +622,6 @@ function Invoke-Revert {
     $explorerValues = @($script:State.Registry | Where-Object { $_.Path -like 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer*' })
     if ($explorerValues.Count -gt 0) { Invoke-Step 'Restart Explorer with the restored settings' { Restore-ExplorerValues -Entries $explorerValues } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
-    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {
         foreach ($name in $script:State.Hosts) {
             Write-HostsFile -Text (Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $name)
@@ -673,8 +679,14 @@ function Invoke-Revert {
     }
     if ($Ctx.ShellDirty) { Update-UserVisuals }
     Invoke-Step 'Revert check' { Test-RevertResult }
+    # Only a revert without failed steps puts the state away: otherwise a second -Revert must still find it.
+    if ($Ctx.Failures -gt 0) {
+        Write-Log "$($Ctx.Failures) revert step(s) failed, so the state is kept. Fix the cause listed above (a locked hosts file, for example) and run -Revert again." 'WARN'
+        return
+    }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
-    Move-Item -LiteralPath $StateFile -Destination $archive -Force
+    # A state rebuilt from the journal alone was never saved; the journal is archived either way.
+    if (Test-Path -LiteralPath $StateFile) { Move-Item -LiteralPath $StateFile -Destination $archive -Force }
     # The journal belongs to the cycle just reverted; the next run starts a new one.
     if (Test-Path -LiteralPath $JournalFile) { Move-Item -LiteralPath $JournalFile -Destination ($archive -replace 'state\.reverted-', 'journal.reverted-' -replace '\.json$', '.jsonl') -Force }
     # The .bak belongs to the cycle just reverted; a later run must never fall back to it.

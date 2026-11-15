@@ -301,7 +301,6 @@ function Import-RunProfile {
         elseif ($choices.ContainsKey($name)) {
             if ($choices[$name] -notcontains [string]$prop.Value) { throw "Profile: $name must be one of $($choices[$name] -join ', ')." }
             Set-Variable -Scope Script -Name $name -Value ([string]$prop.Value)
-            $script:BoundNames += $name
         }
         elseif ($name -eq 'PauseDays') {
             $days = [int]$prop.Value
@@ -2513,6 +2512,9 @@ $EditionFullPolicy = @('Enterprise*', 'IoTEnterprise*', 'Education*', 'Server*')
 #endregion
 
 #region Infrastructure --------------------------------------------------------------------
+# Full path once, here: .NET file calls resolve a relative path such as .\state against the process folder, not the
+# PowerShell one, so the state would land somewhere else than asked.
+$StateDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($StateDir)
 $StateFile = Join-Path $StateDir 'state.json'
 # One JSON line per recorded change, written and flushed before the change is made (docs/AUDIT.md A-01, A-11).
 $JournalFile = Join-Path $StateDir 'journal.jsonl'
@@ -2928,6 +2930,15 @@ function Initialize-StateDir {
     # leave a gap in which another user could still add a file that the check never sees.
     $isForeign = { param($item) (Test-ReparsePoint $item) -or ($trusted -notcontains (Get-Acl -LiteralPath $item.FullName).GetOwner([Security.Principal.SecurityIdentifier])) }
     $refuse = { param($item) throw "The state folder $StateDir holds an item that is a link or not owned by an administrator ($($item.FullName)). Delete the folder or pass another -StateDir, then run again." }
+    # The folder is closed to everyone but administrators below. An existing folder that holds files but none of this
+    # script's (-StateDir $HOME\Documents, a typo) would lock its owner out, so it is refused rather than taken over.
+    if (Test-Path -LiteralPath $StateDir) {
+        $inside = @(Get-ChildItem -LiteralPath $StateDir -Force -ErrorAction Stop)
+        $ours = @($inside | Where-Object { $_.Name -like 'state*.json*' -or $_.Name -like 'journal*.jsonl' -or $_.Name -like 'run-*.log' })
+        if ($inside.Count -gt 0 -and $ours.Count -eq 0) {
+            throw "The state folder $StateDir already holds other files and none of FocusedTweaks'. It would be closed to everyone but administrators, so it is not used. Pass an empty or new folder to -StateDir."
+        }
+    }
     # New-Item -Force also succeeds on a folder someone created a moment earlier, so the owner is checked either way.
     if (-not (Test-Path -LiteralPath $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
     $folder = Get-Item -LiteralPath $StateDir -Force
@@ -5167,11 +5178,23 @@ function Clear-FolderContents {
     foreach ($leaf in $leaves) { if (-not $leaf.PSIsContainer) { $bytes += $leaf.Length } }
     $mb = [Math]::Round($bytes / 1MB, 1)
     if (Test-DryRun "$Label`: delete $($top.Count) item(s), $mb MB, from $Path (links are removed as links, never followed)") { return }
-    $kept = 0
+    $kept = 0; $swapped = 0
+    $root = $Path.TrimEnd('\') + '\'
     foreach ($entry in @($leaves) + @($folders)) {
-        try { Remove-CleanupEntry -Item $entry }
+        try {
+            # Listed earlier, deleted by path now: a top level folder swapped for a link meanwhile (by another account)
+            # would lead the delete elsewhere, so it is checked again right before. This narrows that gap; it cannot
+            # close it.
+            $rel = $entry.FullName.Substring($root.Length)
+            if ($rel.Contains('\')) {
+                $topPath = $root + $rel.Split('\')[0]
+                if (([IO.File]::GetAttributes($topPath) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $swapped++; continue }
+            }
+            Remove-CleanupEntry -Item $entry
+        }
         catch { $kept++ }   # in use, or changed meanwhile: left in place and counted
     }
+    if ($swapped -gt 0) { Write-Log "$Label`: $swapped entr(ies) not deleted because a folder above them became a link during the cleanup." 'WARN' }
     Write-Log "$Label`: cleaned $Path ($($top.Count) top level item(s), $mb MB before). $kept entr(ies) in use and kept." 'OK'
 }
 
@@ -5885,15 +5908,12 @@ function Test-HealthTasks {
 
 function Test-HealthUpdates {
     if ($Opt['PauseUpdates']) {
-        $p = Get-RegSnapshot -Full 'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings' -Name 'PauseUpdatesExpiryTime'
-        $expiry = [DateTime]::MinValue
-        if ($p.Existed -and [DateTime]::TryParse([string]$p.Value, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$expiry)) {
-            $left = [int][Math]::Floor(($expiry - [DateTime]::UtcNow).TotalDays)
-            if ($left -lt 0) { Write-Health 'WARN' 'Updates' "The update pause ended $(-$left) day(s) ago. Updates are running again. Run the script again to pause."; }
-            elseif ($left -le 14) { Write-Health 'WARN' 'Updates' "The update pause ends in $left day(s) ($($expiry.ToString('yyyy-MM-dd'))). Run the script again to extend it." }
-            else { Write-Health 'PASS' 'Updates' "Updates are paused for another $left day(s) (until $($expiry.ToString('yyyy-MM-dd')))." }
-        }
-        else { Write-Health 'WARN' 'Updates' 'The pause expiry value is missing, so updates are not paused.' }
+        # The same parser as the policy check above, which already reports a pause that has ended.
+        $expiry = Get-PauseExpiry
+        $left = if ($expiry) { [int][Math]::Floor(($expiry - [DateTime]::UtcNow).TotalDays) } else { $null }
+        if (-not $expiry) { Write-Health 'WARN' 'Updates' 'The pause expiry value is missing, so updates are not paused.' }
+        elseif ($left -ge 0 -and $left -le 14) { Write-Health 'WARN' 'Updates' "The update pause ends in $left day(s) ($($expiry.ToString('yyyy-MM-dd'))). Run the script again to extend it." }
+        elseif ($left -gt 14) { Write-Health 'PASS' 'Updates' "Updates are paused for another $left day(s) (until $($expiry.ToString('yyyy-MM-dd')))." }
     }
     $hot = @(Get-HotFix -ErrorAction SilentlyContinue | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 1)
     if ($hot.Count -gt 0) {
@@ -6565,11 +6585,11 @@ function Invoke-Apply {
     $mPower = if ($PowerProfile -ne 'Off') { $PowerProfile } elseif ($prev -and $prev.PowerProfile) { $prev.PowerProfile } else { 'Off' }
     $mDays = if ($Opt['PauseUpdates'] -or -not ($prev -and $prev.PauseDays)) { $PauseDays } else { [int]$prev.PauseDays }
     $mSkip = @($SkipRegGroup) + $(if ($prev -and $prev.SkipRegGroup) { @($prev.SkipRegGroup) } else { @() })
-    Set-StateValue -Name 'Run' -Value ([pscustomobject]@{
+    $run = [pscustomobject]@{
         When = (Get-Date).ToString('o'); Options = [pscustomobject]$merged; TaskMode = $mTask; Defender = $mDef
         ServiceMode = $(if ($ServiceMode -eq 'Delete' -or ($prev -and $prev.PSObject.Properties['ServiceMode'] -and $prev.ServiceMode -eq 'Delete')) { 'Delete' } else { 'Disable' })
         PowerProfile = $mPower; PauseDays = $mDays; SkipRegGroup = @($mSkip | Select-Object -Unique)
-    })
+    }
     if ([Environment]::OSVersion.Version.Build -lt 19041) { Write-Log 'This script targets Windows 10 2004 (19041) or later. Behaviour on older builds is untested.' 'WARN' }
     $windows10 = Get-Windows10Notice
     if ($windows10) { Write-Log $windows10 'WARN' }
@@ -6585,6 +6605,9 @@ function Invoke-Apply {
         }
     }
     if ($Opt['DefenderQuiet'] -or $Defender -eq 'Disable') { Wait-TamperProtectionOff }
+    # Recorded only now that the run goes ahead: a run cancelled at the restore point question changed nothing, and
+    # recording it would make -HealthCheck report drift and -Reapply apply a run that never happened.
+    Set-StateValue -Name 'Run' -Value $run
     Invoke-ApplySteps
 }
 
@@ -6860,8 +6883,12 @@ $NotRevertedAlone = @('Packages', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDriv
     'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
 
 function Invoke-Revert {
-    if (-not (Test-Path -LiteralPath $StateFile)) { Write-Log "No state file at $StateFile. Nothing to revert." 'WARN'; return }
+    # A run that stopped before its first save has only the journal; Import-State rebuilt the state from it.
+    if (-not (Test-Path -LiteralPath $StateFile) -and -not (Test-Path -LiteralPath $JournalFile)) { Write-Log "No state file at $StateFile and no journal. Nothing to revert." 'WARN'; return }
     Write-Log 'Reverting recorded changes.'
+    # Deleted keys first, recorded values after: a key exported by a later run (ServiceMode Delete after a run that
+    # disabled the service) holds the changed value, so the original recorded before it must be written last.
+    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore registry values' {
         # Newest first, so if one value was recorded twice (an older state file used other key spellings) the
         # earliest, original snapshot is written last and wins.
@@ -6878,7 +6905,6 @@ function Invoke-Revert {
     $explorerValues = @($script:State.Registry | Where-Object { $_.Path -like 'HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer*' })
     if ($explorerValues.Count -gt 0) { Invoke-Step 'Restart Explorer with the restored settings' { Restore-ExplorerValues -Entries $explorerValues } }
     if (@($script:State.Registry | Where-Object { $_.Path -like '*\Services\W32Time\Parameters' }).Count -gt 0) { Invoke-Step 'Apply the restored time server' { Update-TimeService } }
-    Invoke-Step 'Restore deleted registry keys' { Restore-KeyBackups }
     Invoke-Step 'Restore hosts file' {
         foreach ($name in $script:State.Hosts) {
             Write-HostsFile -Text (Remove-HostsText -Text ([IO.File]::ReadAllText($HostsPath)) -Name $name)
@@ -6936,8 +6962,14 @@ function Invoke-Revert {
     }
     if ($Ctx.ShellDirty) { Update-UserVisuals }
     Invoke-Step 'Revert check' { Test-RevertResult }
+    # Only a revert without failed steps puts the state away: otherwise a second -Revert must still find it.
+    if ($Ctx.Failures -gt 0) {
+        Write-Log "$($Ctx.Failures) revert step(s) failed, so the state is kept. Fix the cause listed above (a locked hosts file, for example) and run -Revert again." 'WARN'
+        return
+    }
     $archive = Join-Path $StateDir ('state.reverted-{0:yyyyMMdd-HHmmss}.json' -f (Get-Date))
-    Move-Item -LiteralPath $StateFile -Destination $archive -Force
+    # A state rebuilt from the journal alone was never saved; the journal is archived either way.
+    if (Test-Path -LiteralPath $StateFile) { Move-Item -LiteralPath $StateFile -Destination $archive -Force }
     # The journal belongs to the cycle just reverted; the next run starts a new one.
     if (Test-Path -LiteralPath $JournalFile) { Move-Item -LiteralPath $JournalFile -Destination ($archive -replace 'state\.reverted-', 'journal.reverted-' -replace '\.json$', '.jsonl') -Force }
     # The .bak belongs to the cycle just reverted; a later run must never fall back to it.

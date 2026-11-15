@@ -1,4 +1,7 @@
 #region Infrastructure --------------------------------------------------------------------
+# Full path once, here: .NET file calls resolve a relative path such as .\state against the process folder, not the
+# PowerShell one, so the state would land somewhere else than asked.
+$StateDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($StateDir)
 $StateFile = Join-Path $StateDir 'state.json'
 # One JSON line per recorded change, written and flushed before the change is made (docs/AUDIT.md A-01, A-11).
 $JournalFile = Join-Path $StateDir 'journal.jsonl'
@@ -414,6 +417,15 @@ function Initialize-StateDir {
     # leave a gap in which another user could still add a file that the check never sees.
     $isForeign = { param($item) (Test-ReparsePoint $item) -or ($trusted -notcontains (Get-Acl -LiteralPath $item.FullName).GetOwner([Security.Principal.SecurityIdentifier])) }
     $refuse = { param($item) throw "The state folder $StateDir holds an item that is a link or not owned by an administrator ($($item.FullName)). Delete the folder or pass another -StateDir, then run again." }
+    # The folder is closed to everyone but administrators below. An existing folder that holds files but none of this
+    # script's (-StateDir $HOME\Documents, a typo) would lock its owner out, so it is refused rather than taken over.
+    if (Test-Path -LiteralPath $StateDir) {
+        $inside = @(Get-ChildItem -LiteralPath $StateDir -Force -ErrorAction Stop)
+        $ours = @($inside | Where-Object { $_.Name -like 'state*.json*' -or $_.Name -like 'journal*.jsonl' -or $_.Name -like 'run-*.log' })
+        if ($inside.Count -gt 0 -and $ours.Count -eq 0) {
+            throw "The state folder $StateDir already holds other files and none of FocusedTweaks'. It would be closed to everyone but administrators, so it is not used. Pass an empty or new folder to -StateDir."
+        }
+    }
     # New-Item -Force also succeeds on a folder someone created a moment earlier, so the owner is checked either way.
     if (-not (Test-Path -LiteralPath $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
     $folder = Get-Item -LiteralPath $StateDir -Force

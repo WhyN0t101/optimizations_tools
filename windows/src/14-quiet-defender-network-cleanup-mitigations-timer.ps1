@@ -126,11 +126,23 @@ function Clear-FolderContents {
     foreach ($leaf in $leaves) { if (-not $leaf.PSIsContainer) { $bytes += $leaf.Length } }
     $mb = [Math]::Round($bytes / 1MB, 1)
     if (Test-DryRun "$Label`: delete $($top.Count) item(s), $mb MB, from $Path (links are removed as links, never followed)") { return }
-    $kept = 0
+    $kept = 0; $swapped = 0
+    $root = $Path.TrimEnd('\') + '\'
     foreach ($entry in @($leaves) + @($folders)) {
-        try { Remove-CleanupEntry -Item $entry }
+        try {
+            # Listed earlier, deleted by path now: a top level folder swapped for a link meanwhile (by another account)
+            # would lead the delete elsewhere, so it is checked again right before. This narrows that gap; it cannot
+            # close it.
+            $rel = $entry.FullName.Substring($root.Length)
+            if ($rel.Contains('\')) {
+                $topPath = $root + $rel.Split('\')[0]
+                if (([IO.File]::GetAttributes($topPath) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { $swapped++; continue }
+            }
+            Remove-CleanupEntry -Item $entry
+        }
         catch { $kept++ }   # in use, or changed meanwhile: left in place and counted
     }
+    if ($swapped -gt 0) { Write-Log "$Label`: $swapped entr(ies) not deleted because a folder above them became a link during the cleanup." 'WARN' }
     Write-Log "$Label`: cleaned $Path ($($top.Count) top level item(s), $mb MB before). $kept entr(ies) in use and kept." 'OK'
 }
 
