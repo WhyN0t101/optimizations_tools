@@ -571,6 +571,13 @@ $TcpInterfacesKey = 'HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Int
 $ReapplyTaskPath = '\FocusedTweaks\'
 $ReapplyTaskName = 'Reapply after sign in'
 
+# The Settings switch for Apps, Resume (the per user value that page writes). CrossDeviceResume.exe runs under sihost.exe
+# while it is allowed: 39 MB in the VM run of 15 Nov 2026, with CrossDeviceEnabled already 0. Community reports say a
+# Windows update can bring the process back; the health check and the process list show whether it stayed off.
+$CrossDeviceResumeRegs = @(
+    New-Tweak 'HKCU\Software\Microsoft\Windows\CurrentVersion\CrossDeviceResume\Configuration' 'IsResumeAllowed' 0 'DWord'
+)
+
 # Lock screen off (from the vendored data, optional tweaks).
 $LockScreenRegs = @(
     New-Tweak 'HKLM\SOFTWARE\Policies\Microsoft\Windows\Personalization' 'NoLockScreen' 1 'DWord'

@@ -77,6 +77,7 @@
     "VM3DService": "VMware guest only",
     "lmhosts": "network: NetBIOS name resolution; disabling can break finding PCs and shares at home, for no real gain",
     "MSDTC": "on demand: database transactions, starts only when a program asks for it",
+    "PushToInstall": "Store: on demand, installs apps sent from the Store website; it stops by itself, so disabling it removes nothing from the running list",
     "AppReadiness": "core: prepares apps at a new sign in",
     "SensorService": "devices: sensors (screen rotation, light); laptops and tablets need it",
     "W32Time": "core: Windows Time; TimeServerPool sets its server, the time sync task is kept",

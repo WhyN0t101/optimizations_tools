@@ -330,6 +330,10 @@ function Test-HealthRegistry {
     foreach ($m in $MenuBlocks.Keys) { if ($Opt[$m]) { Test-HealthTweakTable -Label "Right click menu ($m)" -Tweaks $MenuBlocks[$m] } }
     if ($Opt['LockScreenOff']) { Test-HealthTweakTable -Label 'Lock screen off' -Tweaks $LockScreenRegs }
     if ($Opt['ShellComfort']) { Test-HealthTweakTable -Label 'Shell comforts' -Tweaks $ShellComfortRegs }
+    if ($Opt['CrossDeviceResumeOff']) {
+        Test-HealthTweakTable -Label 'Cross-device resume off' -Tweaks $CrossDeviceResumeRegs
+        if (Get-Process -Name CrossDeviceResume -ErrorAction SilentlyContinue) { Write-Health 'INFO' 'Registry' 'CrossDeviceResume.exe is still running. It stops after the next sign in; a Windows update can also bring it back.' }
+    }
     if ($Opt['SvcHostGrouping']) { Test-HealthTweakTable -Label 'Service process grouping' -Tweaks $SvcHostGroupingRegs }
     if ($Opt['Short8dot3Off']) { Test-HealthTweakTable -Label '8.3 short names off' -Tweaks $Short8dot3Regs }
     if ($Opt['TcpLatency']) {

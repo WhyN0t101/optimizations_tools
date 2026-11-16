@@ -104,6 +104,37 @@ function Set-PasswordExpiry {
     if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:unlimited failed ($LASTEXITCODE)." }
 }
 
+function Restore-MemoryCompression {
+    Enable-MMAgent -MemoryCompression
+    Write-Log 'Memory compression re-enabled.' 'OK'
+}
+
+function Restore-SleepStudy {
+    # State from older runs only says $true (all were turned off); newer runs list the logs that were on.
+    $logs = @($SleepStudyLogs)
+    if ($script:State.SleepStudy -ne $true) { $logs = @($script:State.SleepStudy | Where-Object { $SleepStudyLogs -contains $_ }) }
+    foreach ($log in $logs) {
+        & wevtutil.exe sl $log /e:true | Out-Null
+        if ($LASTEXITCODE -ne 0) { Write-Log "wevtutil could not turn $log back on ($LASTEXITCODE)." 'WARN' }
+    }
+    Write-Log "Sleep Study logs restored: $($logs.Count) turned back on." 'OK'
+}
+
+function Restore-PasswordExpiry {
+    # Older runs stored $true and no value: 42 days is the Windows default.
+    $age = '42'
+    if ($script:State.PwAge -ne $true) { $age = [string]$script:State.PwAge }
+    if ($age -notmatch '^(\d{1,3}|unlimited)$') { throw "Saved password age '$age' is not valid, not restoring it." }
+    & net.exe accounts "/maxpwage:$age" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:$age failed ($LASTEXITCODE)." }
+    Write-Log "Maximum password age set back to $age$(if ($age -ne 'unlimited') { ' days' })." 'OK'
+}
+
+function Restore-ConsentDatabase {
+    Stop-Service -Name camsvc -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path (Join-Path $script:State.ConsentDb '*') -Destination (Join-Path $env:ProgramData 'Microsoft\Windows\CapabilityAccessManager') -Force
+}
+
 function Reset-FaultTolerantHeap {
     if (Test-DryRun 'reset the fault tolerant heap') { return }
     Start-Process rundll32.exe -ArgumentList 'fthsvc.dll, FthSysprepSpecialize' -WindowStyle Hidden

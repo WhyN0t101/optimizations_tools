@@ -27,6 +27,7 @@ $OptionInfo = [ordered]@{
     TelemetryPolicy       = @($true, 'Telemetry, CEIP, app compatibility and advertising policy plus DiagTrack services', 'Folklore', '')
     TelemetryHosts        = @($true, 'Block 30 Microsoft telemetry domains in the hosts file', 'Folklore', '')
     BiometricsPolicy      = @($true, 'Policy that disables biometrics (Windows Hello fingerprint and face)', 'n/a', '')
+    CrossDeviceResumeOff  = @($true, 'Turn off Resume (continue phone activities on the PC) for your account: stops CrossDeviceResume.exe starting with Explorer. Windows may start it again after an update', 'Folklore', '')
     Cdp                   = @($true, 'Disable the Connected Devices Platform services and clear its cache', 'Folklore', '')
     SvcOther              = @($true, 'Disable misc services: location, maps, Netlogon, tablet input, wallet and more', 'Folklore', '')
     SvcExtra              = @($true, 'Disable contact and user data sync, SSDP discovery, Storage Spaces and the built-in VPN client (RasMan, SstpSvc), plus the retail demo, Media Player network sharing and the old NVIDIA telemetry container', 'Folklore', '')

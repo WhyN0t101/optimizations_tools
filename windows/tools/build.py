@@ -130,9 +130,6 @@ groups['SvcAggressive'] = ['WpnService', 'WpnUserService', 'DusmSvc', 'ShellHWDe
 # extra group; third party updaters get a group of their own. Services that are not installed are skipped.
 groups['SvcDiagnostics'] += ['WerSvc', 'wercplsupport', 'diagnosticshub.standardcollector.service', 'VSStandardCollectorService150']
 groups['SvcExtra'] += ['RetailDemo', 'WMPNetworkSvc', 'NvTelemetryContainer']
-# From the VM inventory of 14 Nov 2026: PushToInstall (installs apps sent from the Store website) was left running;
-# nothing on a PC set up by this script uses it.
-groups['SvcExtra'] += ['PushToInstall']
 groups['SvcUpdaters'] = ['AdobeARMservice', 'adobeupdateservice', 'dbupdate', 'dbupdatem', 'Razer Game Scanner Service']
 # From the VM inventory of 14 Nov 2026 (tools/Get-Inventory.ps1): SysMain (Superfetch) starts by itself and runs all the
 # time, preloading apps into memory; on an SSD that gains little and costs background disk and CPU work.
@@ -274,7 +271,7 @@ OPTION_GROUPS = [
                           'MenuNoPinToStart', 'MenuNoPrevVersions', 'MenuNoTroubleshoot', 'MenuNoDefenderScan',
                           'MenuNoOneDrive', 'MenuNoTerminal']),
     ('Telemetry, privacy and Defender', ['TelemetryPolicy', 'TelemetryExtra', 'TelemetryHosts', 'WindowsAIOff', 'BrowserPolicies',
-                                         'BiometricsPolicy', 'Cdp', 'RazerAsusHosts', 'DefenderQuiet']),
+                                         'BiometricsPolicy', 'Cdp', 'CrossDeviceResumeOff', 'RazerAsusHosts', 'DefenderQuiet']),
     ('Services', ['SvcOther', 'SvcExtra', 'SvcBackground', 'SvcAggressive', 'SvcUpdaters', 'SvcSysMain', 'VendorServices', 'SvcDefrag', 'SvcBiometrics', 'SvcSmartCard', 'SvcDiagnostics', 'SvcBluetooth', 'SvcPrinting',
                   'SvcDeliveryOpt', 'SvcRadio', 'SearchIndexingOff']),
     ('Windows Update', ['DriverExclusion', 'SecurityUpdatesOnly', 'PauseUpdates', 'PauseStopsUpdateTasks',

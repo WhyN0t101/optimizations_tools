@@ -402,6 +402,7 @@ function Invoke-ApplySteps {
     if ($menus.Count -gt 0) { Invoke-Step "Right click menu cleanup ($($menus -join ', '))" { foreach ($m in $menus) { Set-TweakList $MenuBlocks[$m] } } }
     if ($Opt['LockScreenOff']) { Invoke-Step 'Lock screen' -Option 'LockScreenOff' { Set-TweakList $LockScreenRegs } }
     if ($Opt['ShellComfort']) { Invoke-Step 'Shell comforts' -Option 'ShellComfort' { Set-TweakList $ShellComfortRegs } }
+    if ($Opt['CrossDeviceResumeOff']) { Invoke-Step 'Cross-device resume' -Option 'CrossDeviceResumeOff' { Set-TweakList $CrossDeviceResumeRegs } }
     if ($Opt['NvmeNativeDriver']) { Invoke-Step 'Native NVMe driver' -Option 'NvmeNativeDriver' { Set-NvmeNativeDriver } }
     if ($Opt['IPv4Only']) { Invoke-Step 'IPv4 only' -Option 'IPv4Only' { Set-IPv4Only } }
     if ($Opt['ClearDesktopIcons']) { Invoke-Step 'Clear desktop icons' -Option 'ClearDesktopIcons' { Clear-DesktopIcons } }
@@ -521,7 +522,10 @@ function Test-HealthDrift {
 
 # -Revert -Only: what the journal can undo per option. Registry values and keys, service start values and tasks carry
 # the option that changed them; these other options keep their own records and are undone here as well.
-$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask'; ReapplyTask = 'ReapplyTask' }
+$RevertOnlyExtra = @{ TelemetryHosts = 'Hosts'; RazerAsusHosts = 'Hosts'; TimerResolution = 'TimerService'; LegacyFeatures = 'Features'; HypervisorFeatures = 'Features'; PauseUpdates = 'PauseEndTask'; ReapplyTask = 'ReapplyTask'
+    DisableHibernate = 'Hibernate'; MemoryCompression = 'MemCompress'; SleepStudy = 'SleepStudy'; PasswordExpiry = 'PwAge'
+    ClearDesktopIcons = 'DesktopIcons'; ClearStartPins = 'StartPins'; IPv4Only = 'NetBindings'; ReservedStorageOff = 'ReservedStorage'
+    PrivacyDenials = 'ConsentDb'; MouseAccel = 'Mouse' }
 
 function Get-OptionChanges {
     # From journal lines: the registry values, key exports and tasks that the named options changed. A value another
@@ -579,6 +583,16 @@ function Invoke-RevertOptions {
                 'TimerService' { if ($script:State.TimerService) { Remove-TimerResolutionService } }
                 'PauseEndTask' { Remove-PauseEndTask }
                 'ReapplyTask' { Remove-ReapplyTask }
+                'Hibernate' { if ($script:State.Hibernate -eq $true) { Restore-Hibernation } }
+                'MemCompress' { if ($script:State.MemCompress -eq $true) { Restore-MemoryCompression } }
+                'SleepStudy' { if ($script:State.SleepStudy -ne $false) { Restore-SleepStudy } }
+                'PwAge' { if ($script:State.PwAge -ne $false) { Restore-PasswordExpiry } }
+                'DesktopIcons' { if (@($script:State.DesktopMoved).Count -gt 0) { Restore-DesktopIcons } }
+                'StartPins' { if ($script:State.StartLayout) { Restore-StartPins } }
+                'NetBindings' { if (@($script:State.NetBindings).Count -gt 0) { Restore-NetBindings } }
+                'ReservedStorage' { if ($script:State.ReservedStorage -eq $true) { Restore-ReservedStorage } }
+                'ConsentDb' { if ($script:State.ConsentDb) { Restore-ConsentDatabase } }
+                'Mouse' { Sync-MouseSettings }
                 'Features' {
                     $f = @($script:State.Features | Where-Object { $FeatureGroups[$o] -contains $_ })
                     if ($f.Count -gt 0) { Set-FeatureState -Names $f -Enable $true }
@@ -587,6 +601,7 @@ function Invoke-RevertOptions {
         }
     }
     foreach ($s in $sel.Shared) { Write-Log "Kept, because another option you did not name set it too: $s" 'WARN' }
+    if ($Ctx.ShellDirty) { Update-UserVisuals }
     $untracked = @($options | Where-Object { -not $RevertOnlyExtra.ContainsKey($_) -and $NotRevertedAlone -contains $_ })
     if ($untracked.Count -gt 0) { Write-Log "Not undone on their own (only the full -Revert, or nothing, undoes them): $($untracked -join ', ')." 'WARN' }
     # The health check must stop expecting what was undone; a later full -Revert still has every original.
@@ -601,9 +616,8 @@ function Invoke-RevertOptions {
 
 # Options whose changes are not in the journal per option: power plan, Defender switches, app removal, cleanup and the
 # like. -Revert -Only says so instead of pretending.
-$NotRevertedAlone = @('Packages', 'ToolPackages', 'ReservedStorageOff', 'ComponentCleanup', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
-    'PrivacyDenials', 'DisableHibernate', 'MemoryCompression', 'SleepStudy', 'PasswordExpiry', 'FaultTolerantHeap', 'ClearDesktopIcons',
-    'ClearStartPins', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'IPv4Only', 'MouseAccel', 'RestartExplorer', 'HealthCheckAfter')
+$NotRevertedAlone = @('Packages', 'ToolPackages', 'ComponentCleanup', 'Debloat', 'RemoveQuickAssist', 'RemoveOneDrive', 'RemoveEdge', 'NvidiaProfile', 'NvidiaReBar', 'NvidiaTelemetryStrip',
+    'FaultTolerantHeap', 'TempCleanup', 'UpdateCacheCleanup', 'EnableSystemRestore', 'RestartExplorer', 'HealthCheckAfter')
 
 function Invoke-Revert {
     # A run that stopped before its first save has only the journal; Import-State rebuilt the state from it.
@@ -639,37 +653,11 @@ function Invoke-Revert {
     if ($script:State.NvidiaDrs -eq $true) { Invoke-Step 'Restore NVIDIA driver settings' { Restore-NvidiaDrs } }
     Invoke-Step 'Restore power plan' { Restore-PowerPlan }
     if ($script:State.PowerOverlay) { Invoke-Step 'Restore power mode' { Restore-PowerMode } }
-    if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { powercfg /hibernate on | Out-Null; Write-Log 'Hibernation re-enabled.' 'OK' } }
-    if ($script:State.MemCompress -eq $true) { Invoke-Step 'Restore memory compression' { Enable-MMAgent -MemoryCompression; Write-Log 'Memory compression re-enabled.' 'OK' } }
-    if ($script:State.SleepStudy -ne $false) {
-        Invoke-Step 'Restore Sleep Study logs' {
-            # State from older runs only says $true (all were turned off); newer runs list the logs that were on.
-            $logs = @($SleepStudyLogs)
-            if ($script:State.SleepStudy -ne $true) { $logs = @($script:State.SleepStudy | Where-Object { $SleepStudyLogs -contains $_ }) }
-            foreach ($log in $logs) {
-                & wevtutil.exe sl $log /e:true | Out-Null
-                if ($LASTEXITCODE -ne 0) { Write-Log "wevtutil could not turn $log back on ($LASTEXITCODE)." 'WARN' }
-            }
-            Write-Log "Sleep Study logs restored: $($logs.Count) turned back on." 'OK'
-        }
-    }
-    if ($script:State.PwAge -ne $false) {
-        Invoke-Step 'Restore password expiry' {
-            # Older runs stored $true and no value: 42 days is the Windows default.
-            $age = '42'
-            if ($script:State.PwAge -ne $true) { $age = [string]$script:State.PwAge }
-            if ($age -notmatch '^(\d{1,3}|unlimited)$') { throw "Saved password age '$age' is not valid, not restoring it." }
-            & net.exe accounts "/maxpwage:$age" | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "net accounts /maxpwage:$age failed ($LASTEXITCODE)." }
-            Write-Log "Maximum password age set back to $age$(if ($age -ne 'unlimited') { ' days' })." 'OK'
-        }
-    }
-    if ($script:State.ConsentDb) {
-        Invoke-Step 'Restore consent database' {
-            Stop-Service -Name camsvc -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path (Join-Path $script:State.ConsentDb '*') -Destination (Join-Path $env:ProgramData 'Microsoft\Windows\CapabilityAccessManager') -Force
-        }
-    }
+    if ($script:State.Hibernate -eq $true) { Invoke-Step 'Restore hibernation' { Restore-Hibernation } }
+    if ($script:State.MemCompress -eq $true) { Invoke-Step 'Restore memory compression' { Restore-MemoryCompression } }
+    if ($script:State.SleepStudy -ne $false) { Invoke-Step 'Restore Sleep Study logs' { Restore-SleepStudy } }
+    if ($script:State.PwAge -ne $false) { Invoke-Step 'Restore password expiry' { Restore-PasswordExpiry } }
+    if ($script:State.ConsentDb) { Invoke-Step 'Restore consent database' { Restore-ConsentDatabase } }
     if ($script:State.Defender -eq $true) {
         Invoke-Step 'Restore Defender preferences' { Restore-DefenderPrefs }
     }

@@ -5,6 +5,21 @@ Project overview, safety model and decisions: [SUMMARY.md](SUMMARY.md).
 
 ## Unreleased
 
+- `-Revert -Only` now also undoes `DisableHibernate`, `MemoryCompression`, `SleepStudy`, `PasswordExpiry`,
+  `ClearDesktopIcons`, `ClearStartPins`, `IPv4Only`, `ReservedStorageOff`, `PrivacyDenials` (the consent database) and
+  `MouseAccel` (the values, then the mouse settings are refreshed). The restore code moved out of `Invoke-Revert`
+  into functions both paths call (`Restore-Hibernation`, `Restore-MemoryCompression`, `Restore-SleepStudy`,
+  `Restore-PasswordExpiry`, `Restore-ConsentDatabase`), with tests. Still only undone by a full `-Revert`, or not at
+  all: the NVIDIA options (they share one driver settings backup), app and Edge removal, installed packages, cleanups,
+  the fault tolerant heap and System Protection.
+- `CrossDeviceResumeOff` (on): the per user Settings value `CrossDeviceResume\Configuration\IsResumeAllowed` = 0, so
+  `CrossDeviceResume.exe` (39 MB, started by sihost.exe, still running after the VM run of 15 Nov 2026 although
+  `CrossDeviceEnabled` was already 0) stops starting. Community reports say a Windows update can bring it back, and
+  Microsoft's own `Connectivity/DisableCrossDeviceResume` policy is user scoped and 24H2 only, with no registry
+  location it documents, so that one is not used. Unverified until the next VM run: check the process list.
+- `PushToInstall` is out of `SvcExtra` again: the process list of the VM run of 15 Nov 2026 shows it is not running
+  after a run, so disabling it removed nothing. It is back in `tools\inventory-known.json` as reviewed.
+
 ## v8.3 (15 Nov 2026)
 
 - VM run of 15 Nov 2026 (the build before the v8.3 batch below; every stage exit code 0, health 0 failed, 98 passed):

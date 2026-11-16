@@ -117,6 +117,12 @@ function Restore-PowerPlan {
     Write-Log "Power plan restored to $target and tweaked plans deleted." 'OK'
 }
 
+function Restore-Hibernation {
+    powercfg /hibernate on | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Log "powercfg /hibernate on returned $LASTEXITCODE (this PC may not support hibernation)." 'WARN'; return }
+    Write-Log 'Hibernation re-enabled.' 'OK'
+}
+
 function Disable-Hibernation {
     if ($Ctx.Reapply) {
         $h = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' -Name HibernateEnabled -ErrorAction SilentlyContinue
